@@ -335,6 +335,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
                 beats: item.beats,
                 beatType: item.beatType,
                 name: item.name,
+                formDescription: item.formDescription,
               })),
             },
             index,

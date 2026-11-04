@@ -13,8 +13,10 @@ export type MovementInput = {
   bpm?: number;
   beats?: number;
   beatType?: number;
-  /** Dance or tempo the server composed. Empty means the client has no dance name. */
+  /** Curated guitar movement title, or the other variants' composed name. Empty means no name. */
   name?: string | null;
+  /** A–B–A form row with textures filtered. Data for a subtitle, never printed. */
+  formDescription?: string | null;
 };
 
 export type PieceInput = {
@@ -33,6 +35,8 @@ export type PieceCopy = {
   title: string;
   instruments: string;
   movement: string | null;
+  /** A–B–A form row. Data for a future tooltip or subtitle; never the movement line. */
+  formDescription: string | null;
 };
 
 /** `intro` is the centered card. `playing` is the bottom caption. */
@@ -365,12 +369,24 @@ function isClosingFinale(span: SpanId, index: number, month: number | null, puls
 
 /**
  * Meter, one pattern or the whole A–B–A, and a prefix such as Finale only when
- * that word is not itself a pattern.
+ * that word is not itself a pattern. `freeForm` prints the body as written,
+ * which is what a curated guitar title needs.
  */
-function formatMovement(role: string | null, pattern: string | null, pulseValue: Pulse): string {
+function formatMovement(
+  role: string | null,
+  pattern: string | null,
+  pulseValue: Pulse,
+  freeForm = false,
+): string {
   const meter = `(${meterLabel(pulseValue)}, ${pulseValue.bpm} BPM)`;
   const prefix = role && !isPatternForm(role) ? role : null;
-  const body = pattern && isPatternForm(pattern) ? pattern : role && isPatternForm(role) ? role : null;
+  const body = freeForm
+    ? pattern
+    : pattern && isPatternForm(pattern)
+      ? pattern
+      : role && isPatternForm(role)
+        ? role
+        : null;
   if (prefix && body) return `${prefix}: ${body} ${meter}`;
   if (body) return `${body} ${meter}`;
   if (prefix) return `${prefix} ${meter}`;
@@ -399,7 +415,9 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   let role = supplied ?? classical;
   let pattern: string | null = null;
   if (input.variant === 'guitar') {
-    pattern = supplied && isPatternForm(supplied) ? supplied : null;
+    // The guitar writer curates a free-text title (`Choros No. 1`), so the
+    // supplied name is the body as written rather than a pattern lookup.
+    pattern = supplied;
     role = isClosingFinale(input.span, index, month, pulseValue) ? 'Finale' : null;
   } else if (role && isPatternForm(role)) {
     pattern = role;
@@ -413,7 +431,8 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   return {
     title: form ? `${form} ${dated} in ${key}` : `${dated} in ${key}`,
     instruments: instrumentLine(input.variant, input.ensemble),
-    movement: movementReady ? formatMovement(role, pattern, pulseValue) : null,
+    movement: movementReady ? formatMovement(role, pattern, pulseValue, input.variant === 'guitar') : null,
+    formDescription: current?.formDescription?.trim() || null,
   };
 }
 
