@@ -1,6 +1,6 @@
 # Musicalize — Tinh chỉnh dạng mixer
 
-> **Trạng thái:** đề xuất, chưa triển khai.
+> **Trạng thái:** đã triển khai trong PR #141.
 >
 > **Liên kết:** [`musicalize-ui-redesign.md`](./musicalize-ui-redesign.md),
 > [`sonify-params-profile-plan.md`](./sonify-params-profile-plan.md),
@@ -530,3 +530,30 @@ Test tối thiểu:
 - `Reset` / `Lưu` vẫn hoạt động như cũ; `Đưa 3 bè về 0` chỉ đổi ba field guitar,
   không thay `Reset` profile.
 - Không đổi hash, URL hay dữ liệu profile đã lưu.
+
+## 11. Trạng thái triển khai
+
+Đã triển khai trong PR #141:
+
+| File | Nội dung |
+|---|---|
+| `src/musicalize/tuningDisplay.ts` | panel width/layout, panel fields, display text, spectrum, changed/hidden keys |
+| `src/musicalize/tuningDisplay.test.ts` | test pure helpers |
+| `src/musicalize/TuningSpectrum.tsx` | phổ ước lượng low/mid/high |
+| `src/musicalize/TuningPanel.tsx` | header profile, status strip, mixer, fader dọc, compact row, 2/3 cột, Dáng full-width, Profile tab |
+| `src/musicalize/RoomFrame.tsx` | push theo `panelPushes`, giữ chỗ theo `panelWidthFor` |
+| `src/musicalize/tuning.tsx` | telemetry `changedKeysForPanel` + `hiddenChangedKeys` |
+| `package.json` | thêm `tuningDisplay.test.ts` vào `test:musicalize` |
+
+Đã kiểm:
+
+- `npx tsc --noEmit`
+- `npm run test:musicalize`
+- `npx expo export --platform web`
+
+Ghi chú triển khai:
+
+- Row compact 48px dùng top line 16 + control line 24; mobile quay lại row 2 tầng
+  có `paramFoot` và scroll.
+- Ở viewport hẹp (`1024`, `1280×600`) panel vẫn scroll; đúng như tiêu chí đã chốt.
+- `TuningSpectrum` chỉ là preview từ tham số, không dùng `peaks` hay audio thật.
