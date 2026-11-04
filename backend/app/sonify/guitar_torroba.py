@@ -3445,15 +3445,6 @@ _FIGURES = {
     CASTILLO_CADENCE: _render_type14,
 }
 
-# Registered after `_FIGURES` so the registry can reject a slot that points at
-# a figure the renderer does not have.
-register(
-    "castillo",
-    "3/4",
-    CASTILLO_34_WALK,
-    CASTILLO_34_CADENCE,
-    valid_figures=frozenset(_FIGURES),
-)
 
 
 def render_torroba_figure(
@@ -4429,6 +4420,17 @@ _FIGURES[JUGLAR_THIN] = _pen_juglar_thin
 _FIGURES[ALCANIZ_OPENING] = _pen_alcaniz_opening
 _FIGURES[ALCANIZ_SOFT] = _pen_alcaniz_soft
 _FIGURES[OLITE_THIN] = _pen_olite_thin
+
+# Registered after every `_FIGURES` entry exists, so `valid_figures` can reject
+# a slot that points at a figure the renderer does not have. Figures 9-12 are
+# added above; 13/14 are in the literal dict.
+register(
+    "castillo",
+    "3/4",
+    CASTILLO_34_WALK,
+    CASTILLO_34_CADENCE,
+    valid_figures=frozenset(_FIGURES),
+)
 
 
 def _render_torroba_bar(ctx, bar: int, phrase, pattern: str, patterns=None):

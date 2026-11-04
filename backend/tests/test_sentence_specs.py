@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.sonify.sentence_specs import (
+    SENTENCE_SPECS,
     Select,
     SentenceSpec,
     Slot,
@@ -12,6 +13,17 @@ from app.sonify.sentence_specs import (
     plan_sentence,
     register,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_registry():
+    """Unit registrations must not leak into other tests."""
+    saved = dict(SENTENCE_SPECS)
+    try:
+        yield
+    finally:
+        SENTENCE_SPECS.clear()
+        SENTENCE_SPECS.update(saved)
 
 
 def _spec(
@@ -162,3 +174,23 @@ def test_partial_tile_is_rejected_when_truncation_is_off() -> None:
     pattern = _register(spec)
     assert plan_sentence(pattern, "3/4", 10, 0) == []
     assert plan_sentence(pattern, "3/4", 9, 0) == [(1, tuple(range(9)))]
+
+
+def test_truncate_cycle_requires_cycle() -> None:
+    spec = _spec(
+        "unit_cycle_flag",
+        select=Select(),
+        span=Span(tile=8, remainder="truncate_cycle", cycle=False),
+    )
+    with pytest.raises(ValueError, match="cycle=True"):
+        register("unit_cycle_flag", "3/4", spec, replace=True)
+
+
+def test_cycle_requires_truncate_cycle_remainder() -> None:
+    spec = _spec(
+        "unit_cycle_rem",
+        select=Select(),
+        span=Span(tile=8, cycle=True, remainder="same_figure"),
+    )
+    with pytest.raises(ValueError, match="truncate_cycle"):
+        register("unit_cycle_rem", "3/4", spec, replace=True)

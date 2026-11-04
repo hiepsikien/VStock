@@ -16,6 +16,7 @@ the first figure repeats, which is a plan-level post-pass.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Collection
 from dataclasses import dataclass
 
 # Owner modules call register() at import. plan_sentence() imports them lazily
@@ -43,7 +44,10 @@ class Span:
 
     `tile` is the bar length of one repetition. `exact` (or remainder "exact")
     means the slots cover exactly `length` and never repeat. `cycle` marks a
-    run-based archetype (galop) whose slots repeat over any run length.
+    run-based archetype (galop); `remainder`/`cycle` are declarative: every
+    non-exact span repeats and the last chunk is truncated when
+    `truncate_to_length` is on. They exist so validation and tests can tell a
+    one-figure tile from a cycle.
     """
 
     tile: int | None = None
@@ -108,6 +112,10 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         raise ValueError(f"{spec.id}: tile must be >= 1")
     if span.remainder == "truncate_cycle" and not span.truncate_to_length:
         raise ValueError(f"{spec.id}: truncate_cycle needs truncate_to_length")
+    if span.remainder == "truncate_cycle" and not span.cycle:
+        raise ValueError(f"{spec.id}: truncate_cycle needs cycle=True")
+    if span.cycle and span.remainder != "truncate_cycle":
+        raise ValueError(f"{spec.id}: a cycle needs remainder='truncate_cycle'")
     if span.cycle and not span.truncate_to_length:
         raise ValueError(f"{spec.id}: a cycle needs truncate_to_length")
     if not spec.slots:
@@ -128,7 +136,7 @@ def register(
     meter: str,
     *specs: SentenceSpec,
     replace: bool = False,
-    valid_figures: object | None = None,
+    valid_figures: Collection[int] | None = None,
 ) -> None:
     """Add archetypes for one pattern/meter pair.
 
