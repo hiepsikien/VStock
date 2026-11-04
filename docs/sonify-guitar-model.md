@@ -269,7 +269,7 @@ Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, charact
 
 - [x] **Backend:** `title` cho `Movement` và `PreparedMovement`, cộng đường 1D; bảng curated `movement_titles.TITLES` theo `(ensemble, span, index)` + `CHARACTER_TITLES` cho `1D`/`1W`.
 - [x] **Frontend (PR #156):** `src/sonify/program.ts` nhận `name` tự do cho guitar; `formDescription` được mang theo nhưng không in. Test: `src/sonify/program.test.ts`.
-- [x] **Cache:** bump `SPAN_REVISION` + `RECAP_REVISION`. `movementName` nằm trong payload, cache key không chứa tên.
+- [x] **Cache:** bump `SPAN_REVISION` cho `formDescription`; tên daily tính lúc đọc (`recap_movement_name`) nên `RECAP_REVISION` giữ nguyên.
 - [x] **Name golden:** `test_name_parity.py` khoá tên in; `test_program.py` khoá row A–B–A (non-printed). **Không** dùng Score hash.
 
 **Ba chỗ sẽ gãy nếu chỉ set `title = null`:**
