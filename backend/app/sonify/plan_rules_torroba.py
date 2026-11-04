@@ -25,6 +25,12 @@ source: `_select_body` passes the mood of the phrase's apex bar,
 `_assign_torroba` passes the opening region's mood. Moving any of those into
 this module would be a behavior change.
 
+The API is `torroba_primary(PrimaryInputs(...))` / `torroba_contrast(...)`,
+not `(mode, case)` like Villa or Brouwer: the wrapper keeps its old signature
+and derives the mode from `framed_macro`, which the existing call sites already
+pass. Do not "fix" this to match the other modules without updating those call
+sites and the parity matrix.
+
 What *does* differ by scope is contrast, and it must stay that way:
 
 * The phrase path reads `trio`/`bridge` and answers immediately with
@@ -66,7 +72,12 @@ class PrimaryInputs:
 
 @dataclass(frozen=True)
 class ContrastInputs:
-    """Everything the contrast ladder can read. Both scopes share it."""
+    """Everything the contrast ladder can read. Both scopes share it.
+
+    `mood` must already be resolved: `None` means unknown here, not "use the
+    opening character". `_torroba_contrast` performs that resolution before
+    building the input.
+    """
 
     kind: str
     primary: str
@@ -86,85 +97,76 @@ class ContrastRule:
     why: str
 
 
-def _both_modes(
-    when: Callable[[PrimaryInputs], bool],
-    pattern: str,
-    why: str,
-) -> tuple[Rule, Rule]:
-    """Register one primary row under both plan scopes.
-
-    The rows are identical today. Keeping both copies is what lets a future
-    rule diverge without changing `_select_body`, `_dominant_pattern_auto`, or
-    `_assign_torroba`; the first matching rule for the requested mode still
-    wins in table order.
-    """
-    return (Rule(PHRASE, when, pattern, why), Rule(MACRO, when, pattern, why))
-
-
-TORROBA_PRIMARY_RULES: tuple[Rule, ...] = (
+_LADDER: tuple[tuple[Callable[[PrimaryInputs], bool], str, str], ...] = (
     # The early 3/4 guard. Calm, a missing mood, and every mood outside the
     # fast set stay Castillo at every tempo; the old `bpm > 72` Sonatina gate
     # is gone because the Juglar density follows the tempo by itself.
-    *_both_modes(
+    (
         lambda case: case.kind == "3/4" and case.mood not in _FAST_THREE_FOUR,
         "castillo",
         "a 3/4 body outside the fast moods keeps Castillo",
     ),
     # The 4/4 row. Only rally and volatile are named; a calm or selloff has
     # already been retargeted to 3/4, so a 4/4 calm that still arrives is Olite.
-    *_both_modes(
+    (
         lambda case: case.kind == "4/4" and case.mood == "rally",
         "olite",
         "a 4/4 rally body is Olite, not Sonatina",
     ),
-    *_both_modes(
+    (
         lambda case: case.kind == "4/4" and case.mood == "volatile",
         "olite",
         "a 4/4 volatile body is Olite",
     ),
     # The 3/4 fast cells.
-    *_both_modes(
+    (
         lambda case: case.kind == "3/4" and case.mood == "rally",
         "torroba_tremolo",
         "a 3/4 rally body sings Juglar",
     ),
-    *_both_modes(
+    (
         lambda case: case.kind == "3/4" and case.mood == "selloff",
         "castillo",
         "a 3/4 selloff body stays Castillo",
     ),
-    *_both_modes(
+    (
         lambda case: case.kind == "3/4" and case.mood == "volatile",
         "danza",
         "a 3/4 volatile body is Danza",
     ),
     # The 6/8 row. Calm is named and is also the fallback for a missing or
     # unknown mood, so Danza is the default scherzo.
-    *_both_modes(
+    (
         lambda case: case.kind == "6/8" and case.mood == "calm",
         "danza",
         "a 6/8 calm body is Danza",
     ),
-    *_both_modes(
+    (
         lambda case: case.kind == "6/8" and case.mood == "rally",
         "alcaniz",
         "a 6/8 rally body is Alcaniz",
     ),
-    *_both_modes(
+    (
         lambda case: case.kind == "6/8" and case.mood == "volatile",
         "fandanguillo",
         "a 6/8 volatile body is Fandanguillo",
     ),
-    *_both_modes(
+    (
         lambda case: case.kind == "6/8" and case.mood == "selloff",
         "fandanguillo",
         "a 6/8 selloff body is Fandanguillo",
     ),
-    *_both_modes(
+    (
         lambda case: case.kind == "6/8",
         "danza",
         "the 6/8 row falls back to its calm cell, Danza",
     ),
+)
+
+TORROBA_PRIMARY_RULES: tuple[Rule, ...] = tuple(
+    Rule(mode, when, pattern, why)
+    for mode in (PHRASE, MACRO)
+    for when, pattern, why in _LADDER
 )
 
 TORROBA_PRIMARY_FALLBACK: dict[Mode, str] = {PHRASE: "olite", MACRO: "olite"}

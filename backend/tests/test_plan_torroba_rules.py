@@ -76,7 +76,9 @@ def test_the_two_scopes_share_the_primary_answer_but_keep_the_flag() -> None:
     # Every row is registered under both modes, in table order. The flag is
     # still carried by the call sites: phrase passes False, macro passes True.
     assert {rule.mode for rule in TORROBA_PRIMARY_RULES} == {PHRASE, MACRO}
-    assert len(TORROBA_PRIMARY_RULES) % 2 == 0
+    phrase = [(rule.pattern, rule.why) for rule in TORROBA_PRIMARY_RULES if rule.mode == PHRASE]
+    macro = [(rule.pattern, rule.why) for rule in TORROBA_PRIMARY_RULES if rule.mode == MACRO]
+    assert phrase == macro
     for kind, mood in PRIMARY:
         assert _primary(kind, mood, framed_macro=False) == _primary(
             kind, mood, framed_macro=True

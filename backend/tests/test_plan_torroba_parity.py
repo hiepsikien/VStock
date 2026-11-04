@@ -10,8 +10,9 @@ synthetic shape the pattern tests use.
 
 Torroba retargets meter and tempo before the plan runs: a 4/4 calm or selloff
 movement becomes 3/4, and every movement is lifted to its meter/mood floor in
-92-132 BPM. The fixture records the observed `bpm` and `kind`, so a retarget
-change shows up as a value diff, not only as a pattern diff.
+92-132 BPM. The fixture locks the pattern row; `test_tempo_and_meter_anchors`
+also locks a small anchor set of the observed `bpm`/`kind`, because a retarget
+change can leave every row unchanged.
 
 The fixture records the raw `_patterns` row, including its `pedal` entries, so
 a rule-table refactor that changes one phrase, one order, or one fallback shows
@@ -419,6 +420,23 @@ def test_torroba_plan_matches_the_fixture() -> None:
 
     mismatched = {key: (rows[key], expected[key]) for key in rows if rows[key] != expected[key]}
     assert not mismatched, list(mismatched.items())[:2]
+
+
+def test_tempo_and_meter_anchors() -> None:
+    """A few keys where the retarget is visible even when the row is not."""
+    anchors = {
+        "1M|rally|held|60|m0": (112, "4/4"),
+        "1M|calm|held|100|m0": (100, "3/4"),
+        "1M|rally|held|140|m0": (132, "4/4"),
+        "1W|rally|running|140|w5": (132, "4/4"),
+        "1W|calm|held|auto|w1": (92, "3/4"),
+        "1D|rally|running|auto": (96, "4/4"),
+        "1D|calm|held|auto": (96, "3/4"),
+    }
+    cases = _cases()
+    for key, expected in anchors.items():
+        case = cases[key]
+        assert (case.bpm, case.kind) == expected, (key, case.bpm, case.kind)
 
 
 def test_matrix_size_is_intentional() -> None:
