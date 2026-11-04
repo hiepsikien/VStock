@@ -111,7 +111,8 @@ Cấu trúc:
      control line 24px (`−` 20px + track + `+` 20px) + padding 6px.
    - Thoáng: row **58px**, track 30px.
    - Không dùng `paramFoot` trên PC. BPM nằm trong value cell
-     (`+8% · 104 BPM`, mono 10 nếu cần); hint/cảnh báo nằm trong status strip.
+     (`+8% · 104 BPM`, dùng `monoSmall` nếu cần); hint/cảnh báo nằm trong
+     status strip.
    - Value cell rộng tối đa 96px, `numberOfLines={1}`, ellipsis.
    - `−`/`+` là 20×20 nhưng có `hitSlop` 12; slider hit 24px + `hitSlop` 10.
      Tổng vùng chạm vẫn >=44 (giữ `TOUCH_TARGET` về mặt a11y).
