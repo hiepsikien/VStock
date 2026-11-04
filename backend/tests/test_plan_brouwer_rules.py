@@ -13,6 +13,7 @@ from app.sonify.plan_rules import MACRO, PHRASE, PhraseInputs
 from app.sonify.plan_rules_brouwer import (
     BROUWER_RULES,
     BrouwerInputs,
+    _expand,
     brouwer_pattern,
 )
 
@@ -40,6 +41,21 @@ def test_rule_order_is_calm_slow_or_selloff_volatile_then_fallback() -> None:
     # None and rally fall through to the etude.
     assert brouwer_pattern(PHRASE, _inputs(mood=None, bpm=100)) == "brouwer_etude"
     assert brouwer_pattern(PHRASE, _inputs(mood="rally", bpm=120)) == "brouwer_etude"
+
+
+def test_a_mode_specific_row_does_not_leak() -> None:
+    rows = _expand(
+        (
+            (
+                (PHRASE,),
+                lambda case: True,
+                "noviembre",
+                "synthetic mode-specific row",
+            ),
+        )
+    )
+    assert [rule.mode for rule in rows] == [PHRASE]
+    assert [rule.pattern for rule in rows] == ["noviembre"]
 
 
 def test_phrase_and_macro_ladders_agree_today() -> None:

@@ -74,11 +74,20 @@ _LADDER: tuple[
     ),
 )
 
-BROUWER_RULES: tuple[Rule, ...] = tuple(
-    Rule(mode, when, pattern, why)
-    for modes, when, pattern, why in _LADDER
-    for mode in modes
-)
+def _expand(
+    ladder: tuple[
+        tuple[tuple[Mode, ...], Callable[[BrouwerInputs], bool], str, str], ...
+    ],
+) -> tuple[Rule, ...]:
+    """Materialise one row per (row, mode), preserving table order."""
+    return tuple(
+        Rule(mode, when, pattern, why)
+        for modes, when, pattern, why in ladder
+        for mode in modes
+    )
+
+
+BROUWER_RULES: tuple[Rule, ...] = _expand(_LADDER)
 
 BROUWER_FALLBACK: dict[Mode, str] = {
     PHRASE: "brouwer_etude",
