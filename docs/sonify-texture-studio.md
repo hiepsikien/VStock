@@ -1,10 +1,10 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: đề xuất, revision 6 sau review code lần 5. **Chưa code.**
+> **Trạng thái**: đề xuất, revision 7 — thêm §0.4 từ vựng chuẩn và link mô hình âm nhạc; thân bài rev 6 **chưa** đổi theo từ vựng mới. **Chưa code.**
 > **Phạm vi đợt đầu**: Villa-Lobos (`ensemble = "villa"`), texture lấy từ *Suite Popular Brasileira*.
 > **Nơi chạy**: trong app Musicalize (room mới), backend FastAPI phía sau.
 > **Mở cho tất cả bây giờ**, nhưng có session namespace và seam quyền truy cập để sau này giới hạn.
-> **Liên quan**: [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
+> **Liên quan**: [`sonify-guitar-model.md`](./sonify-guitar-model.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
 
 ---
 
@@ -80,6 +80,27 @@ Revision 2 đóng được 15 điểm của review đầu, nhưng sinh ra 6 mâu
 | Upload refcount chưa có luật xoá | `DELETE /uploads/{id}` trả 409 nếu còn spec trỏ tới; refcount chỉ giảm khi spec xoá |
 | Coverage probe `"classic"` | Lặp qua ensemble sở hữu pattern; chỉ fallback `"classic"` cho `_FAMILY`-only |
 
+### 0.4. Từ vựng chuẩn
+
+Revision 1–6 dùng `pattern` và `figure` với nghĩa quá tải. Từ revision 7 (chưa sửa toàn văn), từ vựng chuẩn lấy từ [`sonify-guitar-model.md`](./sonify-guitar-model.md):
+
+| Từ trong doc này (rev 1–6) | Trục chuẩn | Ghi chú |
+|---|---|---|
+| `pattern` | **scheduler slot** | vẫn giữ làm id; nhưng phải khai thêm `level` (`movement` / `topic` / `texture`) và `texture` |
+| Hình thức in ra của pattern | **Topic** | tên tác phẩm/chương/thể loại/điệu; **không** phải kỹ thuật |
+| `figure` | **Sentence** | template nhiều ô, có vai hình thức (walk/cadence, arada/float, period 4+4) |
+| “variation bên trong pattern” | **Texture** (+ `cells`) hoặc **Plan** | không phải một lớp riêng |
+| `meter_variants` | **Texture materialization** | meter là per-render, không phải pattern |
+| `selection`, `_select_body`, `_contrast_pattern` | **Plan** | không phải hình thức của pattern |
+| `form` | **Movement** (`FormSpec.sections` + Plan) | không phải thuộc tính của pattern |
+
+Hai hệ quả bắt buộc khi implement:
+
+1. `FigureSpec` trong doc này đọc là **`SentenceSpec`**; `figure_code` là id của texture trong slot.
+2. Một pattern chỉ được in tên nếu `level` của nó là `movement` hoặc `topic`. `level: texture` thì không in (xem vi phạm `villa_pattern` → "Arpeggio" và `tremolo` → "Tremolo" trong [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8).
+3. Field đã đổi tên trong doc: `FigureSpec`→`SentenceSpec`, `figure_code`→`sentence_code`, `meter_variants[].figures`→`sentences`, `selected_figure`→`selected_sentence`, `traits.figure_registry`→`traits.sentence_registry`. **Code hiện tại vẫn dùng `figure`/`_FIGURES`** — đổi code là PR riêng, không trộn vào PR này.
+4. Inventory 38 pattern (`level` / `topic` / `texture` / `procedure` / `sentence`) và 4 quyết định tên: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12.
+
 ---
 
 ## 1. Tóm tắt
@@ -150,31 +171,32 @@ Hệ quả:
 |---|---|
 | Nhạc sĩ | **Villa-Lobos** (`villa`), không thêm ensemble |
 | Nguồn | ***Suite Popular Brasileira*** |
-| Đơn vị | **Figure nằm trong pattern**. Pattern/figure đều có meter riêng và chỉ được gọi khi khớp |
+| Đơn vị | **Sentence nằm trong pattern**. Pattern/sentence đều có meter riêng và chỉ được gọi khi khớp |
 | Nơi chạy | **Trong app Musicalize**, backend FastAPI + UI trong app |
 | Quyền | **Mở cho tất cả bây giờ**, chưa cần login; có session namespace để sau này giới hạn |
 | Đầu vào | **Ảnh phổ + tab** |
 | Runtime | Code-backed mặc định; interpreter chỉ ở Phase 2 cho pattern được chọn |
 
-### 3.1. Hệ quả của “figure nằm trong pattern”
+### 3.1. Hệ quả của “sentence nằm trong pattern”
 
 ```
 Composer
 └── Pattern
     ├── meter variant A
     │   ├── base grid
-    │   ├── Figure A1
-    │   └── Figure A2
+    │   ├── Sentence A1
+    │   └── Sentence A2
     ├── meter variant B
     │   ├── base grid
-    │   └── Figure B1
+    │   └── Sentence B1
     └── Door (intro/outro)
 ```
 
-- Scheduler không bao giờ chọn figure trực tiếp. Nó chọn pattern trước, rồi trong pattern mới chọn figure.
-- Figure không có tên in trên chart, không có `_PATTERN_TITLE`, không vào `PATTERN_NAMES`.
-- Pattern có meter riêng; figure cũng có meter riêng.
-- **Điều kiện gọi**: meter của pattern phải khớp meter runtime; figure `meter` phải **thuộc** danh sách `meter_variants` của pattern, so bằng canonical key (không so string, không so `id`).
+- Scheduler không bao giờ chọn sentence trực tiếp. Nó chọn pattern trước, rồi trong pattern mới chọn sentence.
+- **Mỗi pattern khai `level`**: `movement` / `topic` / `texture`. Chỉ `movement` và `topic` được in tên trên chart; `texture` không in (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8.1).
+- Sentence không có tên in trên chart, không có `_PATTERN_TITLE`, không vào `PATTERN_NAMES`.
+- Pattern có meter riêng; sentence cũng có meter riêng.
+- **Điều kiện gọi**: meter của pattern phải khớp meter runtime; sentence `meter` phải **thuộc** danh sách `meter_variants` của pattern, so bằng canonical key (không so string, không so `id`).
 - Mỗi cặp `(pattern, meter)` phải có **materializer** tường minh. Không có base grid ngầm.
 
 ### 3.2. *Suite Popular Brasileira* — danh sách movement
@@ -260,7 +282,7 @@ Hệ quả thật:
 
 - `ctx.kind` là **meter của toàn bộ lần render**, không phải per-bar. Nó được set một lần từ `active_meter()` / `compose_meter()`.
 - `ctx.kind_at` **không phải meter**. Nó là section kind: `"phrase" / "intro" / "outro" / "warmup" / "cooldown"`.
-- 12/8 trả `"other"`. `_torroba_primary` fallback `table.get(ctx.kind, table["4/4"])`, nên 12/8 chạy như 4/4 (Olite). Figure 4/4 không bắn vì `_castillo_spans` gate `kind == "4/4"`. Đây là bug runtime, không phải hành vi để spec bắt chước.
+- 12/8 trả `"other"`. `_torroba_primary` fallback `table.get(ctx.kind, table["4/4"])`, nên 12/8 chạy như 4/4 (Olite). Sentence 4/4 không bắn vì `_castillo_spans` gate `kind == "4/4"`. Đây là bug runtime, không phải hành vi để spec bắt chước.
 - Guitar đổi meter sau `FormSpec`: `_guitar_meter()` hoán đổi 3/4 ↔ 6/8; `retarget_torroba_meter()` đổi 4/4 calm/selloff → 3/4. Spec phải khai meter **sau** hai bước này.
 - Meter không chỉ là cổng gọi. Với Villa, `ctx.kind` đổi nội dung render: `_villa_bass`, `_render_villa_bar`, `_chord_grid`, `_thumb_offsets` đều đọc `ctx.kind`.
 
@@ -291,7 +313,7 @@ Spec lưu **đủ 6 field** của `form.Meter`:
 - Mọi so sánh meter dùng canonical key. Không so `id`, không so string.
 - `composer.meters` là danh sách `MeterSpec`.
 - `pattern.meter_variants` là **list**, không phải map keyed bằng string.
-- `figure.meter` là một `MeterSpec`; nó phải **thuộc** `parent_pattern.meter_variants` theo canonical key.
+- `sentence.meter` là một `MeterSpec`; nó phải **thuộc** `parent_pattern.meter_variants` theo canonical key.
 
 ### 4.3. Thứ tự resolve meter
 
@@ -338,7 +360,7 @@ Test bắt buộc:
     "materializer": "grid_3_4",
     "transform": "none",
     "unsupported": false,
-    "figures": ["walk", "cadence"]
+    "sentences": ["walk", "cadence"]
   },
   {
     "meter": {
@@ -353,7 +375,7 @@ Test bắt buộc:
     "materializer": "grid_4_4",
     "transform": "none",
     "unsupported": false,
-    "figures": ["arada", "float"]
+    "sentences": ["arada", "float"]
   }
 ]
 ```
@@ -371,7 +393,7 @@ Các loại chuyển đổi được phép:
 
 Quy tắc:
 
-1. Không có `transform` tường minh thì không được gọi pattern/figure ở meter đó.
+1. Không có `transform` tường minh thì không được gọi pattern/sentence ở meter đó.
 2. `transform != "none"` phải có test nghe/so sánh, không chỉ test schema.
 3. **Phase 0/1 không sửa runtime.** Studio compiler từ chối spec 12/8; runtime giữ nguyên hành vi hiện tại (kể cả fallback `"other"` → 4/4). Việc sửa 12/8 là Phase 3: hoặc bỏ choice khỏi `params.py` + regenerate schema, hoặc thêm materializer 12/8 thật.
 4. Không được để một spec 12/8 “tự động” dùng materializer 4/4 mà không có `triplet_subdivision` được duyệt.
@@ -412,17 +434,17 @@ Pattern không thấy 2/4; nó chỉ thấy 4/4 sau fold. Test bắt buộc: đ�
 
 1. `pattern.meter_variants` không rỗng; mỗi phần tử có `MeterSpec` hợp lệ và `unsupported: boolean`.
 2. Tập canonical key của `pattern.meter_variants` (trừ `unsupported: true`) ⊆ tập canonical key của `composer.meters`.
-3. `figure.meter` phải **thuộc** `parent_pattern.meter_variants` (canonical key), không phải “xấp xỉ”, không so `id`.
-4. `figure.parent` tồn tại; figure không phải ứng viên cấp cao nhất.
-5. Figure chỉ được gọi khi pattern active **và** `meter_key(resolved_meter) == meter_key(figure.meter)`.
+3. `sentence.meter` phải **thuộc** `parent_pattern.meter_variants` (canonical key), không phải “xấp xỉ”, không so `id`.
+4. `sentence.parent` tồn tại; sentence không phải ứng viên cấp cao nhất.
+5. Sentence chỉ được gọi khi pattern active **và** `meter_key(resolved_meter) == meter_key(sentence.meter)`.
 6. Nếu pattern không có materializer cho `resolved_meter`, fail; không fallback.
-7. Test âm tính: gọi figure ở meter sai phải trả `[]` hoặc raise, không render.
+7. Test âm tính: gọi sentence ở meter sai phải trả `[]` hoặc raise, không render.
 
 ### 4.5.1. Hai ma trận: selection và render
 
 Với pattern `runtime: "code"`, `meter_variants` chỉ là lời khai. Không có hàm `render_pattern_for_test()` tách rời: render cần `_Ctx` đầy đủ (melody/raw/chord_at/phrases/bands/register/sections). Vì vậy phải tách **hai** artifact:
 
-1. **Selection matrix** — `_select_body` / `_dominant_pattern` / `_castillo_spans` chọn pattern/figure gì cho một input cố định.
+1. **Selection matrix** — `_select_body` / `_dominant_pattern` / `_castillo_spans` chọn pattern/sentence gì cho một input cố định.
 2. **Render matrix** — pattern đã được chọn render ra note gì với một fixture `_Ctx` cố định.
 
 #### Fixture dùng chung
@@ -470,7 +492,7 @@ def pattern_case(
     "section": { "trio": false, "bridge": false }
   },
   "selected_pattern": "suite_valsa",
-  "selected_figure": null,
+  "selected_sentence": null,
   "ctx_kind": "3/4"
 }
 ```
@@ -523,19 +545,19 @@ Revision 2/3 bỏ hoàn toàn giả định “meter của bar/phrase”. Nếu 
 Trong Phase 0–2:
 
 - Meter là per-render/per-movement.
-- Figure `when.meter` là gate tĩnh, resolve lúc load spec.
+- Sentence `when.meter` là gate tĩnh, resolve lúc load spec.
 - Không dùng `kind_at` làm meter.
 
 ---
 
-## 5. Pattern, figure, door
+## 5. Pattern, sentence, door
 
 ### 5.1. Torroba là mẫu tham chiếu
 
-- Figure Torroba là **int**: `_FIGURES` trong `guitar_torroba.py:3403`.
+- Sentence Torroba là **int**: `_FIGURES` trong `guitar_torroba.py:3403`.
 - Có thêm gate `_REAL_TORROBA_FIGURES` (`guitar_torroba.py:32`) dùng ở `guitar_patterns.py:1862`.
-- `FigureSpec` phải có `figure_code` (int) để map vào `_FIGURES`; không dùng string `"arada"` làm id runtime.
-- `FigureSpec.id` chỉ là id authoring; `figure_code` là id runtime.
+- `SentenceSpec` phải có `sentence_code` (int) để map vào `_FIGURES`; không dùng string `"arada"` làm id runtime.
+- `SentenceSpec.id` chỉ là id authoring; `sentence_code` là id runtime.
 
 Ví dụ:
 
@@ -543,9 +565,9 @@ Ví dụ:
 {
   "id": "arada",
   "composer": "torroba",
-  "kind": "figure",
+  "kind": "sentence",
   "parent": "castillo",
-  "figure_code": 7,
+  "sentence_code": 7,
   "meter": {
     "id": "4/4",
     "beats": 4,
@@ -560,26 +582,26 @@ Ví dụ:
 }
 ```
 
-### 5.2. Villa chưa có figure registry
+### 5.2. Villa chưa có sentence registry
 
 Trong code hiện tại:
 
 - `villa_pattern` là một hàm bar-level: `_render_villa_bar`.
 - `etude1`, `etude11` là bar-level: `_render_etude1_bar`, `_render_etude11_bar`.
 - `chord_melody`, `thumb_cantabile` là bar/phrase-level.
-- Không có `_FIGURES`, không có `span`, không có `figure_code`.
+- Không có `_FIGURES`, không có `span`, không có `sentence_code`.
 
 Vì vậy:
 
-- **Phase 0/1: Villa chỉ có `kind: "pattern"`.** Không bịa `FigureSpec` cho Villa.
-- Phase 2: audit từng movement của *Suite Popular Brasileira* để quyết định pattern nào thực sự có figure span. Nếu chỉ là biến thể trong một hàm bar-level, nó là `variation`, không phải figure.
-- Khi Villa có figure registry, nó phải theo cùng mô hình Torroba: `figure_code` + bảng map + test.
+- **Phase 0/1: Villa chỉ có `kind: "pattern"`.** Không bịa `SentenceSpec` cho Villa.
+- Phase 2: audit từng movement của *Suite Popular Brasileira* để quyết định pattern nào thực sự có sentence span. Nếu chỉ là biến thể trong một hàm bar-level, nó là **texture variation / cell**, không phải sentence.
+- Khi Villa có sentence registry, nó phải theo cùng mô hình Torroba: `sentence_code` + bảng map + test. Từ vựng: [`sonify-guitar-model.md`](./sonify-guitar-model.md).
 
 Đây là câu trả lời cho câu hỏi “Villa tổ chức thế nào”: **chưa biết; phải audit, không suy từ Torroba.**
 
 ### 5.3. Door
 
-Door vẫn là `kind: "door"`, có `parent` pattern và `when` riêng. Door không nhận figure. Nếu pattern mới có cửa, `traits.has_door = true`.
+Door vẫn là `kind: "door"`, có `parent` pattern và `when` riêng. Door không nhận sentence. Nếu pattern mới có cửa, `traits.has_door = true`.
 
 ---
 
@@ -700,6 +722,7 @@ Cần thêm:
   "id": "suite_mazurka",
   "composer": "villa",
   "kind": "pattern",
+  "level": "topic",
   "parent": null,
   "runtime": "code",
   "status": "draft",
@@ -746,7 +769,7 @@ Cần thêm:
       "transform": "none",
       "unsupported": false,
       "reason": null,
-      "figures": []
+      "sentences": []
     }
   ],
 
@@ -809,7 +832,7 @@ Cần thêm:
     "loud_down": true,
     "has_door": false,
     "pedal_door": false,
-    "figure_registry": "none"
+    "sentence_registry": "none"
   },
 
   "selection": {
@@ -908,7 +931,7 @@ backend/app/sonify/texture_registry.py
 
 - `load_specs(root)` đọc `backend/app/sonify/textures/**/*.json`.
 - Validate bằng `schema.py` + `validate.py`.
-- Trả `PatternSpec` / `FigureSpec`.
+- Trả `PatternSpec` / `SentenceSpec`.
 - Dùng bởi compiler/test **và** runtime chỉ cho pattern có `runtime: "interpreter"`.
 - Pattern `runtime: "code"` vẫn đi qua `if/elif` hiện tại.
 
@@ -929,7 +952,7 @@ backend/app/sonify/texture_registry.py
 | Phase 0 | `pytest` + compiler | Round-trip, fixture, docs |
 | Phase 1 | Studio UI + compiler | Preview, validate, export |
 | Phase 2 | `texture_registry.py` | Runtime cho `runtime: "interpreter"` |
-| Phase 3 | Runtime + library UI | Chọn pattern/figure theo meter |
+| Phase 3 | Runtime + library UI | Chọn pattern/sentence theo meter |
 
 Publish không ghi thẳng vào repo từ server. Publish tạo bundle để người/agent mở PR; sau khi merge, `texture_registry.py` mới đọc được.
 
@@ -1057,8 +1080,8 @@ Giới hạn:
 - micro-timing, velocity, humanize
 - “nốt này ngân dài để nối bè”
 - quãng bè trung
-- meter của pattern/figure
-- điều kiện chọn pattern/figure
+- meter của pattern/sentence
+- điều kiện chọn pattern/sentence
 
 ### 9.5. Validate sau Gemini
 
@@ -1244,7 +1267,7 @@ backend/app/studio/
   schema.py       # MeterSpec, TextureSpec, AuthoredEvent, ...
   store.py        # SQLite + file upload + owner/session
   vision.py       # prompt + Gemini parse (reuse gemini client)
-  validate.py     # meter, figure parent, authored playable
+  validate.py     # meter, sentence parent, authored playable
   compiler.py     # fixture, registration, registry patch
   preview.py      # slice_score + audio queue
   export.py       # bundle export
@@ -1335,7 +1358,7 @@ Lý do: Studio mở cho tất cả. Nếu `id` là pattern id và là PK toàn c
 
 `studio_uploads` đã có `owner_id` ở trên; `GET /uploads/{id}` phải kiểm tra owner trước khi trả file. Không lưu path trực tiếp trong spec; lưu `upload_id`.
 
-`parent_slug` là **pattern id** (`suite_mazurka`, `castillo`), không phải UUID; figure dùng nó để trỏ parent pattern. Khi publish, compiler resolve parent theo slug trong cùng composer.
+`parent_slug` là **pattern id** (`suite_mazurka`, `castillo`), không phải UUID; sentence dùng nó để trỏ parent pattern. Khi publish, compiler resolve parent theo slug trong cùng composer.
 
 `studio_blobs` dedupe theo `sha256`; `refcount` tăng khi upload, giảm khi xoá upload/spec. File chỉ bị xoá khi `refcount = 0`. Không xoá file của owner khác khi một owner xoá upload của họ.
 
@@ -1364,12 +1387,12 @@ Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc
   "loud_down": true,
   "has_door": false,
   "pedal_door": false,
-  "figure_registry": "torroba_int"
+  "sentence_registry": "torroba_int"
 }
 ```
 
 - `narrow_rows` là dữ liệu, không suy đoán.
-- `figure_registry` quyết định có `figure_code` hay không.
+- `sentence_registry` quyết định có `sentence_code` hay không.
 - Compiler sinh checklist từ traits + một danh sách “review sites” cố định.
 - Phần không suy được ghi là **review**, không phải **auto**.
 
@@ -1444,7 +1467,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - `backend/app/sonify/guitar_patterns.py`: `_dominant_pattern`, `_contrast_pattern`, các fallback dict của Villa.
 - `backend/app/sonify/guitar_patterns.py`: dispatch trong `render_patterned_voices`.
 - `backend/app/sonify/guitar_patterns.py`: `_PROFILE[id]` sinh từ `profiles.render`.
-- `backend/app/sonify/program.py`: `_PATTERN_TITLE[id]`.
+- `backend/app/sonify/program.py`: `_PATTERN_TITLE[id]` — **chỉ thêm khi `level` là `movement` hoặc `topic`**. `level: texture` không có title (vi phạm hiện tại: `villa_pattern` → "Arpeggio", `tremolo` → "Tremolo"; xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8.1).
 - `backend/app/sonify/guitar_wave.py`: `PROFILES[("villa", id)]` sinh từ `profiles.wave`.
 - `backend/tests/test_guitar_wave.py`: `_EXPECTED`.
 
@@ -1455,7 +1478,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - `backend/app/sonify/guitar_scale_passages.py`: `_KINETIC_PATTERNS`, `_LOUD_DOWN_PATTERNS`, `_NARROW_ROWS`, `_HOST`.
 - `backend/app/sonify/guitar_patterns.py`: `_PEDAL_DOOR_PROFILE`.
 - `backend/app/sonify/humanize.py`: `_clamp_guitar` nếu trần velocity khác.
-- `backend/app/sonify/guitar_torroba.py`: `_REAL_TORROBA_FIGURES` nếu figure mới.
+- `backend/app/sonify/guitar_torroba.py`: `_REAL_TORROBA_FIGURES` nếu sentence mới.
 
 **Đăng ký tên và docs**
 
@@ -1487,7 +1510,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 - `schema.py` với `MeterSpec` (6 field), `authored/derived`, `profiles`.
 - `resolve_runtime_meter()` dùng chung; cấm `active_meter()` ngoài `compose_meter`.
-- `validate.py`: meter variants, figure parent, voice order, authored playable.
+- `validate.py`: meter variants, sentence parent, voice order, authored playable.
 - Spec tay cho `chord_melody` (dễ) và `villa_pattern` (khó).
 - Round-trip `authored` với renderer hiện tại.
 - Preview bằng `slice_score` + `audio.py` (nếu môi trường có MuseScore), hoặc `rendered.json` nếu chưa.
@@ -1508,7 +1531,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ### Phase 2 — Suite Popular Brasileira + runtime interpreter
 
-- Audit Villa figure: pattern nào có span thật.
+- Audit Villa sentence: pattern nào có span thật.
 - Chọn movement đầu tiên; tạo pattern spec + meter variants.
 - Suite là palette pattern; test movement line với 5 pattern (tối đa 3 title).
 - Ít nhất một pattern `runtime: "interpreter"` để chứng minh runtime đọc spec.
@@ -1532,7 +1555,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 2. **Meter sau retarget**: spec khớp `resolve_runtime_meter()` sau `_guitar_meter` + `retarget_torroba_meter`; compiler không gọi `active_meter()` ngoài `compose_meter`.
 3. **12/8**: Studio từ chối spec 12/8; runtime Phase 0/1 **không đổi**. Phase 3 mới sửa fallback `"other"` → 4/4 hoặc thêm materializer 12/8.
 4. **Không meter per-bar**: không dùng `kind_at` làm meter.
-5. **Figure parent**: figure không có parent/meter hợp lệ bị từ chối; `figure.meter` phải thuộc variant list.
+5. **Sentence parent**: sentence không có parent/meter hợp lệ bị từ chối; `sentence.meter` phải thuộc variant list.
 6. **Authored round-trip**: cùng placement (bar/beat/duration/voice/staff/tie/slur/accent/staccato) + **pitch reference** (`kind`/index/degree); không so absolute MIDI cho `melody_eighth`/`chord_degree`/`scale_step`; nếu `literal_midi` thì so được.
 7. **Rendered golden**: cùng render context + `params` hash + `SPAN_REVISION`/`RECAP_REVISION` + `renderer_version` → cùng hash/snapshot; đây là nơi kiểm absolute pitch. Velocity không so tuyệt đối; không có “humanize seed”.
 8. **Preview = slice_score**: preview lấy từ render thật; diff hợp lệ chỉ ở tie biên `start`/`end - 1`.
@@ -1551,6 +1574,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 21. **Registry version gate**: schema ngoài allowlist hoặc JSON hỏng bị bỏ, app vẫn boot; `renderer_version` bắt buộc cho interpreter.
 22. **Media token**: preview/export dùng signed token ngắn hạn; `GET /uploads/{id}` kiểm tra owner.
 23. **Global preview queue**: 1 worker Studio, render ngoài event loop, tách khỏi `EXPORT_SLOTS`; `previewsConcurrent` chỉ là per-session.
+24. **Level/nhãn**: mỗi pattern khai `level` (`movement` / `topic` / `texture`); chỉ `movement`/`topic` được in tên. Inventory 38 pattern và 4 quyết định tên nằm ở [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12.
 24. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
 25. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
 26. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
@@ -1565,7 +1589,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 | 3/4 ↔ 6/8 khác accent | Hai variant riêng; `_guitar_meter` form-level; khai `strong_eighths`/`extra_weights` |
 | 4/4 → 12/8 không tương đương | `triplet_subdivision` + duyệt tay; không tự động |
 | 2/4 không có trong engine | `fold: 2` ở `FormSpec`; tiền lệ `galop`; test bars/DFI |
-| Figure Villa không tồn tại | Phase 0 pattern-only; audit trước |
+| Sentence Villa không tồn tại | Phase 0 pattern-only; audit trước |
 | Velocity bị coi là authored | Tách authored/derived/rendered |
 | Round-trip pitch thành vòng tròn | Authored chỉ so placement/reference; absolute pitch do golden hash |
 | Validate tưởng offline được | Dùng render executor; `partial: true` + `skipped_checks` |
@@ -1589,7 +1613,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
    Đề xuất Mazurka-Choro (3/4, gần `castillo`/`valsa`) hoặc Choros No. 1 (4/4, gần `villa_pattern`).
 2. **12/8 xử lý thế nào ở Phase 3?**
    (a) bỏ choice khỏi `params.py` + regenerate `paramsSchema.generated.ts`; (b) thêm materializer 12/8 thật; (c) `triplet_subdivision` có duyệt tay. Phase 0/1 chỉ từ chối spec 12/8, không sửa runtime.
-3. **Villa figure audit ở Phase 2 hay Phase 1?**
+3. **Villa sentence audit ở Phase 2 hay Phase 1?**
    Đề xuất Phase 2, sau khi round-trip pattern đã ổn.
 4. **Session token sống bao lâu?**
    Đề xuất 90 ngày, lưu AsyncStorage; hết hạn tạo mới, spec cũ vẫn thuộc owner cũ nếu có auth sau này.
