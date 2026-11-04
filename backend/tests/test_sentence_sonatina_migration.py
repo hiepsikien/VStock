@@ -58,6 +58,11 @@ def test_close_short_phrases_clip_the_three_bar_tail() -> None:
 
 
 def test_phrase_spans_uses_registry_for_sonatina(monkeypatch) -> None:
+    # Capture the oracle before patching, so the assertion is clearly against
+    # the legacy output and not the patched binding.
+    expected_open = _sonatina_open_spans(7, 0)
+    expected_close = _sonatina_close_spans(7, 0)
+
     def boom(*_args, **_kwargs):
         raise AssertionError("sonatina used the code path")
 
@@ -66,7 +71,7 @@ def test_phrase_spans_uses_registry_for_sonatina(monkeypatch) -> None:
 
     assert torroba._phrase_spans(
         _ctx("4/4"), _phrase(7, closes=False), "sonatina", 0
-    ) == _sonatina_open_spans(7, 0)
+    ) == expected_open
     assert torroba._phrase_spans(
         _ctx("4/4"), _phrase(7, closes=True), "sonatina", 0
-    ) == _sonatina_close_spans(7, 0)
+    ) == expected_close

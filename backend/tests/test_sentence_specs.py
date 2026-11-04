@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app.sonify.sentence_specs import (
+    METER_ANY,
     SENTENCE_SPECS,
     Select,
     SentenceSpec,
@@ -204,3 +207,78 @@ def test_registered_figures_exist() -> None:
         for spec in specs:
             for slot in spec.slots:
                 assert slot.figure in _FIGURES, (spec.id, slot.figure)
+
+
+def test_register_rejects_unknown_anchor() -> None:
+    spec = _spec(
+        "unit_anchor_bad",
+        select=Select(),
+        span=Span(tile=9),
+        slots=(Slot(0, 1, 1, anchor="middle"),),
+    )
+    with pytest.raises(ValueError, match="unknown slot anchor"):
+        register("unit_anchor_bad", "3/4", spec, replace=True)
+
+
+def test_end_anchor_needs_an_exact_span() -> None:
+    spec = _spec(
+        "unit_anchor_tile",
+        select=Select(),
+        span=Span(tile=9),
+        slots=(Slot(0, 3, 1, anchor="end"),),
+    )
+    with pytest.raises(ValueError, match="needs an exact span"):
+        register("unit_anchor_tile", "3/4", spec, replace=True)
+
+
+def test_end_anchor_must_start_at_zero() -> None:
+    spec = _spec(
+        "unit_anchor_start",
+        select=Select(length_min=4),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(1, 3, 1, anchor="end"),),
+    )
+    with pytest.raises(ValueError, match="start=0"):
+        register("unit_anchor_start", "3/4", spec, replace=True)
+
+
+def test_end_anchor_cannot_overlap_start_slots() -> None:
+    spec = _spec(
+        "unit_anchor_overlap",
+        select=Select(length_min=4),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(0, 2, 1), Slot(0, 3, 2, anchor="end")),
+    )
+    with pytest.raises(ValueError, match="overlaps the start slots"):
+        register("unit_anchor_overlap", "3/4", spec, replace=True)
+
+
+def test_end_slot_must_fit_the_shortest_sentence() -> None:
+    spec = _spec(
+        "unit_anchor_short",
+        select=Select(length_min=2),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(0, 3, 1, anchor="end"),),
+    )
+    with pytest.raises(ValueError, match="below the end slot size"):
+        register("unit_anchor_short", "3/4", spec, replace=True)
+
+
+def test_exact_meter_wins_over_wildcard() -> None:
+    wild = _spec(
+        "unit_prec_wild",
+        pattern="unit_prec",
+        select=Select(),
+        span=Span(tile=1),
+        slots=(Slot(0, 1, 1),),
+    )
+    register("unit_prec", METER_ANY, replace(wild, meter=METER_ANY), replace=True)
+    exact = replace(
+        wild,
+        id="unit_prec_exact",
+        meter="4/4",
+        slots=(Slot(0, 1, 2),),
+    )
+    register("unit_prec", "4/4", exact, replace=True)
+    assert plan_sentence("unit_prec", "4/4", 1, 0) == [(2, (0,))]
+    assert plan_sentence("unit_prec", "3/4", 1, 0) == [(1, (0,))]

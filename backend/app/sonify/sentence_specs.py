@@ -129,13 +129,15 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         raise ValueError(f"{spec.id}: a cycle needs truncate_to_length")
     if not spec.slots:
         raise ValueError(f"{spec.id}: at least one slot is required")
+    for slot in spec.slots:
+        if slot.anchor not in _ANCHORS:
+            raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
+
     previous_end = 0
     for slot in sorted(
         (item for item in spec.slots if item.anchor == "start"),
         key=lambda item: item.start,
     ):
-        if slot.anchor not in _ANCHORS:
-            raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
         if slot.start < 0 or slot.bars < 1:
             raise ValueError(f"{spec.id}: slot start/bars must be >= 0 / >= 1")
         if span.tile is not None and slot.start + slot.bars > span.tile:
@@ -143,6 +145,8 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         if slot.start < previous_end:
             raise ValueError(f"{spec.id}: slots overlap")
         previous_end = slot.start + slot.bars
+
+    end_slots: list[Slot] = []
     for slot in spec.slots:
         if slot.anchor != "end":
             continue
@@ -154,6 +158,17 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
             raise ValueError(f"{spec.id}: slot bars must be >= 1")
         if select.length_min < slot.bars:
             raise ValueError(f"{spec.id}: length_min is below the end slot size")
+        end_slots.append(slot)
+    # The tail is shortest at length_min; if it clears the start slots there it
+    # clears them at every longer length.
+    position = previous_end
+    for slot in sorted(end_slots, key=lambda item: item.bars, reverse=True):
+        low = select.length_min - slot.bars
+        if low < position:
+            raise ValueError(
+                f"{spec.id}: end slot overlaps the start slots at length_min"
+            )
+        position = low + slot.bars
 
 
 def register(
@@ -250,6 +265,8 @@ def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
     tile = span.tile
     if tile is None:  # validated at register; guard for python -O
         return []
+    if any(slot.anchor != "start" for slot in spec.slots):
+        raise ValueError(f"{spec.id}: end-anchored slots need an exact span")
     if not span.truncate_to_length and length % tile != 0:
         return []
     spans: list[tuple[int, tuple[int, ...]]] = []
@@ -262,19 +279,18 @@ def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
 
 
 def _lookup(pattern: str, meter: str) -> tuple[SentenceSpec, ...] | None:
-    for key in ((pattern, meter), (pattern, METER_ANY)):
-        specs = SENTENCE_SPECS.get(key)
-        if specs is not None:
-            return specs
+    exact = SENTENCE_SPECS.get((pattern, meter))
+    if exact is not None:
+        return exact
     # Owner modules register at import. A caller that imports only this module
-    # still gets the table once the owners have been loaded.
+    # still gets the table once the owners have been loaded. Retry the exact key
+    # before the wildcard, so a meter-specific registration always wins.
     for module in _OWNER_MODULES:
         importlib.import_module(module)
-    for key in ((pattern, meter), (pattern, METER_ANY)):
-        specs = SENTENCE_SPECS.get(key)
-        if specs is not None:
-            return specs
-    return None
+    exact = SENTENCE_SPECS.get((pattern, meter))
+    if exact is not None:
+        return exact
+    return SENTENCE_SPECS.get((pattern, METER_ANY))
 
 
 def plan_sentence(

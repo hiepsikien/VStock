@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent
@@ -154,12 +155,13 @@ CASTILLO_44_SPECS = (
     CASTILLO_44_LONG_ODD,
 )
 
+
 def _sonatina_spec(
     sid: str,
     *,
     length_min: int,
     length_max: int | None,
-    closes: str,
+    closes: Literal["open", "close"],
     slots: tuple[Slot, ...],
     n_parity: str = "any",
     n_mod: tuple[int, int] | None = None,
@@ -1959,6 +1961,9 @@ def _phrase_spans(ctx, phrase, pattern: str, n: int) -> list[tuple[int, tuple[in
     )
     if planned is not None:
         return planned
+    # Dead in production: sonatina resolves through the registry at every
+    # meter, so these branches only serve the parity fixture. Delete them with
+    # the other legacy selectors.
     if pattern == "sonatina" and closes:
         return _sonatina_close_spans(length, n)
     if pattern == "sonatina":

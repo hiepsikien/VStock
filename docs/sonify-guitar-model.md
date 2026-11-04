@@ -425,7 +425,7 @@ Quan hệ với các khái niệm khác:
 | `span.remainder` | `same_figure` (lặp cùng figure) \| `truncate_cycle` (galop) \| `exact` |
 | `span.cycle` | lặp trên run bất kỳ (galop) |
 | `span.exact` | slots phủ đúng `length`, không lặp (castillo 4/4, sonatina, fandanguillo, danza) |
-| `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4, sonatina close L<=3) |
+| `span.truncate_to_length` | tile dài hơn `length` bị cắt theo length (castillo 3/4). Span `exact` không dùng field này; `_slots` luôn clip slot theo length |
 | `slots[].start`, `bars`, `figure`, `anchor` | vị trí + độ dài + cell id; `anchor="end"` đặt slot tại `length - bars` (sonatina close) |
 
 **Phase 1–3 (PR #147, #148, #149) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
@@ -533,7 +533,7 @@ plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
 1. `slots[].start` bắt buộc. Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, remaining)` cho cycle/truncate, hoặc `length` khi `exact`.
 2. **Coverage suy ra từ slots, không khai trong JSON:** `covered = union([start, start+bars))`; `full = covered == set(range(effective))`; nếu không full thì là `partial`, bar trống rơi về base grid (`uncovered: base_grid`). Vì vậy `coverage` không thể là field tĩnh của archetype — cùng một archetype có thể full ở L2 và partial ở L3.
 3. **Per-cycle, không phải toàn cục:** với `length = 18, tile = 9` có hai cycle; mỗi cycle phủ `min(tile, remaining)`. Không đòi `sum(bars) == tile` khi `length < tile`.
-4. `truncate_to_length`: slot dài hơn length bị cắt; plan trả `(start, min(bars, length - start))`.
+4. `truncate_to_length`: chỉ áp cho tile lặp (castillo 3/4). Span `exact` luôn clip slot theo length trong `_slots`; plan trả `(start, min(bars, length - start))`.
 5. `remainder`/`cycle`/`exact` phải khớp kiểu archetype.
 6. `unsupported`: list tĩnh **hoặc** predicate `unsupported_when` cho trường hợp phụ thuộc input (`fandanguillo`: `rise == 0`, `room < 4` khi `n` chẵn, `room < 2` hoặc `start + 1 >= room` khi `n` lẻ; `danza`: meter 4/4, `length < 4`, `closes && length == 4`).
 7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
@@ -581,7 +581,7 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 | ✓ `sonatina` open L6 even | n even | exact | `(0,2,4), (3,2,2)` |
 | ✓ `sonatina` open L6 odd | n odd | exact | `(0,2,2), (3,2,4)` |
 | ✓ `sonatina` open L>=7 | any n | exact | `(0,2,4), (3,1,1), (5,2,2)` |
-| ✓ `sonatina` close L<=3 | any n | tile 3, truncate | `(0, L, 3)` |
+| ✓ `sonatina` close L<=3 | any n | exact, clip theo length | `(0, 3, 3)` |
 | ✓ `sonatina` close L4–L5 | any n | exact | `(L-3, 3, 3)` |
 | ✓ `sonatina` close L6 | any n | exact | `(0,1,1), (3,3,3)` |
 | ✓ `sonatina` close L>=7 | any n | exact | `(0,2,4), (L-3,3,3)` |
