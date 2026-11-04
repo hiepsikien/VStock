@@ -1,6 +1,6 @@
 # Mô hình âm nhạc của lớp guitar — Topic / Texture / Procedure / Sentence / Plan
 
-> **Trạng thái**: căn bản cho refactor renderer. **Đã migrate:** `castillo` 3/4 (PR #147) và 4/4 (PR #148). **Còn ở code:** `sonatina`, `fandanguillo`, `danza`, `galop`.
+> **Trạng thái**: căn bản cho refactor renderer. **Đã migrate:** `castillo` 3/4 (PR #147), `castillo` 4/4 (PR #148), `sonatina` (PR #149). **Còn ở code:** `fandanguillo`, `danza`, `galop`.
 > **Phạm vi**: lớp `guitar` trong `backend/app/sonify/` (villa, torroba, barrios, brouwer, bach, classic).
 > **Liên quan**: [`sonify-texture-studio.md`](./sonify-texture-studio.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md).
 > **Thứ tự**: doc này là điều kiện trước cho (a) refactor renderer và (b) Texture Studio khi thêm texture cho Villa-Lobos.
@@ -425,10 +425,10 @@ Quan hệ với các khái niệm khác:
 | `span.remainder` | `same_figure` (lặp cùng figure) \| `truncate_cycle` (galop) \| `exact` |
 | `span.cycle` | lặp trên run bất kỳ (galop) |
 | `span.exact` | slots phủ đúng `length`, không lặp (castillo 4/4, sonatina, fandanguillo, danza) |
-| `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4, sonatina close L<=3) |
-| `slots[].start`, `bars`, `realizer` | vị trí + độ dài + figure/cell/procedure |
+| `span.truncate_to_length` | tile dài hơn `length` bị cắt theo length (castillo 3/4). Span `exact` không dùng field này; `_slots` luôn clip slot theo length |
+| `slots[].start`, `bars`, `figure`, `anchor` | vị trí + độ dài + cell id; `anchor="end"` đặt slot tại `length - bars` (sonatina close) |
 
-**Phase 1–2 (PR #147, #148) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
+**Phase 1–3 (PR #147, #148, #149) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
 
 | Doc §13 | Code Phase 1 |
 |---|---|
@@ -522,7 +522,7 @@ plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
     -> [(figure, (bar, ...))] | None
 ```
 
-- `specs` tra từ registry `(pattern, meter)`. `None` = cặp này chưa migrate, caller dùng code cũ; `[]` = đã migrate nhưng length/select không khớp.
+- `specs` tra từ registry `(pattern, meter)`, fallback key `(pattern, "*")` cho family không phụ thuộc meter (`sonatina`). `None` = cặp này chưa migrate, caller dùng code cũ; `[]` = đã migrate nhưng length/select không khớp.
 - Input đủ: `length`, `n`, `closes`, `rise`, `meter`. **`previous_figure` không phải input** (xem dưới).
 - **Avoid-repeat là post-pass ở tầng pattern**, không phải field của archetype: sau khi chọn, nếu `first_realizer == previous_figure` thì tính lại **một lần** với `n + 1` (`select_torroba_spans`, `guitar_torroba.py:1795-1800`). Vì rotation đổi cả `n % 2` lẫn `n % 3`, nó phải nằm trong contract, không thể "xử lý sau".
 - Không fallback: sai meter/length/parity/closes/rise → `[]`.
@@ -530,10 +530,10 @@ plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
 
 ### 13.4. Validator
 
-1. `slots[].start` bắt buộc. Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, remaining)` cho cycle/truncate, hoặc `length` khi `exact`.
+1. `slots[].start` bắt buộc. Slot `anchor="start"` chiếm `[start, start+bars)`; slot `anchor="end"` chiếm `[length-bars, length)` (chỉ với span `exact`). Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, remaining)` cho cycle/truncate, hoặc `length` khi `exact`.
 2. **Coverage suy ra từ slots, không khai trong JSON:** `covered = union([start, start+bars))`; `full = covered == set(range(effective))`; nếu không full thì là `partial`, bar trống rơi về base grid (`uncovered: base_grid`). Vì vậy `coverage` không thể là field tĩnh của archetype — cùng một archetype có thể full ở L2 và partial ở L3.
 3. **Per-cycle, không phải toàn cục:** với `length = 18, tile = 9` có hai cycle; mỗi cycle phủ `min(tile, remaining)`. Không đòi `sum(bars) == tile` khi `length < tile`.
-4. `truncate_to_length`: slot dài hơn length bị cắt; plan trả `(start, min(bars, length - start))`.
+4. `truncate_to_length`: chỉ áp cho tile lặp (castillo 3/4). Span `exact` luôn clip slot theo length trong `_slots`; plan trả `(start, min(bars, length - start))`.
 5. `remainder`/`cycle`/`exact` phải khớp kiểu archetype.
 6. `unsupported`: list tĩnh **hoặc** predicate `unsupported_when` cho trường hợp phụ thuộc input (`fandanguillo`: `rise == 0`, `room < 4` khi `n` chẵn, `room < 2` hoặc `start + 1 >= room` khi `n` lẻ; `danza`: meter 4/4, `length < 4`, `closes && length == 4`).
 7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
@@ -552,7 +552,7 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 
 ### 13.6. Inventory archetype Torroba + status
 
-**Đã migrate:** `castillo` 3/4 (PR #147) và toàn bộ 4/4 (PR #148). Các dòng còn lại **còn ở code**; `plan_sentence` trả `None` cho chúng.
+**Đã migrate:** `castillo` 3/4 (PR #147), toàn bộ 4/4 (PR #148) và `sonatina` open/close (PR #149). Các dòng còn lại **còn ở code**; `plan_sentence` trả `None` cho chúng.
 
 | Family | Select | Span | Slots (start, bars, figure) |
 |---|---|---|---|
@@ -567,24 +567,24 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 | ✓ `castillo` 4/4 type7 (L7) | L 7 | exact | `(0, 5, 7)` |
 | ✓ `castillo` 4/4 long even | L>=8, n even | exact | `(0, 5, 7)` |
 | ✓ `castillo` 4/4 long odd | L>=8, n odd | exact | `(0,2,8), (4,2,8), (2,1,1)` |
-| `sonatina` open L2 t0 | L2, `n%3=0` | exact | `(0,2,4)` |
-| `sonatina` open L2 t1 | L2, `n%3=1` | exact | `(0,2,2)` |
-| `sonatina` open L2 t2 | L2, `n%3=2` | exact | `(0,1,1)` |
-| `sonatina` open L3 t0 | L3, `n%3=0` | exact | `(0,2,4)` |
-| `sonatina` open L3 t1 | L3, `n%3=1` | exact | `(1,2,2)` |
-| `sonatina` open L3 t2 | L3, `n%3=2` | exact | `(0,2,1)` |
-| `sonatina` open L4 t0 | L4, `n%3=0` | exact | `(0,2,4),(3,1,1)` |
-| `sonatina` open L4 t1 | L4, `n%3=1` | exact | `(1,2,2),(3,1,1)` |
-| `sonatina` open L4 t2 | L4, `n%3=2` | exact | `(0,1,1),(2,2,4)` |
-| `sonatina` open L5 even | n even | exact | `(0,2,4), (3,1,1)` |
-| `sonatina` open L5 odd | n odd | exact | `(0,2,4), (3,2,2)` |
-| `sonatina` open L6 even | n even | exact | `(0,2,4), (3,2,2)` |
-| `sonatina` open L6 odd | n odd | exact | `(0,2,2), (3,2,4)` |
-| `sonatina` open L>=7 | any n | exact | `(0,2,4), (3,1,1), (5,2,2)` |
-| `sonatina` close L<=3 | any n | tile 3, truncate | `(0, L, 3)` |
-| `sonatina` close L4–L5 | any n | exact | `(L-3, 3, 3)` |
-| `sonatina` close L6 | any n | exact | `(0,1,1), (3,3,3)` |
-| `sonatina` close L>=7 | any n | exact | `(0,2,4), (L-3,3,3)` |
+| ✓ `sonatina` open L2 t0 | L2, `n%3=0` | exact | `(0,2,4)` |
+| ✓ `sonatina` open L2 t1 | L2, `n%3=1` | exact | `(0,2,2)` |
+| ✓ `sonatina` open L2 t2 | L2, `n%3=2` | exact | `(0,1,1)` |
+| ✓ `sonatina` open L3 t0 | L3, `n%3=0` | exact | `(0,2,4)` |
+| ✓ `sonatina` open L3 t1 | L3, `n%3=1` | exact | `(1,2,2)` |
+| ✓ `sonatina` open L3 t2 | L3, `n%3=2` | exact | `(0,2,1)` |
+| ✓ `sonatina` open L4 t0 | L4, `n%3=0` | exact | `(0,2,4),(3,1,1)` |
+| ✓ `sonatina` open L4 t1 | L4, `n%3=1` | exact | `(1,2,2),(3,1,1)` |
+| ✓ `sonatina` open L4 t2 | L4, `n%3=2` | exact | `(0,1,1),(2,2,4)` |
+| ✓ `sonatina` open L5 even | n even | exact | `(0,2,4), (3,1,1)` |
+| ✓ `sonatina` open L5 odd | n odd | exact | `(0,2,4), (3,2,2)` |
+| ✓ `sonatina` open L6 even | n even | exact | `(0,2,4), (3,2,2)` |
+| ✓ `sonatina` open L6 odd | n odd | exact | `(0,2,2), (3,2,4)` |
+| ✓ `sonatina` open L>=7 | any n | exact | `(0,2,4), (3,1,1), (5,2,2)` |
+| ✓ `sonatina` close L<=3 | any n | exact, clip theo length | `(0, 3, 3)` |
+| ✓ `sonatina` close L4–L5 | any n | exact | `(L-3, 3, 3)` |
+| ✓ `sonatina` close L6 | any n | exact | `(0,1,1), (3,3,3)` |
+| ✓ `sonatina` close L>=7 | any n | exact | `(0,2,4), (L-3,3,3)` |
 | `fandanguillo` n even | L, `room = L - (closes ? 1 : 0)`, room>=4, rise>=1 | exact | `(0,4,5)` |
 | `fandanguillo` n odd | L, `room = L - (closes ? 1 : 0)`, room>=2, rise>=1 | exact | `(max(0,L//2-1), 2, 2)` |
 | `danza` | 3/4 hoặc 6/8, L>=4, not(closes && L==4) | exact | `(0,4,6)` |

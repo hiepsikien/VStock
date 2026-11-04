@@ -25,18 +25,26 @@ from dataclasses import dataclass
 # owner here when guitar_sor registers its archetype.
 _OWNER_MODULES = ("app.sonify.guitar_torroba",)
 
+METER_ANY = "*"
 _N_PARITY = frozenset({"any", "even", "odd"})
+_ANCHORS = frozenset({"start", "end"})
 _CLOSES = frozenset({"open", "close"})
 _REMAINDER = frozenset({"same_figure", "truncate_cycle", "exact"})
 
 
 @dataclass(frozen=True)
 class Slot:
-    """One figure inside a tile. `start`/`bars` are bar offsets inside the tile."""
+    """One figure inside a tile. `start`/`bars` are bar offsets inside the tile.
+
+    `anchor="end"` places the slot at `length - bars`, for sentences whose tail
+    starts relative to the phrase end (sonatina close). It requires an exact
+    span and `start=0`; it cannot be used inside a repeating tile.
+    """
 
     start: int
     bars: int
     figure: int
+    anchor: str = "start"
 
 
 @dataclass(frozen=True)
@@ -121,8 +129,15 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         raise ValueError(f"{spec.id}: a cycle needs truncate_to_length")
     if not spec.slots:
         raise ValueError(f"{spec.id}: at least one slot is required")
+    for slot in spec.slots:
+        if slot.anchor not in _ANCHORS:
+            raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
+
     previous_end = 0
-    for slot in sorted(spec.slots, key=lambda item: item.start):
+    for slot in sorted(
+        (item for item in spec.slots if item.anchor == "start"),
+        key=lambda item: item.start,
+    ):
         if slot.start < 0 or slot.bars < 1:
             raise ValueError(f"{spec.id}: slot start/bars must be >= 0 / >= 1")
         if span.tile is not None and slot.start + slot.bars > span.tile:
@@ -130,6 +145,30 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         if slot.start < previous_end:
             raise ValueError(f"{spec.id}: slots overlap")
         previous_end = slot.start + slot.bars
+
+    end_slots: list[Slot] = []
+    for slot in spec.slots:
+        if slot.anchor != "end":
+            continue
+        if not is_exact:
+            raise ValueError(f"{spec.id}: an end-anchored slot needs an exact span")
+        if slot.start != 0:
+            raise ValueError(f"{spec.id}: an end-anchored slot must use start=0")
+        if slot.bars < 1:
+            raise ValueError(f"{spec.id}: slot bars must be >= 1")
+        if select.length_min < slot.bars:
+            raise ValueError(f"{spec.id}: length_min is below the end slot size")
+        end_slots.append(slot)
+    # The tail is shortest at length_min; if it clears the start slots there it
+    # clears them at every longer length.
+    position = previous_end
+    for slot in sorted(end_slots, key=lambda item: item.bars, reverse=True):
+        low = select.length_min - slot.bars
+        if low < position:
+            raise ValueError(
+                f"{spec.id}: end slot overlaps an earlier slot at length_min"
+            )
+        position = low + slot.bars
 
 
 def register(
@@ -203,13 +242,16 @@ def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -
     return rise >= select.rise_min
 
 
-def _slots(spec: SentenceSpec, start: int, chunk: int) -> list[tuple[int, tuple[int, ...]]]:
+def _slots(
+    spec: SentenceSpec, offset: int, chunk: int, total: int
+) -> list[tuple[int, tuple[int, ...]]]:
     spans: list[tuple[int, tuple[int, ...]]] = []
     for slot in spec.slots:
-        low = max(slot.start, 0)
-        high = min(slot.start + slot.bars, chunk)
+        base = total - slot.bars if slot.anchor == "end" else slot.start
+        low = max(base, 0)
+        high = min(base + slot.bars, chunk)
         if low < high:
-            spans.append((slot.figure, tuple(range(start + low, start + high))))
+            spans.append((slot.figure, tuple(range(offset + low, offset + high))))
     return spans
 
 
@@ -218,10 +260,14 @@ def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
     if span.exact or span.remainder == "exact":
         if span.tile is not None and length != span.tile:
             return []
-        return _slots(spec, 0, length)
+        return _slots(spec, 0, length, length)
 
     tile = span.tile
     if tile is None:  # validated at register; guard for python -O
+        return []
+    if any(slot.anchor != "start" for slot in spec.slots):
+        # register() rejects this; stay quiet on the render path if a spec was
+        # built by hand.
         return []
     if not span.truncate_to_length and length % tile != 0:
         return []
@@ -229,21 +275,24 @@ def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
     start = 0
     while start < length:
         chunk = min(tile, length - start)
-        spans.extend(_slots(spec, start, chunk))
+        spans.extend(_slots(spec, start, chunk, length))
         start += chunk
     return spans
 
 
 def _lookup(pattern: str, meter: str) -> tuple[SentenceSpec, ...] | None:
-    key = (pattern, meter)
-    specs = SENTENCE_SPECS.get(key)
-    if specs is None:
-        # Owner modules register at import. A caller that imports only this
-        # module still gets the table once the owners have been loaded.
-        for module in _OWNER_MODULES:
-            importlib.import_module(module)
-        specs = SENTENCE_SPECS.get(key)
-    return specs
+    exact = SENTENCE_SPECS.get((pattern, meter))
+    if exact is not None:
+        return exact
+    # Owner modules register at import. A caller that imports only this module
+    # still gets the table once the owners have been loaded. Retry the exact key
+    # before the wildcard, so a meter-specific registration always wins.
+    for module in _OWNER_MODULES:
+        importlib.import_module(module)
+    exact = SENTENCE_SPECS.get((pattern, meter))
+    if exact is not None:
+        return exact
+    return SENTENCE_SPECS.get((pattern, METER_ANY))
 
 
 def plan_sentence(

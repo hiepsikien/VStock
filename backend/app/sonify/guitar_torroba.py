@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent
 from app.sonify.phrasing import MIN_RISE
 from app.sonify.sentence_specs import (
+    METER_ANY,
     Select,
     SentenceSpec,
     Slot,
@@ -151,6 +153,76 @@ CASTILLO_44_SPECS = (
     CASTILLO_44_TYPE7_L7,
     CASTILLO_44_LONG_EVEN,
     CASTILLO_44_LONG_ODD,
+)
+
+
+def _sonatina_spec(
+    sid: str,
+    *,
+    length_min: int,
+    length_max: int | None,
+    closes: Literal["open", "close"],
+    slots: tuple[Slot, ...],
+    n_parity: str = "any",
+    n_mod: tuple[int, int] | None = None,
+) -> SentenceSpec:
+    return SentenceSpec(
+        id=sid,
+        pattern="sonatina",
+        meter=METER_ANY,
+        select=Select(
+            length_min=length_min,
+            length_max=length_max,
+            n_parity=n_parity,
+            n_mod=n_mod,
+            closes=closes,
+        ),
+        span=Span(exact=True, remainder="exact"),
+        slots=slots,
+    )
+
+
+# Sonatina ignores the meter (`_sonatina_open_spans` / `_sonatina_close_spans`
+# read length, n and closes only), so the archetypes live under the wildcard.
+# Open turns on n % 3 for L2-L4, on parity for L5-L6, and lock for L >= 7.
+# Close always ends on a three-bar type 3 anchored to the phrase end.
+SONATINA_SPECS = (
+    _sonatina_spec("son_open_l2_t0", length_min=2, length_max=2, n_mod=(3, 0), closes="open",
+                   slots=(Slot(0, 2, 4),)),
+    _sonatina_spec("son_open_l2_t1", length_min=2, length_max=2, n_mod=(3, 1), closes="open",
+                   slots=(Slot(0, 2, 2),)),
+    _sonatina_spec("son_open_l2_t2", length_min=2, length_max=2, n_mod=(3, 2), closes="open",
+                   slots=(Slot(0, 1, 1),)),
+    _sonatina_spec("son_open_l3_t0", length_min=3, length_max=3, n_mod=(3, 0), closes="open",
+                   slots=(Slot(0, 2, 4),)),
+    _sonatina_spec("son_open_l3_t1", length_min=3, length_max=3, n_mod=(3, 1), closes="open",
+                   slots=(Slot(1, 2, 2),)),
+    _sonatina_spec("son_open_l3_t2", length_min=3, length_max=3, n_mod=(3, 2), closes="open",
+                   slots=(Slot(0, 2, 1),)),
+    _sonatina_spec("son_open_l4_t0", length_min=4, length_max=4, n_mod=(3, 0), closes="open",
+                   slots=(Slot(0, 2, 4), Slot(3, 1, 1))),
+    _sonatina_spec("son_open_l4_t1", length_min=4, length_max=4, n_mod=(3, 1), closes="open",
+                   slots=(Slot(1, 2, 2), Slot(3, 1, 1))),
+    _sonatina_spec("son_open_l4_t2", length_min=4, length_max=4, n_mod=(3, 2), closes="open",
+                   slots=(Slot(0, 1, 1), Slot(2, 2, 4))),
+    _sonatina_spec("son_open_l5_even", length_min=5, length_max=5, n_parity="even",
+                   closes="open", slots=(Slot(0, 2, 4), Slot(3, 1, 1))),
+    _sonatina_spec("son_open_l5_odd", length_min=5, length_max=5, n_parity="odd",
+                   closes="open", slots=(Slot(0, 2, 4), Slot(3, 2, 2))),
+    _sonatina_spec("son_open_l6_even", length_min=6, length_max=6, n_parity="even",
+                   closes="open", slots=(Slot(0, 2, 4), Slot(3, 2, 2))),
+    _sonatina_spec("son_open_l6_odd", length_min=6, length_max=6, n_parity="odd",
+                   closes="open", slots=(Slot(0, 2, 2), Slot(3, 2, 4))),
+    _sonatina_spec("son_open_l7plus", length_min=7, length_max=None, closes="open",
+                   slots=(Slot(0, 2, 4), Slot(3, 1, 1), Slot(5, 2, 2))),
+    _sonatina_spec("son_close_l1_3", length_min=1, length_max=3, closes="close",
+                   slots=(Slot(0, 3, 3),)),
+    _sonatina_spec("son_close_l4_5", length_min=4, length_max=5, closes="close",
+                   slots=(Slot(0, 3, 3, anchor="end"),)),
+    _sonatina_spec("son_close_l6", length_min=6, length_max=6, closes="close",
+                   slots=(Slot(0, 1, 1), Slot(3, 3, 3))),
+    _sonatina_spec("son_close_l7plus", length_min=7, length_max=None, closes="close",
+                   slots=(Slot(0, 2, 4), Slot(0, 3, 3, anchor="end"))),
 )
 # One Juglar chunk is three plucked fingers on one quantized price, and the
 # thumb on the beat under them. p-a-m-i: the four plucks sit on one sixteenth
@@ -1889,6 +1961,9 @@ def _phrase_spans(ctx, phrase, pattern: str, n: int) -> list[tuple[int, tuple[in
     )
     if planned is not None:
         return planned
+    # Dead in production: sonatina resolves through the registry at every
+    # meter, so these branches only serve the parity fixture. Delete them with
+    # the other legacy selectors.
     if pattern == "sonatina" and closes:
         return _sonatina_close_spans(length, n)
     if pattern == "sonatina":
@@ -4530,6 +4605,12 @@ register(
     "4/4",
     *CASTILLO_44_SPECS,
     valid_figures=frozenset({1, 7, 8}),
+)
+register(
+    "sonatina",
+    METER_ANY,
+    *SONATINA_SPECS,
+    valid_figures=frozenset({1, 2, 3, 4}),
 )
 
 
