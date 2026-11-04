@@ -15,7 +15,7 @@ hơn trên PC, đồng thời giữ nguyên toàn bộ hành vi lưu profile, ha
 - `TuningPanel` là **một cột rộng 380px** (`DRAWER_WIDTH`).
 - Trên PC:
   - `>= 1280px`: drawer đẩy chart sang trái (`RoomFrame` giữ chỗ `DRAWER_WIDTH`).
-  - `960–1280px`: drawer nổi dạng modal.
+  - `960–1280px`: drawer nổi dạng modal trong suốt.
   - Mobile: bottom sheet.
 - Mỗi field số là một slider ngang giống nhau: nút `−`, track, nút `+`, vạch
   default và vạch giữa.
@@ -32,7 +32,7 @@ hơn trên PC, đồng thời giữ nguyên toàn bộ hành vi lưu profile, ha
 
 ## 2. Mục tiêu
 
-1. Trên PC, panel rộng hơn và có cảm giác như một mixer.
+1. Trên PC, panel rộng 50–67% màn hình và có cảm giác như một mixer.
 2. Bố cục chia khu vực rõ: mixer bè, trình diễn, chất liệu, hòa âm, dáng.
 3. Các field `0–1–2` hiển thị như trục âm/dương quanh giá trị hiện tại.
 4. Field nào có cách biểu diễn trực quan hơn thì đổi UI, không rập khuôn slider.
@@ -42,56 +42,67 @@ hơn trên PC, đồng thời giữ nguyên toàn bộ hành vi lưu profile, ha
 
 ### 3.1 Chiều rộng
 
-Panel chiếm **một nửa đến hai phần ba chiều rộng màn hình**, không full-width.
-Giữ dạng drawer phải, cùng nền `panel`, viền trái `hairline` và backdrop tối như
-các lớp phủ hiện có.
+Panel chiếm **50–67% chiều rộng viewport**, không full-width. Giữ dạng drawer
+phải, nền `panel`, viền trái `hairlineStrong`. Modal hiện tại trong suốt; đợt này
+**thêm backdrop tối mới** cho chế độ focus, không phải “đã có sẵn”.
 
 ```ts
-panelWidth = clamp(640, round(windowWidth * 0.60), 1280)
-contentMaxWidth = 1040
+// clamp(value, min, max)
+panelWidthFor(w) = clamp(round(w * 0.60), 640, 1280)
+contentWidth = min(panelWidth - 48, 1040)
 ```
 
-| Cửa sổ | Panel | Tỉ lệ | Ghi chú |
-|---|---|---|---|
-| 960 | 640 | 66.7% | overlay, 2 cột |
-| 1024 | 640 | 62.5% | overlay, 2 cột |
-| 1280 | 768 | 60.0% | overlay, 3 cột |
-| 1366 | 820 | 60.0% | overlay, 3 cột |
-| 1440 | 864 | 60.0% | overlay, 3 cột |
-| 1920 | 1152 | 60.0% | push, chart còn 456px |
-| 2560 | 1280 | 50.0% | push, chart còn 968px |
+| Cửa sổ | Panel | Tỉ lệ | `contentWidth` | `visibleChart` | Chế độ |
+|---|---|---|---|---|---|
+| 960 | 640 | 66.7% | 592 | 8 | overlay |
+| 1024 | 640 | 62.5% | 592 | 72 | overlay |
+| 1280 | 768 | 60.0% | 720 | 200 | overlay |
+| 1366 | 820 | 60.0% | 772 | 234 | overlay |
+| 1440 | 864 | 60.0% | 816 | 264 | overlay |
+| 1879 | 1127 | 60.0% | 1040 | 440 | bắt đầu push |
+| 1920 | 1152 | 60.0% | 1040 | 456 | push |
+| 2560 | 1280 | 50.0% | 1040 | 968 | push |
 
-- Nội dung bên trong giới hạn `maxWidth: 1040` và canh giữa. Ở 1920 panel
-  1152px nhưng phần controls chỉ 1040px, hai bên còn ~56px đệm — đủ thoáng,
-  không rộng lê thê.
-- Chỉ push chart khi chart còn ít nhất 440px:
+Định nghĩa:
 
 ```ts
-push = windowWidth - COLUMN_WIDTH - panelWidth >= 440
+chartArea   = windowWidth - COLUMN_WIDTH
+visibleChart = chartArea - panelWidth       // overlay che, push co lại: cùng số
+push        = visibleChart >= 440
 ```
 
-- `>= ~1900px`: push. Ở 1920 chart còn 456px.
-- `960–1899px`: overlay từ phải, có backdrop, chart phía sau mờ đi. Ở 1440 nếu
-  push thì chart chỉ còn 264px — quá hẹp, nên overlay là lựa chọn đúng.
-- Đây là lý do panel vẫn “vừa đủ”: bề rộng panel 60% nhưng nội dung có trần
-  1040px, không kéo chữ và slider ra hết mép màn hình.
+**Sửa lập luận cũ:** overlay **không** làm chart rộng hơn push. Nó chỉ tránh
+reflow khi mở/đóng. Ở 1280–1440, visible chart chỉ còn 200–264px, không đủ để
+tua/đọc chart. Vì vậy:
+
+- `>= ~1879px`: push. Chart còn >=440px, dùng được.
+- `960–1878px`: **focus mode**. Panel overlay + backdrop tối; chart bị che gần
+  hết và không phải bề mặt thao tác trong lúc panel mở. Có nút `Thu gọn` / `Esc`
+  để quay lại chart.
+- Nếu sau này bắt buộc chart vẫn dùng được khi panel mở, cần **compact mode**:
+  `panelWidth <= chartArea - 440`. Ở 1440, trần là 688px (47.8%); ở 1280 là
+  528px (41.3%) — tức phải phá quy tắc 50–67%. Vì vậy compact mode là tuỳ chọn
+  riêng, không phải mặc định.
 
 ### 3.2 Bố cục một màn hình cho Guitar trên PC
 
-Mục tiêu: ở `1366×768`, `1440×900` và `1920×1080`, panel Guitar mở ra là thấy
-toàn bộ knob, **không phải cuộn**. Vì vậy không dùng một cột dọc.
+Mục tiêu: ở **viewport** `1366×660`, `1440×800`, `1920×980`, panel Guitar mở ra
+là thấy toàn bộ knob, **không phải cuộn**. Dùng `window.innerHeight` (qua
+`useWindowDimensions().height`), không dùng chiều cao vật lý của màn hình.
 
 Cấu trúc:
 
 1. **Mixer ngang toàn panel** ở trên: sóng low/mid/high bên trái, 3 fader dọc
    bên phải, hàng `Vùng âm` + `Cân bằng lại` ở dưới.
-2. **Controls chia cột** bên dưới mixer:
-   - `panelWidth >= 720`: 3 cột. Với panel 60%, việc này xảy ra từ khoảng
-     `1200px`.
-   - `panelWidth < 720`: 2 cột, hàng compact hơn (`960–1199px`).
-3. **Dense mode theo chiều cao**:
-   - `height < 820`: hàng 48px, mixer 180px, gap 6px.
-   - `height >= 820`: hàng 58px, mixer 210px, gap 10px.
+2. **Controls chia cột** ở giữa:
+   - `panelWidth >= 768` (từ khoảng `1280px` cửa sổ): 3 cột.
+   - `panelWidth < 768`: 2 cột.
+3. **Dáng full-width** ở dưới controls: `Khung` và `Tiết nhịp` đặt cạnh nhau
+   khi `contentWidth >= 640`; dưới ngưỡng thì xếp dọc. Nhờ vậy `meter` 5 lựa
+   chọn không bị wrap trong cột hẹp.
+4. **Dense mode theo viewport height**:
+   - `height < 740`: hàng 48px, mixer 180px, gap 6px.
+   - `height >= 740`: hàng 58px, mixer 210px, gap 10px.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -105,46 +116,49 @@ Cấu trúc:
 │                                       Cao     Trung   Bass          │
 │  Vùng âm  [──────●──────]   [Cân bằng lại]                           │
 ├────────────────────────┬────────────────────────┬────────────────────┤
-│ TRÌNH DIỄN             │ CHẤT LIỆU              │ DÁNG               │
-│  Nhịp      −  0  +     │  Tương phản − 0 +      │  Khung   [seg]     │
-│  Người     −  0  +     │  Nhiễu       − 0 +      │  Tiết nhịp [seg]   │
-│  Hơi thở   −  0  +     │  Mật độ      − 0 +      │                    │
-│  Màu       −  0  +     │                        │ GUITAR             │
-│                        │ HÒA ÂM                 │  Kỹ thuật − 0 +    │
-│                        │  Màu hòa âm  − 0 +     │                    │
-│                        │  Nhịp hòa âm − 0 +     │                    │
+│ TRÌNH DIỄN             │ CHẤT LIỆU              │ HÒA ÂM / GUITAR    │
+│  Nhịp      −  0  +     │  Tương phản − 0 +      │  Màu hòa âm − 0 +  │
+│  Người     −  0  +     │  Nhiễu       − 0 +      │  Nhịp hòa âm − 0 + │
+│  Hơi thở   −  0  +     │  Mật độ      − 0 +      │  Kỹ thuật    − 0 + │
+│  Màu       −  0  +     │                        │                    │
 ├────────────────────────┴────────────────────────┴────────────────────┤
+│ DÁNG   Khung [Tự động | Không | Ngắn | Dài]   Tiết nhịp [seg 5 mục]  │
+├──────────────────────────────────────────────────────────────────────┤
 │ [Reset]                                                     [Lưu]    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 Phân bổ cột:
 
-| Panel | Controls | Cột 1 | Cột 2 | Cột 3 |
-|---|---|---|---|---|
-| `>= 720` | 3 cột | Trình diễn (4) | Chất liệu (3) + Hòa âm (2) | Dáng (2) + Guitar (1) |
-| `< 720` | 2 cột | Trình diễn (4) + Chất liệu (3) | Hòa âm (2) + Dáng (2) + Guitar (1) | — |
+| Panel | Controls | Cột 1 | Cột 2 | Cột 3 | Dáng |
+|---|---|---|---|---|---|
+| `>= 768` | 3 cột | Trình diễn (4) | Chất liệu (3) | Hòa âm (2) + Guitar (1) | full-width |
+| `< 768` | 2 cột | Trình diễn (4) + Chất liệu (3) | Hòa âm (2) + Guitar (1) | — | full-width |
 
-Ước lượng chiều cao:
+`Dáng` luôn full-width vì `meter` có 5 lựa chọn. Nếu chỉ một trong hai field
+visible, field còn lại chiếm toàn bộ hàng.
 
-| Vùng | Dense (768) | Thoáng (900+) |
+Ước lượng chiều cao (3 cột, worst case 4 hàng):
+
+| Vùng | Dense (`height < 740`) | Thoáng (`height >= 740`) |
 |---|---|---|
 | Header + profile | ~72 | ~80 |
 | Mixer ngang panel | 180 | 210 |
-| Controls (cột cao nhất 5–7 hàng) | 270–366 | 270–438 |
+| Controls (4 hàng + 3 group label) | 220 | 264 |
+| Dáng full-width | 66 | 76 |
 | Footer | 56 | 56 |
 | Padding | 24 | 24 |
-| **Tổng** | **602–698** | **640–808** |
+| **Tổng** | **618** | **710** |
 
-- Ở `1366×768`, panel 820 → 3 cột + dense: 5 hàng × 48 + mixer 180 ≈ 602px,
-  còn nhiều chỗ cho cảnh báo.
-- Ở `1440×900`, panel 864 → 3 cột thoáng: 5 hàng × 58 + mixer 210 ≈ 692px.
-- Ở `1920×1080`, panel 1152, content 1040 → 3 cột, cột cao nhất 5 hàng.
-- Ở `1280×720`, panel 768 → 3 cột + dense: ≈ 602px, vẫn vừa.
-- Ở `1024×768`, panel 640 → 2 cột + dense: 7 hàng × 48 + mixer 180 ≈ 698px,
-  vẫn vừa nhưng là ngưỡng thấp nhất nên cần kiểm tra kỹ.
-- Với Guitar, phần thân PC **không dùng `ScrollView`** khi đã đủ chỗ; chỉ bật
-  scroll làm fallback cho cửa sổ thấp bất thường (dưới ~700px) hoặc mobile.
+- Viewport `1366×660`: 3 cột + dense, tổng ~618 → vừa, còn 42px cho cảnh báo.
+- Viewport `1440×800`: 3 cột + thoáng, tổng ~710 → vừa.
+- Viewport `1920×980`: 3 cột + thoáng, `contentWidth = 1040` → rất thoáng.
+- Viewport `1280×600`: 3 cột + dense, tổng ~618 → **có thể scroll**; không hứa
+  no-scroll.
+- Viewport `1024×620`: 2 cột + dense, 7 hàng → ~790 → **scroll**. Đây là chấp
+  nhận: 1024×768 không nằm trong nhóm “một màn hình”.
+- Không dùng `panelLayout` để đoán `scroll`. `scrollEnabled` lấy từ đo thật:
+  `onLayout` của khung + `onContentSizeChange` của nội dung.
 - Mobile vẫn một cột cuộn: mixer → trình diễn → chất liệu → hòa âm → dáng.
 - Header và footer dính; không lồng nhiều `ScrollView`.
 
@@ -152,15 +166,15 @@ Phân bổ cột:
 
 Nếu mixer nằm trong một cột dọc, cột đó cao khoảng 500px, trong khi cột controls
 còn lại khoảng 870px → vẫn phải cuộn. Đưa mixer thành **dải ngang toàn panel**
-trên cùng tận dụng chiều ngang, giảm chiều cao mỗi cột controls xuống còn 5–7
-hàng. Đây là lý do bố cục một màn hình khả thi ở 768px chiều cao.
+trên cùng và tách `Dáng` thành hàng full-width giúp cột controls cao nhất chỉ
+còn 4 hàng. Đây là lý do bố cục một màn hình khả thi ở viewport 660px.
 
 ## 4. Các khu vực
 
 ### 4.1 Cân bằng
 
 - Là dải **ngang toàn panel** trên cùng, không nằm trong một cột dọc và không
-  tràn ra ngoài bề rộng panel 60%.
+  tràn ra ngoài bề rộng panel.
 - Trái: sóng low/mid/high co giãn theo chiều rộng còn lại.
 - Phải: 3 fader dọc cho `Bè cao / Bè trung / Bè bass`.
 - Fader chỉ hiện khi `variant === 'guitar'`.
@@ -184,12 +198,29 @@ hàng. Đây là lý do bố cục một màn hình khả thi ở 768px chiều 
 ### 4.5 Dáng
 
 - `Khung`, `Tiết nhịp`.
+- Là **hàng full-width** dưới controls.
+- `contentWidth >= 640`: hai field cạnh nhau, mỗi field ~50%.
+- `contentWidth < 640`: xếp dọc, mỗi field full-width.
 - Dùng segmented control thay vì các nút rời.
+- `meter` có 5 lựa chọn; full-width (hoặc 50% khi >=640) bảo đảm không wrap.
 
 ### 4.6 Guitar
 
-- `Kỹ thuật` chỉ hiện khi field thật sự áp dụng.
-- Ba bè đã chuyển sang khu Cân bằng.
+- `Kỹ thuật` chỉ hiện khi field thật sự áp dụng (`bach`, `torroba`, tier C).
+- Ba bè đã chuyển sang khu Cân bằng và chỉ hiện khi `variant === 'guitar'`.
+
+### 4.7 Profile tab
+
+- Giữ một cột, `maxWidth: 560`, canh giữa trong panel.
+- Không áp layout 2/3 cột của tab Tinh chỉnh.
+- Danh sách profile, editor tên và các nút giữ nguyên hành vi hiện tại.
+
+### 4.8 Mobile
+
+- Một cột cuộn.
+- Mixer: sóng full-width, 3 fader nằm ngang bên dưới, rồi `Vùng âm`.
+- Controls: Trình diễn → Chất liệu → Hòa âm → Guitar → Dáng.
+- Fader dọc vẫn dùng được, nhưng track thấp hơn (~120px) để không chiếm màn hình.
 
 ## 5. Field `0–1–2` thành trục âm/dương
 
@@ -198,28 +229,33 @@ hàng. Đây là lý do bố cục một màn hình khả thi ở 768px chiều 
 - Field `0–2`: lấy **`1` làm tâm** vì `1` là “bản hiện tại”, `0` và `2` là hai
   cực ít/nhiều.
 - Field đã có `0` là tâm (`guitar_high/mid/bass`): giữ `0` làm tâm.
-- `noise`: neo `0` vì `0` = không nhiễu.
+- `noise`: neo `0` vì `0` = không nhiễu. Default `0.1` nằm ở **20%** track,
+  không phải tâm.
 - Chỉ đổi cách hiển thị. Giá trị gửi backend, hash, URL và profile không đổi.
-- Slider tô từ tâm ra, không tô từ trái.
-- Vạch default nằm đúng tâm.
+- Slider tô từ **anchor**:
+  - field centered: anchor = tâm = default;
+  - `noise`: anchor = 0.
+- Vạch default:
+  - field centered: ở tâm;
+  - `noise`: ở 20% track.
 - Khi giá trị khác default, hiện nút `↺` nhỏ để trả về mặc định.
 
 ### 5.2 Bảng hiển thị
 
-| Field | Tâm | Trái → phải | Hiển thị |
-|---|---|---|---|
-| `tempo` | `1.0` | Chậm ← 0 → Nhanh | `−8%` / `0` / `+8%`, kèm `88 BPM` |
-| `humanize` | `1.0` | Ít ← 0 → Nhiều | `−40%` / `0` / `+40%` |
-| `breath` | `1.0` | Đều ← 0 → Cong câu | `−40%` / `0` / `+40%` |
-| `color` | `1.0` | Khô ← 0 → Đậm | `−40%` / `0` / `+40%` |
-| `dynamics` | `1.0` | Phẳng ← 0 → Tương phản | `−30%` / `0` / `+30%` |
-| `density` | `1.0` | Thưa ← 0 → Dày | `−40%` / `0` / `+40%` |
-| `harmony` | `1.0` | Tối giản ← 0 → Nhiều màu | `−40%` / `0` / `+40%` |
-| `motion` | `1.0` | Giữ lâu ← 0 → Dồn dập | `−40%` / `0` / `+40%` |
-| `register` | `1.0` | Thấp/ấm ← 0 → Cao/sáng | `−40%` / `0` / `+40%` |
-| `technique` | `1.0` | Dễ ← 0 → Điêu luyện | `−40%` / `0` / `+40%` |
-| `guitar_high/mid/bass` | `0` | Nhỏ ← 0 → Lớn | `−3` / `0` / `+3` |
-| `noise` | `0` | Sạch → Nhiễu | `0.15%` tuyệt đối |
+| Field | Range | Tâm / anchor | Trái → phải | Hiển thị |
+|---|---|---|---|---|
+| `tempo` | `0.75–1.25` | `1.0` | Chậm ← 0 → Nhanh | `−25% … +25%`, kèm BPM |
+| `humanize` | `0–2` | `1.0` | Ít ← 0 → Nhiều | `−100% … +100%` |
+| `breath` | `0–2` | `1.0` | Đều ← 0 → Cong câu | `−100% … +100%` |
+| `color` | `0–2` | `1.0` | Khô ← 0 → Đậm | `−100% … +100%` |
+| `dynamics` | `0.5–1.5` | `1.0` | Phẳng ← 0 → Tương phản | `−50% … +50%` |
+| `density` | `0–2` | `1.0` | Thưa ← 0 → Dày | `−100% … +100%` |
+| `harmony` | `0–2` | `1.0` | Tối giản ← 0 → Nhiều màu | `−100% … +100%` |
+| `motion` | `0–2` | `1.0` | Giữ lâu ← 0 → Dồn dập | `−100% … +100%` |
+| `register` | `0–2` | `1.0` | Thấp/ấm ← 0 → Cao/sáng | `−100% … +100%` |
+| `technique` | `0–2` | `1.0` | Dễ ← 0 → Điêu luyện | `−100% … +100%` |
+| `guitar_high/mid/bass` | `−12–+12` | `0` | Nhỏ ← 0 → Lớn | `−12 … +12` |
+| `noise` | `0–0.5%` | anchor `0`, default `0.1` | Sạch → Nhiễu | `0.00% … 0.50%` tuyệt đối |
 
 Ví dụ:
 
@@ -228,15 +264,18 @@ Người        −40%  ·  0.60     ↺
               Ít hơn        Nhiều hơn
 ```
 
-- `tempo` hiện thêm BPM ngay dưới.
+- `tempo`: primary `+8%`, secondary `1.08× · 104 BPM` (BPM lấy từ
+  `effectiveBpm(baseBpm, value)`).
+- `guitar_*`: primary `+3`, secondary `3 velocity`.
+- `noise`: primary `0.10%`, secondary `0.10% full-scale`.
 - `humanize` / `breath` hiện cảnh báo mềm ngay trong hàng khi vượt ngưỡng.
-- Giá trị thô có thể hiện nhỏ cạnh phần trăm để người quen số cũ vẫn đọc được.
+- Giá trị thô hiện nhỏ cạnh phần trăm để người quen số cũ vẫn đọc được.
 
 ### 5.3 Field đổi UI khác
 
 | Field | UI mới | Lý do |
 |---|---|---|
-| `frame`, `meter` | segmented control | 4–5 lựa chọn, nhìn là biết đang chọn gì |
+| `frame`, `meter` | segmented control, full-width | 4–5 lựa chọn, nhìn là biết đang chọn gì |
 | `noise` | thanh neo 0 + `%` tuyệt đối | `0` có nghĩa thật là “sạch” |
 | `guitar_*` | fader dọc | đúng ẩn dụ mixer, thấy tương quan ba bè |
 | `tempo` | `%` + BPM | nhạc công đọc BPM nhanh hơn hệ số |
@@ -251,17 +290,18 @@ kéo:
 
 ```text
 register 0–2  →  nghiêng phổ thấp ↔ cao
-guitar_bass   →  cộng vào dải thấp
-guitar_mid    →  cộng vào dải trung
-guitar_high   →  cộng vào dải cao
+guitar_bass   →  cộng vào dải thấp   (chỉ khi variant === 'guitar')
+guitar_mid    →  cộng vào dải trung  (chỉ khi variant === 'guitar')
+guitar_high   →  cộng vào dải cao    (chỉ khi variant === 'guitar')
 ```
 
 Ví dụ:
 
 ```ts
-low  = 0.55 - (register - 1) * 0.30 + guitar_bass / 12 * 0.22
-mid  = 0.55                            + guitar_mid  / 12 * 0.22
-high = 0.55 + (register - 1) * 0.30 + guitar_high / 12 * 0.22
+const guitar = variant === 'guitar';
+low  = 0.55 - (register - 1) * 0.30 + (guitar ? guitar_bass / 12 * 0.22 : 0);
+mid  = 0.55                            + (guitar ? guitar_mid  / 12 * 0.22 : 0);
+high = 0.55 + (register - 1) * 0.30 + (guitar ? guitar_high / 12 * 0.22 : 0);
 ```
 
 Clamp `0.08–0.95`.
@@ -283,7 +323,7 @@ không làm trong đợt UI này.
 
 | File | Việc |
 |---|---|
-| `src/musicalize/TuningPanel.tsx` | mixer ngang toàn panel + controls 2/3 cột, fader dọc, slider bipolar, segmented control |
+| `src/musicalize/TuningPanel.tsx` | mixer ngang toàn panel + controls 2/3 cột + Dáng full-width, fader dọc, slider bipolar, segmented control |
 | `src/musicalize/TuningSpectrum.tsx` | sóng low/mid/high bằng `react-native-svg` |
 | `src/musicalize/tuningDisplay.ts` | helper thuần: tâm field, text hiển thị, spectrum levels, panel width/layout |
 | `src/musicalize/tuningDisplay.test.ts` | test helper |
@@ -303,63 +343,128 @@ không làm trong đợt UI này.
 `tuningDisplay.ts` nên có:
 
 - `fieldCenter(field)` → giá trị tâm.
-- `anchorRatio(field)` → vị trí tâm trên track.
-- `paramDisplay(field, value)` → `{ primary, secondary, negativeLabel, positiveLabel }`.
-- `spectrumLevels(params, variant)` → `[low, mid, high]`.
+- `fieldAnchor(field)` → giá trị anchor (`center` hoặc `0` cho `noise`).
+- `anchorRatio(field)` → vị trí anchor trên track; `noise` = 0, default tick
+  của `noise` = 20%.
+- `paramDisplay(field, value, { baseBpm })` →
+  `{ primary, secondary, deltaText, negativeLabel, positiveLabel }`.
+- `spectrumLevels(params, variant)` → `[low, mid, high]`; guitar offsets chỉ
+  cộng khi `variant === 'guitar'`.
 - `panelWidthFor(windowWidth)`.
 - `panelPushes(windowWidth)`.
-- `panelLayout(windowWidth, windowHeight, variant)` → `{ columns, dense, scroll, contentWidth }`,
-  trong đó `columns` là `2`, `3` hoặc `1` (mobile).
+- `panelLayout(windowWidth, windowHeight, context)` →
+  `{ columns, dense, contentWidth, dangStacked }`, **không** trả `scroll`.
+  `context = { variant, span, ensemble, tiers }`.
+
+Visibility và đếm thay đổi:
+
+- `panelFields(context)` = `visibleFields(...)` rồi lọc thêm:
+  - `guitar_high/mid/bass` chỉ giữ khi `variant === 'guitar'`.
+- `changedCount` dùng `panelFields`, không dùng `visibleFields` trực tiếp.
+- `hiddenChanged` đếm mọi `PARAM_FIELDS` đã đổi nhưng không nằm trong
+  `panelFields` (gồm guitar field khi không phải Guitar).
+- Profile summary dùng cùng `changedCount` / `hiddenChanged`.
+
+Không sửa `appliesTo` backend thành `['guitar']`: token `guitar` khớp cả
+`variant === 'guitar'` lẫn ensemble `guitar` của Minimalist, nơi backend không
+chạy `apply_voice_balance`. Đây là lọc UI, không phải schema.
 
 Test tối thiểu:
 
-- Mọi field `0–2` có tâm `1`; `guitar_*` có tâm `0`; `noise` neo `0`.
-- Text `tempo`, `guitar_*`, `noise` đúng dấu và đơn vị.
-- `spectrumLevels` ở default, ở hai cực `register`, và khi guitar offset bị clamp.
-- `panelWidthFor` trả 60% và kẹp trong `640–1280`; `panelPushes` chỉ bật ở
-  `>= ~1900`.
-- `panelLayout` cho Guitar:
-  - `1024×768` → 2 cột, dense, `scroll = false`.
-  - `1280×720` → 3 cột, dense, `scroll = false`.
-  - `1366×768` → 3 cột, dense, `scroll = false`.
-  - `1440×900` → 3 cột, thoáng, `scroll = false`.
-  - `1920×1080` → 3 cột, thoáng, content 1040, `scroll = false`.
-  - Mobile → 1 cột, `scroll = true`.
+- Mọi field `0–2` có tâm `1`; `guitar_*` có tâm `0`; `noise` anchor `0`,
+  default tick ở 20%.
+- Text `tempo`, `guitar_*`, `noise` đúng dấu, range và đơn vị:
+  `tempo` ±25%, `dynamics` ±50%, field `0–2` ±100%, guitar ±12.
+- `spectrumLevels` ở default, ở hai cực `register`, khi guitar offset bị clamp,
+  và khi `variant !== 'guitar'` thì offset guitar không được cộng.
+- `panelWidthFor`:
+  - 960 → 640 (clamped, 66.7%);
+  - 1024 → 640 (clamped, 62.5%);
+  - 1440 → 864;
+  - 1920 → 1152;
+  - 2560 → 1280 (clamped, 50%).
+- `contentWidth`: 1920 → 1040; 2560 → 1040.
+- `panelPushes`: 1878 → false; 1879 → true; 1920 → true.
+- `panelLayout` cho Guitar (width/height là viewport, không phải độ phân giải
+  màn hình):
+  - `1024×620` → 2 cột, dense.
+  - `1280×600` → 3 cột, dense.
+  - `1366×660` → 3 cột, dense.
+  - `1440×800` → 3 cột, thoáng.
+  - `1920×980` → 3 cột, thoáng, content 1040.
+  - `2560×1400` → 3 cột, content 1040.
+  - Mobile → 1 cột.
+- `dangStacked`: `contentWidth` 592 → true; 720 và 1040 → false.
+- `panelFields`: Guitar visible khi `variant === 'guitar'`; ẩn ở `symphony`;
+  `changedCount` và `hiddenChanged` khớp.
+- `meter` 5 lựa chọn không wrap: `contentWidth` 592 → xếp dọc full-width;
+  720 và 1040 → cạnh nhau, mỗi field 50%, vẫn đủ chỗ.
+
+### 7.4 Runtime
+
+- `drawerX` phải là `Animated.Value(panelWidth)` và cập nhật khi `panelWidth`
+  đổi:
+  - đóng: `drawerX.setValue(panelWidth)`;
+  - mở: `drawerX.setValue(0)`.
+  Nếu resize từ 380 → 820 mà không set lại, drawer đóng vẫn lệch.
+- `scrollEnabled` đo thật:
+  - `onLayout` khung cuộn → `availableHeight`;
+  - `onContentSizeChange` → `contentHeight`;
+  - `scrollEnabled = contentHeight > availableHeight + 1`.
+- `Animated.timing` đóng/mở dùng `panelWidth` hiện tại, không dùng hằng 380.
 
 ## 8. Rủi ro
 
-1. **Fader dọc vs ScrollView**: cần `PanResponder` capture đúng để kéo fader không
-   cuộn panel. Test trên web và native.
-2. **Ngưỡng push**: panel 60% khiến chart quá hẹp ở 1280–1440. Đề xuất chỉ push
-   khi chart còn >=440px, tức khoảng `>=1900`; các cỡ phổ thông dùng overlay có
-   backdrop. Đây là đánh đổi có chủ ý để giữ panel đúng tỉ lệ 50–66%.
-3. **Guitar đang hiện sai thể loại**: ẩn fader khi không phải Guitar. Nếu muốn
-   triệt để, thêm `appliesTo: ['guitar']` cho 3 field trong backend ở việc riêng.
-4. **Sóng là ước lượng**: phải ghi chú rõ để không gây hiểu nhầm là phân tích audio.
-5. **A11y**: fader dọc phải là `adjustable`, có `accessibilityValue`, action
-   increment/decrement, và hỗ trợ phím lên/xuống/Home/End trên web.
+1. **Fader dọc vs ScrollView**: cần `PanResponder` capture đúng để kéo fader
+   không cuộn panel. Test trên web và native.
+2. **Chart bị che ở focus mode**: overlay không làm chart rộng hơn push. Ở
+   1280–1440 visible chart chỉ 200–264px; phải ghi rõ là focus mode, có nút
+   `Thu gọn`/`Esc`, không quảng cáo “chart vẫn dùng được”. Push chỉ từ ~1879px.
+3. **Guitar field ngoài Guitar**: lọc UI, không dùng `appliesTo: ['guitar']` vì
+   khớp cả ensemble `guitar` của Minimalist. Phải cập nhật `changedCount`,
+   `hiddenChanged`, `spectrumLevels`.
+4. **Sóng là ước lượng**: phải ghi chú rõ để không gây hiểu nhầm là phân tích
+   audio.
+5. **A11y**: fader dọc phải là `adjustable`, có readout, `accessibilityValue`,
+   action increment/decrement, và hỗ trợ phím lên/xuống/Home/End trên web.
+6. **`drawerX` dynamic width**: resize khi panel đóng/mở phải set lại
+   `Animated.Value`; nếu không drawer lệch.
+7. **`meter` 5 lựa chọn**: đã xử lý bằng hàng `Dáng` full-width. Nếu sau này
+   chuyển `Dáng` vào cột, phải test wrap ở 224–264px.
+8. **Chiều cao thật**: dùng `innerHeight`, không dùng 768/900 của màn hình.
+   `1024×768` và `1280×720` có thể scroll; đừng đưa vào tiêu chí no-scroll.
 
 ## 9. Thứ tự triển khai
 
-1. `tuningDisplay.ts` + test, gồm `panelLayout`.
+1. `tuningDisplay.ts` + test: panel width/layout, panel fields, display text,
+   spectrum, visibility/count.
 2. `TuningSpectrum.tsx`.
-3. Layout mixer ngang toàn panel + controls 2/3 cột + panel width động.
-4. Fader dọc + slider bipolar + segmented control.
-5. Rà `1024×768`, `1280×720`, `1366×768`, `1440×900`, `1920×1080`, web + native.
-6. Chạy `npm run test:musicalize`.
+3. Layout mixer ngang toàn panel + controls 2/3 cột + Dáng full-width +
+   panel width động.
+4. Fader dọc + slider bipolar + segmented control + readout/a11y.
+5. Runtime scroll measurement + `drawerX` resize handling.
+6. Rà viewport `1024×620`, `1280×600`, `1366×660`, `1440×800`, `1920×980`,
+   web + native.
+7. Chạy `npm run test:musicalize`.
 
 ## 10. Tiêu chí xong
 
-- Panel PC rộng 50–66% màn hình, không full-width; nội dung có trần 1040px.
-- Guitar trên PC, `1366×768`: panel 820, 3 cột + dense, **không cuộn**.
-- Guitar trên PC, `1440×900`: panel 864, 3 cột thoáng, **không cuộn**.
-- Guitar trên PC, `1920×1080`: panel 1152, content 1040, 3 cột, **không cuộn**.
-- Guitar trên PC, `1024×768`: panel 640, 2 cột + dense, **không cuộn**.
-- Mixer là dải ngang toàn panel; không có cột mixer dọc làm cột controls cao quá
-  màn hình.
-- Ở 1280–1440px, panel dạng overlay, không push chart xuống dưới 440px.
-- Kéo `Bè cao/trung/bass` thấy fill từ tâm và sóng đổi tương ứng.
-- Các field `0–2` hiện `−% / 0 / +%`; `noise` hiện `%` tuyệt đối.
-- Không có slider guitar chết ở thể loại không phải Guitar.
+- Panel PC rộng 50–67% viewport, không full-width; `contentWidth` có trần 1040.
+- Guitar trên PC, viewport `1366×660`: panel 820, 3 cột + dense, `Dáng`
+  full-width, **không cuộn**.
+- Guitar trên PC, viewport `1440×800`: panel 864, 3 cột thoáng, **không cuộn**.
+- Guitar trên PC, viewport `1920×980`: panel 1152, `contentWidth` 1040, 3 cột,
+  **không cuộn**.
+- `1024×768` và `1280×720`: chấp nhận scroll; không hứa no-scroll.
+- Ở 1280–1440, panel là focus mode: chart bị che còn 200–264px, có `Thu gọn`/
+  `Esc`. Không viết “overlay giúp chart vẫn dùng được”.
+- Chỉ push từ ~1879px; khi đó chart còn >=440px.
+- `meter` 5 lựa chọn nằm một hàng trong `Dáng` full-width.
+- Kéo `Bè cao/trung/bass` thấy fill từ anchor và sóng đổi tương ứng.
+- Các field hiện đúng range: `tempo` ±25%, `dynamics` ±50%, field `0–2`
+  ±100%, guitar ±12, `noise` `0.00–0.50%` (default `0.10%`).
+- Guitar field ẩn ngoài thể loại Guitar; `changedCount` / `hiddenChanged` /
+  `spectrumLevels` khớp.
+- `drawerX` cập nhật theo panel width khi resize.
 - `Reset` / `Lưu` vẫn hoạt động như cũ.
 - Không đổi hash, URL hay dữ liệu profile đã lưu.
