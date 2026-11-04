@@ -1,4 +1,4 @@
-"""Castillo 3/4 migration: equivalence, integration, and registry validation."""
+"""Castillo migration: equivalence, integration, and registry validation."""
 
 from __future__ import annotations
 
@@ -11,8 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import app.sonify.guitar_torroba as torroba
-from app.sonify.guitar_torroba import _FIGURES, _castillo_34_spans, _castillo_spans
-from app.sonify.sentence_specs import SENTENCE_SPECS
+from app.sonify.guitar_torroba import _castillo_34_spans, _castillo_spans
 from app.sonify.sentence_specs import (
     Select,
     SentenceSpec,
@@ -32,7 +31,7 @@ def _phrase(bars: int = 9, closes: bool = False, rise: int = 1) -> SimpleNamespa
 
 
 def test_castillo_34_planner_matches_legacy() -> None:
-    for length in range(0, 13):
+    for length in range(0, 21):
         for n in range(0, 4):
             assert plan_sentence("castillo", "3/4", length, n) == _castillo_34_spans(
                 length, n
@@ -40,7 +39,7 @@ def test_castillo_34_planner_matches_legacy() -> None:
 
 
 def test_castillo_44_planner_matches_legacy() -> None:
-    for length in range(0, 13):
+    for length in range(0, 21):
         for n in range(0, 4):
             assert plan_sentence("castillo", "4/4", length, n) == _castillo_spans(
                 length, n, "4/4"
@@ -66,13 +65,17 @@ def test_phrase_spans_uses_registry_for_castillo_34(monkeypatch) -> None:
     assert spans == _castillo_34_spans(9, 0)
 
 
-def test_phrase_spans_uses_registry_for_castillo_44(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("length", "n"),
+    [(3, 0), (4, 0), (4, 1), (5, 0), (5, 1), (6, 0), (6, 1), (7, 0), (8, 0), (8, 1)],
+)
+def test_phrase_spans_uses_registry_for_castillo_44(monkeypatch, length, n) -> None:
     def boom(*_args, **_kwargs):
         raise AssertionError("castillo 4/4 used the code path")
 
     monkeypatch.setattr(torroba, "_castillo_spans", boom)
-    spans = torroba._phrase_spans(_ctx("4/4"), _phrase(9), "castillo", 1)
-    assert spans == _castillo_spans(9, 1, "4/4")
+    spans = torroba._phrase_spans(_ctx("4/4"), _phrase(length), "castillo", n)
+    assert spans == _castillo_spans(length, n, "4/4")
 
 
 def test_phrase_spans_falls_back_for_castillo_68(monkeypatch) -> None:
@@ -148,10 +151,3 @@ def test_plan_sentence_loads_the_owner_module() -> None:
         text=True,
     ).stdout.strip()
     assert out == "[(13, (0, 1, 2, 3, 4, 5, 6, 7, 8))]"
-
-
-def test_registered_figures_exist() -> None:
-    for specs in SENTENCE_SPECS.values():
-        for spec in specs:
-            for slot in spec.slots:
-                assert slot.figure in _FIGURES, (spec.id, slot.figure)

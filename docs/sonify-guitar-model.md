@@ -1,6 +1,6 @@
 # Mô hình âm nhạc của lớp guitar — Topic / Texture / Procedure / Sentence / Plan
 
-> **Trạng thái**: căn bản cho refactor renderer. **Đã migrate:** `castillo` 3/4 (PR #147) và 4/4. **Còn ở code:** `sonatina`, `fandanguillo`, `danza`, `galop`.
+> **Trạng thái**: căn bản cho refactor renderer. **Đã migrate:** `castillo` 3/4 (PR #147) và 4/4 (PR #148). **Còn ở code:** `sonatina`, `fandanguillo`, `danza`, `galop`.
 > **Phạm vi**: lớp `guitar` trong `backend/app/sonify/` (villa, torroba, barrios, brouwer, bach, classic).
 > **Liên quan**: [`sonify-texture-studio.md`](./sonify-texture-studio.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md).
 > **Thứ tự**: doc này là điều kiện trước cho (a) refactor renderer và (b) Texture Studio khi thêm texture cho Villa-Lobos.
@@ -428,7 +428,7 @@ Quan hệ với các khái niệm khác:
 | `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4, sonatina close L<=3) |
 | `slots[].start`, `bars`, `realizer` | vị trí + độ dài + figure/cell/procedure |
 
-**Phase 1 (PR #147) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
+**Phase 1–2 (PR #147, #148) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
 
 | Doc §13 | Code Phase 1 |
 |---|---|
@@ -552,7 +552,7 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 
 ### 13.6. Inventory archetype Torroba + status
 
-**Đã migrate:** `castillo` 3/4 (PR #147) và toàn bộ 4/4 (PR này). Các dòng còn lại **còn ở code**; `plan_sentence` trả `None` cho chúng.
+**Đã migrate:** `castillo` 3/4 (PR #147) và toàn bộ 4/4 (PR #148). Các dòng còn lại **còn ở code**; `plan_sentence` trả `None` cho chúng.
 
 | Family | Select | Span | Slots (start, bars, figure) |
 |---|---|---|---|

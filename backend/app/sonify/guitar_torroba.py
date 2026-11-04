@@ -75,7 +75,7 @@ CASTILLO_44_PAIR_EVEN = SentenceSpec(
     pattern="castillo",
     meter="4/4",
     select=Select(length_min=4, length_max=4, n_parity="even"),
-    span=Span(tile=4, exact=True, remainder="exact"),
+    span=Span(exact=True, remainder="exact"),
     slots=(Slot(start=0, bars=2, figure=8),),
 )
 CASTILLO_44_PAIR_ODD = SentenceSpec(
@@ -83,7 +83,7 @@ CASTILLO_44_PAIR_ODD = SentenceSpec(
     pattern="castillo",
     meter="4/4",
     select=Select(length_min=4, length_max=4, n_parity="odd"),
-    span=Span(tile=4, exact=True, remainder="exact"),
+    span=Span(exact=True, remainder="exact"),
     slots=(Slot(start=1, bars=2, figure=8),),
 )
 CASTILLO_44_TYPE7_L5 = SentenceSpec(
@@ -91,7 +91,7 @@ CASTILLO_44_TYPE7_L5 = SentenceSpec(
     pattern="castillo",
     meter="4/4",
     select=Select(length_min=5, length_max=5, n_parity="even"),
-    span=Span(tile=5, exact=True, remainder="exact"),
+    span=Span(exact=True, remainder="exact"),
     slots=(Slot(start=0, bars=5, figure=7),),
 )
 CASTILLO_44_PAIRS_ODD = SentenceSpec(
@@ -107,7 +107,7 @@ CASTILLO_44_TYPE7_L6 = SentenceSpec(
     pattern="castillo",
     meter="4/4",
     select=Select(length_min=6, length_max=6, n_parity="even"),
-    span=Span(tile=6, exact=True, remainder="exact"),
+    span=Span(exact=True, remainder="exact"),
     slots=(Slot(start=0, bars=5, figure=7),),
 )
 CASTILLO_44_TYPE7_L7 = SentenceSpec(
@@ -115,7 +115,7 @@ CASTILLO_44_TYPE7_L7 = SentenceSpec(
     pattern="castillo",
     meter="4/4",
     select=Select(length_min=7, length_max=7),
-    span=Span(tile=7, exact=True, remainder="exact"),
+    span=Span(exact=True, remainder="exact"),
     slots=(Slot(start=0, bars=5, figure=7),),
 )
 CASTILLO_44_LONG_EVEN = SentenceSpec(
@@ -132,6 +132,9 @@ CASTILLO_44_LONG_ODD = SentenceSpec(
     meter="4/4",
     select=Select(length_min=8, n_parity="odd"),
     span=Span(exact=True, remainder="exact"),
+    # Declaration order is load-bearing: `_tile` emits slots in this order and
+    # `torroba_figure_plan` uses spans[-1] as `previous` for the next phrase's
+    # rotation. Sorting by start would change previous from type 1 to type 8.
     slots=(
         Slot(start=0, bars=2, figure=8),
         Slot(start=4, bars=2, figure=8),
@@ -4520,13 +4523,13 @@ register(
     "3/4",
     CASTILLO_34_WALK,
     CASTILLO_34_CADENCE,
-    valid_figures=frozenset(_FIGURES),
+    valid_figures=frozenset({CASTILLO_WALK, CASTILLO_CADENCE}),
 )
 register(
     "castillo",
     "4/4",
     *CASTILLO_44_SPECS,
-    valid_figures=frozenset(_FIGURES),
+    valid_figures=frozenset({1, 7, 8}),
 )
 
 

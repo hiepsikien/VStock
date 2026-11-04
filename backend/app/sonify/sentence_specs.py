@@ -1,8 +1,9 @@
-"""Sentence archetypes as data (Phase 1: castillo 3/4).
+"""Sentence archetypes as data.
 
-A sentence selects a figure for a span of bars. The first migrated family is
-`castillo` in 3/4: two archetypes, walk for an even phrase number and cadence
-for an odd one, each tiling nine bars. The bar-level figure renderers stay in
+A sentence selects a figure for a span of bars. The migrated families are
+`castillo` in 3/4 (two archetypes: walk on an even phrase number, cadence on an
+odd one, nine-bar tile) and `castillo` in 4/4 (nine Arada archetypes: type 7,
+type 8 pairs, and a one-bar link). The bar-level figure renderers stay in
 `guitar_torroba.py`; only the choice of figure for a span lives here.
 
 `plan_sentence()` returns `None` when the pattern/meter pair has no data yet, so

@@ -194,3 +194,13 @@ def test_cycle_requires_truncate_cycle_remainder() -> None:
     )
     with pytest.raises(ValueError, match="truncate_cycle"):
         register("unit_cycle_rem", "3/4", spec, replace=True)
+
+
+def test_registered_figures_exist() -> None:
+    """Every slot figure in the global registry must exist in _FIGURES."""
+    from app.sonify.guitar_torroba import _FIGURES
+
+    for specs in SENTENCE_SPECS.values():
+        for spec in specs:
+            for slot in spec.slots:
+                assert slot.figure in _FIGURES, (spec.id, slot.figure)
