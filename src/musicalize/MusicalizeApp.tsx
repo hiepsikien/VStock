@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Platform, useWindowDimensions, View } from 'react-native';
+import { StudioRoom } from '../studio/StudioRoom';
 import { LiveRoom } from './LiveRoom';
 import { palette, WIDE_BREAKPOINT } from './palette';
 import { ReplayRoom } from './ReplayRoom';
+import type { RoomMode } from './TopBar';
 import { TuningProvider } from './tuning';
 
-type Mode = 'replay' | 'live';
+type Mode = RoomMode;
 
 export function MusicalizeApp() {
   const { width } = useWindowDimensions();
@@ -30,6 +32,8 @@ export function MusicalizeApp() {
       <View style={{ flex: 1, backgroundColor: palette.background }}>
         {mode === 'live' ? (
           <LiveRoom wide={wide} onMode={setMode} />
+        ) : mode === 'studio' ? (
+          <StudioRoom wide={wide} onMode={setMode} />
         ) : (
           <ReplayRoom wide={wide} onMode={setMode} />
         )}

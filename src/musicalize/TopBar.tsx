@@ -4,9 +4,11 @@ import { MotionPressable, usePulse } from './motion';
 import { palette, TOPBAR_HEIGHT } from './palette';
 import { type } from './type';
 
+export type RoomMode = 'replay' | 'live' | 'studio';
+
 type Props = {
-  mode: 'replay' | 'live';
-  onMode: (mode: 'replay' | 'live') => void;
+  mode: RoomMode;
+  onMode: (mode: RoomMode) => void;
   onSearch?: () => void;
   searchEnabled?: boolean;
 };
@@ -43,6 +45,12 @@ export function TopBar({ mode, onMode, onSearch, searchEnabled = true }: Props) 
         <View style={styles.pill} accessibilityRole="tablist">
           <ModePill label="Nghe lại" active={mode === 'replay'} onPress={() => onMode('replay')} />
           <ModePill label="Đang phát" active={mode === 'live'} onPress={() => onMode('live')} />
+          <ModePill
+            label={compact ? 'ST' : 'Studio'}
+            accessibilityLabel="Studio"
+            active={mode === 'studio'}
+            onPress={() => onMode('studio')}
+          />
         </View>
 
         {compact ? (
@@ -57,7 +65,9 @@ export function TopBar({ mode, onMode, onSearch, searchEnabled = true }: Props) 
             <Text style={[type.section, styles.statusText]}>Trực tiếp</Text>
           </View>
         ) : (
-          <Text style={[type.section, styles.statusIdle]}>Phòng nghe</Text>
+          <Text style={[type.section, styles.statusIdle]}>
+            {mode === 'studio' ? 'Sentence JSON' : 'Phòng nghe'}
+          </Text>
         )}
       </View>
     </View>
@@ -66,10 +76,12 @@ export function TopBar({ mode, onMode, onSearch, searchEnabled = true }: Props) 
 
 function ModePill({
   label,
+  accessibilityLabel,
   active,
   onPress,
 }: {
   label: string;
+  accessibilityLabel?: string;
   active: boolean;
   onPress: () => void;
 }) {
@@ -79,7 +91,7 @@ function ModePill({
       hitSlop={8}
       style={[styles.pillItem, active && styles.pillItemActive]}
       accessibilityRole="tab"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ selected: active }}
     >
       <View style={[styles.pillDot, active && styles.pillDotActive]} />

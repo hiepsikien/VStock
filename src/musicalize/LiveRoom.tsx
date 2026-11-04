@@ -8,11 +8,11 @@ import { RoomFrame } from './RoomFrame';
 import { sonifySocketUrl } from './seek';
 import { Stage } from './Stage';
 import { SymbolColumn } from './SymbolColumn';
-import { TopBar } from './TopBar';
+import { TopBar, type RoomMode } from './TopBar';
 
 type Props = {
   wide: boolean;
-  onMode: (mode: 'replay' | 'live') => void;
+  onMode: (mode: RoomMode) => void;
 };
 
 type SocketLike = {

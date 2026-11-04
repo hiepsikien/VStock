@@ -58,7 +58,7 @@ import {
 } from './params';
 import { RoomFrame } from './RoomFrame';
 import { ReplayPlayer, type SeekCommand } from './ReplayPlayer';
-import { TopBar } from './TopBar';
+import { TopBar, type RoomMode } from './TopBar';
 import { useTuning } from './tuning';
 import { trackEvent } from './telemetry';
 import { useKeyboard } from './useKeyboard';
@@ -103,7 +103,7 @@ import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCurs
 
 type Props = {
   wide: boolean;
-  onMode: (mode: 'replay' | 'live') => void;
+  onMode: (mode: RoomMode) => void;
 };
 
 function failureText(error: unknown, span: ListenSpan): string {
