@@ -29,7 +29,7 @@ Kết luận đầu tiên: **`figure` nên đổi tên thành `sentence`**. Doc 
 |---|---|---|
 | **Pattern level** | Pattern tự đứng tên được (`topic`) hay chỉ là idiom kỹ thuật (`texture`) | `castillo` = topic; `tremolo` = texture |
 | **Topic** (định danh) | **Tên in ra** của đơn vị | có trong code: `Fugue`, `Castillo`, `Etude`; **target-state, chưa có**: `Cathedral` (`preludio` vẫn in "Prelude"), `Mazurka-Choro` |
-| **`name_source`** (metadata hiển thị) | Cái tên đến từ đâu: `dance` / `work` / `genre` / `form` / `function` / `character`. **Không phải cơ chế** | `Sarabande` = dance; `Castillo` = work; `Etude` = genre; `Fugue` = form; `Prelude` = function; `Cantabile` = character |
+| **`name_source`** (metadata hiển thị) | Cái tên đến từ đâu: `dance` / `work` / `genre` / `form` / `function` / `character` / `tempo` / `device`. **Không phải cơ chế** | `Sarabande` = dance; `Castillo` = work; `Etude` = genre; `Fugue` = form; `Prelude` = function; `Cantabile` = character; `Andante` = tempo; `Hemiola` = device |
 | **Texture** (âm hình) | Cách **điền một ô**: voicing, rhythm cell, articulation | arpeggio/campanella, chord-melody, tremolo, bariolage, galop cell |
 | **Procedure** (thủ pháp) | **Phép biến đổi sinh ra chất liệu** từ melody/harmony | **imitation** (fuga). Chaconne **không** phải ground bass, xem §4.1 |
 | **Sentence** | **Texture-span template**: N ô + vai + slot, chọn theo length/`n`, có archetype đọc `closes` | castillo walk/cadence (9 ô, theo `n % 2`), arada/float, type6 4 ô, galop period 4+4 |
@@ -244,8 +244,10 @@ Vì vậy "Villa 1D dùng `_select_body`" là **sai**: 1D framed đi macro → `
 | Nhãn là kỹ thuật: `villa_pattern` in **"Arpeggio"** | `_PATTERN_TITLE["villa_pattern"] = "Arpeggio"` (`program.py`) | `level: texture`, không in; tên chương do `Movement.title` |
 | Nhãn là kỹ thuật: `tremolo` in **"Tremolo"** | `_PATTERN_TITLE["tremolo"] = "Tremolo"` | như trên |
 | Nhãn là kỹ thuật: `chord_melody` in **"Chord Melody"** | `_PATTERN_TITLE["chord_melody"]` | như trên |
-| Cùng một texture, hai title: `thumb_cantabile` | barrios "Cantabile", villa "Prelude" (`program.py:55` special-case) | `level: texture`, title null cho cả hai; registry key `(ensemble, id)` |
+| Cùng một texture, hai title: `thumb_cantabile` | barrios "Cantabile", villa "Prelude" (`program.py:55` special-case) | `level: texture`, title null cho cả hai; registry id-keyed là đủ |
 | `pattern` không khai `level` | 38 id, không phân biệt topic với texture | thêm `level` + `name_source` |
+
+**Ghi chú taxonomy:** enum `name_source` có thêm `tempo` và `device`, nên `andante` = tempo, `hemiola` = device. `elegiaque` (Elegy) xếp `genre` theo tên in, không theo mood chọn pattern.
 
 Chỉ **3** pattern texture đang in tên: `villa_pattern`, `tremolo`, `chord_melody`. **`pedal` chưa từng in**: `form_pattern_ids` trả `[]` khi primary là `pedal` (`guitar_patterns.py:3323-3324`), `headline_id`/`contrast_id` skip `pedal`, `_region_pattern_ids` skip (`:1291`).
 
@@ -253,7 +255,7 @@ Chỉ **3** pattern texture đang in tên: `villa_pattern`, `tremolo`, `chord_me
 
 Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, character, hoặc idiom mượn tên tác phẩm). Nếu pattern là **texture thuần** thì `level: texture`, `title = null`, và **không in** — tên chương do `Movement.title` in.
 
-`thumb_cantabile` là **cùng một texture** (`_render_thumb`) dùng cho hai tác phẩm, nên `level: texture` và title null cho cả hai. Cách sạch nhất không phải tách id mà là **registry key `(ensemble, id)`** — đúng như `PROFILES` đã làm (`guitar_wave.py:108`). `pattern_title` đã special-case ensemble (`program.py:55`), nên đây chỉ là chính thức hoá hiện trạng, không phải bước lùi.
+`thumb_cantabile` là **cùng một texture** (`_render_thumb`) dùng cho hai tác phẩm, nên `level: texture` và title null cho cả hai. Registry id-keyed là đủ vì cả hai ensemble đều không in tên; chỉ khi nào title khác theo ensemble mới cần key `(ensemble, id)` như `PROFILES` (`guitar_wave.py:108`).
 
 | Pattern | Hiện tại | Đề xuất | Lý do |
 |---|---|---|---|
@@ -332,7 +334,9 @@ Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. 1D là movement 
 
 ## 12. Phụ lục A — Inventory pattern (39 dòng)
 
-Nguồn: `PROFILES` = **38 dòng** `(ensemble, id)` nhưng chỉ **37 id unique** (`thumb_cantabile` có ở cả barrios và villa); `_FAMILY` = **38 id** (gồm `pedal`), nên bảng có **39 dòng** = 38 dòng `PROFILES` + `pedal`. Cột `level` là **đề xuất**; `?` = cần chốt (§8.2). Texture lấy từ docstring của renderer tương ứng.
+Nguồn: `PROFILES` = **38 dòng** `(ensemble, id)` nhưng chỉ **37 id unique** (`thumb_cantabile` có ở cả barrios và villa); `_FAMILY` = **38 id** (gồm `pedal`), nên bảng có **39 dòng** = 38 dòng `PROFILES` + `pedal`. `level` đã chốt trong `pattern_registry.py`; `?` còn lại chỉ là câu hỏi nội dung (procedure/level của `study`). Texture lấy từ docstring của renderer tương ứng.
+
+Bảng `level` + `name_source` theo id hiện nằm trong `backend/app/sonify/pattern_registry.py`: **38 id = 33 topic + 5 texture**. Bảng dưới có 39 dòng vì `thumb_cantabile` xuất hiện ở hai ensemble. `validate()` kiểm coverage với `_FAMILY`, enum `name_source`, và title cho mọi dòng `(ensemble, id)` của topic.
 
 | Ensemble | id | Title hiện tại | Level | Texture (+cells) | Procedure | Sentence |
 |---|---|---|---|---|---|---|
