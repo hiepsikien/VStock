@@ -334,7 +334,7 @@ Nguồn: `PROFILES` = **38 dòng** `(ensemble, id)` nhưng chỉ **37 id unique*
 | classic | `mozart_var` | Variations | topic (Op. 9) | classical bass + counter-melody 8th | none (`?` §8.2.2) | null |
 | classic | `study` | Etude | topic (`?` §8.2.1) | arpeggio; `character is None` → plain arpeggio | none | null |
 | torroba | `alcaniz` | Alcaniz | topic | campanella slots (`_FIGURES` 10/11) | none | null — figure đơn (10/11), không phải sentence |
-| torroba | `castillo` | Castillo | topic | campanella slots (`_FIGURES` 7/8/13/14) | none | **walk→cadence (3/4, 9 ô); type7 5 ô / type8 2 ô (4/4)** |
+| torroba | `castillo` | Castillo | topic | campanella slots (`_FIGURES` 7/8/13/14) | none | **walk/cadence theo `n % 2` (3/4, 9 ô); type7 5 ô / type8 2 ô (4/4)** |
 | torroba | `danza` | Danza | topic | type6 slots | none | **4 ô (type6)** |
 | torroba | `fandanguillo` | Fandanguillo | topic | fandanguillo slots | none | spans |
 | torroba | `olite` | Olite | topic | olite onsets (`_olite_onsets`) | none | null — figure đơn (12) |
