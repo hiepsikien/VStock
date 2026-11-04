@@ -214,10 +214,68 @@ def test_register_rejects_unknown_anchor() -> None:
         "unit_anchor_bad",
         select=Select(),
         span=Span(tile=9),
-        slots=(Slot(0, 1, 1, anchor="middle"),),
+        slots=(Slot(0, 1, 1, anchor="center"),),
     )
     with pytest.raises(ValueError, match="unknown slot anchor"):
         register("unit_anchor_bad", "3/4", spec, replace=True)
+
+
+def test_middle_anchor_is_relative_to_the_phrase_middle() -> None:
+    spec = _spec(
+        "unit_anchor_middle",
+        select=Select(length_min=2),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(-1, 2, 1, anchor="middle"),),
+    )
+    pattern = _register(spec)
+    # base = length // 2 - 1: 0 at L2/L3, 1 at L4/L5, 2 at L6/L7.
+    assert plan_sentence(pattern, "3/4", 2, 0) == [(1, (0, 1))]
+    assert plan_sentence(pattern, "3/4", 3, 0) == [(1, (0, 1))]
+    assert plan_sentence(pattern, "3/4", 4, 0) == [(1, (1, 2))]
+    assert plan_sentence(pattern, "3/4", 6, 0) == [(1, (2, 3))]
+    assert plan_sentence(pattern, "3/4", 7, 0) == [(1, (2, 3))]
+
+
+def test_middle_anchor_needs_an_exact_span() -> None:
+    spec = _spec(
+        "unit_anchor_middle_tile",
+        select=Select(),
+        span=Span(tile=8),
+        slots=(Slot(-1, 2, 1, anchor="middle"),),
+    )
+    with pytest.raises(ValueError, match="needs an exact span"):
+        register("unit_anchor_middle_tile", "3/4", spec, replace=True)
+
+
+def test_middle_anchor_must_stay_inside_the_shortest_sentence() -> None:
+    left = _spec(
+        "unit_anchor_middle_left",
+        select=Select(length_min=2),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(-2, 2, 1, anchor="middle"),),
+    )
+    with pytest.raises(ValueError, match="outside the phrase"):
+        register("unit_anchor_middle_left", "3/4", left, replace=True)
+
+    right = _spec(
+        "unit_anchor_middle_right",
+        select=Select(length_min=4),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(2, 2, 1, anchor="middle"),),
+    )
+    with pytest.raises(ValueError, match="outside the phrase"):
+        register("unit_anchor_middle_right", "3/4", right, replace=True)
+
+
+def test_middle_anchor_cannot_overlap_start_slots() -> None:
+    spec = _spec(
+        "unit_anchor_middle_overlap",
+        select=Select(length_min=4),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(0, 2, 1), Slot(-1, 2, 2, anchor="middle")),
+    )
+    with pytest.raises(ValueError, match="middle slot overlaps an earlier slot"):
+        register("unit_anchor_middle_overlap", "3/4", spec, replace=True)
 
 
 def test_end_anchor_needs_an_exact_span() -> None:

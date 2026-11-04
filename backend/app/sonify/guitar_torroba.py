@@ -224,6 +224,77 @@ SONATINA_SPECS = (
     _sonatina_spec("son_close_l7plus", length_min=7, length_max=None, closes="close",
                    slots=(Slot(0, 2, 4), Slot(0, 3, 3, anchor="end"))),
 )
+
+# Fandanguillo ignores the meter (`_fandanguillo_spans` reads rise, length, n
+# and closes), so both archetypes live under the wildcard. `room` is the phrase
+# length minus the closing bar, and each archetype's `length_min` is exactly
+# where its guard first passes: type 5 needs room >= 4, type 2 needs room >= 2
+# plus `start + 1 < room`, which holds for every longer phrase. The odd turn
+# carries no fixed start; it is centred on the phrase (`length // 2 - 1`), so
+# the middle anchor with `start=-1` is load-bearing.
+FANDANGUILLO_SPECS = (
+    SentenceSpec(
+        id="fan_even_open",
+        pattern="fandanguillo",
+        meter=METER_ANY,
+        select=Select(length_min=4, n_parity="even", closes="open", rise_min=1),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(0, 4, 5),),
+    ),
+    SentenceSpec(
+        id="fan_even_close",
+        pattern="fandanguillo",
+        meter=METER_ANY,
+        select=Select(length_min=5, n_parity="even", closes="close", rise_min=1),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(0, 4, 5),),
+    ),
+    SentenceSpec(
+        id="fan_odd_open",
+        pattern="fandanguillo",
+        meter=METER_ANY,
+        select=Select(length_min=2, n_parity="odd", closes="open", rise_min=1),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(-1, 2, 2, anchor="middle"),),
+    ),
+    SentenceSpec(
+        id="fan_odd_close",
+        pattern="fandanguillo",
+        meter=METER_ANY,
+        select=Select(length_min=3, n_parity="odd", closes="close", rise_min=1),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(-1, 2, 2, anchor="middle"),),
+    ),
+)
+
+
+def _danza_specs(meter: str, prefix: str) -> tuple[SentenceSpec, ...]:
+    """Danza is meter-specific; 3/4 and 6/8 register the same two rows.
+
+    4/4 is deliberately absent, so it keeps the code path and returns `[]`.
+    """
+    return (
+        SentenceSpec(
+            id=f"{prefix}_open",
+            pattern="danza",
+            meter=meter,
+            select=Select(length_min=4, closes="open"),
+            span=Span(exact=True, remainder="exact"),
+            slots=(Slot(0, 4, 6),),
+        ),
+        SentenceSpec(
+            id=f"{prefix}_close",
+            pattern="danza",
+            meter=meter,
+            select=Select(length_min=5, closes="close"),
+            span=Span(exact=True, remainder="exact"),
+            slots=(Slot(0, 4, 6),),
+        ),
+    )
+
+
+DANZA_34_SPECS = _danza_specs("3/4", "danza_34")
+DANZA_68_SPECS = _danza_specs("6/8", "danza_68")
 # One Juglar chunk is three plucked fingers on one quantized price, and the
 # thumb on the beat under them. p-a-m-i: the four plucks sit on one sixteenth
 # grid, so a 3/4 bar is twelve attacks whatever the tempo.
@@ -1961,9 +2032,9 @@ def _phrase_spans(ctx, phrase, pattern: str, n: int) -> list[tuple[int, tuple[in
     )
     if planned is not None:
         return planned
-    # Dead in production: sonatina resolves through the registry at every
-    # meter, so these branches only serve the parity fixture. Delete them with
-    # the other legacy selectors.
+    # castillo 6/8 and danza 4/4 reach the branches below; every other migrated
+    # family resolves through the registry at every meter. The selectors stay as
+    # the parity oracle until they are deleted.
     if pattern == "sonatina" and closes:
         return _sonatina_close_spans(length, n)
     if pattern == "sonatina":
@@ -4611,6 +4682,26 @@ register(
     METER_ANY,
     *SONATINA_SPECS,
     valid_figures=frozenset({1, 2, 3, 4}),
+)
+register(
+    "fandanguillo",
+    METER_ANY,
+    *FANDANGUILLO_SPECS,
+    valid_figures=frozenset({2, 5}),
+)
+register(
+    "danza",
+    "3/4",
+    *DANZA_34_SPECS,
+    valid_figures=frozenset({6}),
+)
+# 4/4 is not registered on purpose: `_danza_spans` has no 4/4 spelling, so
+# `plan_sentence` must return `None` there and let the code path answer `[]`.
+register(
+    "danza",
+    "6/8",
+    *DANZA_68_SPECS,
+    valid_figures=frozenset({6}),
 )
 
 

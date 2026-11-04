@@ -2,9 +2,12 @@
 
 A sentence selects a figure for a span of bars. The migrated families are
 `castillo` in 3/4 (two archetypes: walk on an even phrase number, cadence on an
-odd one, nine-bar tile) and `castillo` in 4/4 (nine Arada archetypes: type 7,
-type 8 pairs, and a one-bar link). The bar-level figure renderers stay in
-`guitar_torroba.py`; only the choice of figure for a span lives here.
+odd one, nine-bar tile), `castillo` in 4/4 (nine Arada archetypes: type 7,
+type 8 pairs, and a one-bar link), `sonatina` open/close, `fandanguillo` (two
+archetypes: a four-bar type 5 on an even phrase number, a two-bar type 2 placed
+relative to the phrase middle on an odd one), and `danza` in 3/4 and 6/8 (one
+four-bar type 6). The bar-level figure renderers stay in `guitar_torroba.py`;
+only the choice of figure for a span lives here.
 
 `plan_sentence()` returns `None` when the pattern/meter pair has no data yet, so
 callers fall back to the code path during the migration. An empty list means the
@@ -27,7 +30,7 @@ _OWNER_MODULES = ("app.sonify.guitar_torroba",)
 
 METER_ANY = "*"
 _N_PARITY = frozenset({"any", "even", "odd"})
-_ANCHORS = frozenset({"start", "end"})
+_ANCHORS = frozenset({"start", "middle", "end"})
 _CLOSES = frozenset({"open", "close"})
 _REMAINDER = frozenset({"same_figure", "truncate_cycle", "exact"})
 
@@ -39,6 +42,11 @@ class Slot:
     `anchor="end"` places the slot at `length - bars`, for sentences whose tail
     starts relative to the phrase end (sonatina close). It requires an exact
     span and `start=0`; it cannot be used inside a repeating tile.
+
+    `anchor="middle"` places the slot at `length // 2 + start`, for phrases
+    whose figure is centred on the phrase length (fandanguillo's odd turn uses
+    `start=-1`). It also requires an exact span, and `start` is an offset from
+    the middle, so it may be negative.
     """
 
     start: int
@@ -133,23 +141,28 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         if slot.anchor not in _ANCHORS:
             raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
 
-    previous_end = 0
-    for slot in sorted(
-        (item for item in spec.slots if item.anchor == "start"),
-        key=lambda item: item.start,
-    ):
+    start_slots = [slot for slot in spec.slots if slot.anchor == "start"]
+    middle_slots = [slot for slot in spec.slots if slot.anchor == "middle"]
+    end_slots = [slot for slot in spec.slots if slot.anchor == "end"]
+
+    for slot in start_slots:
         if slot.start < 0 or slot.bars < 1:
             raise ValueError(f"{spec.id}: slot start/bars must be >= 0 / >= 1")
         if span.tile is not None and slot.start + slot.bars > span.tile:
             raise ValueError(f"{spec.id}: slot runs past the tile")
-        if slot.start < previous_end:
-            raise ValueError(f"{spec.id}: slots overlap")
-        previous_end = slot.start + slot.bars
 
-    end_slots: list[Slot] = []
-    for slot in spec.slots:
-        if slot.anchor != "end":
-            continue
+    for slot in middle_slots:
+        if not is_exact:
+            raise ValueError(f"{spec.id}: a middle-anchored slot needs an exact span")
+        if slot.bars < 1:
+            raise ValueError(f"{spec.id}: slot bars must be >= 1")
+        base = select.length_min // 2 + slot.start
+        if base < 0 or base + slot.bars > select.length_min:
+            raise ValueError(
+                f"{spec.id}: middle slot falls outside the phrase at length_min"
+            )
+
+    for slot in end_slots:
         if not is_exact:
             raise ValueError(f"{spec.id}: an end-anchored slot needs an exact span")
         if slot.start != 0:
@@ -158,17 +171,34 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
             raise ValueError(f"{spec.id}: slot bars must be >= 1")
         if select.length_min < slot.bars:
             raise ValueError(f"{spec.id}: length_min is below the end slot size")
-        end_slots.append(slot)
-    # The tail is shortest at length_min; if it clears the start slots there it
-    # clears them at every longer length.
-    position = previous_end
+
+    # Every anchor except `start` is length-relative, and each sits at its
+    # leftmost position at length_min (middle: `length_min // 2 + start`,
+    # end: `length_min - bars`). If the slots clear each other there they clear
+    # at every longer length, so this one check covers the whole select range.
+    placed: list[tuple[int, int]] = []
+    previous_end = 0
+    for slot in sorted(start_slots, key=lambda item: item.start):
+        if slot.start < previous_end:
+            raise ValueError(f"{spec.id}: slots overlap")
+        previous_end = slot.start + slot.bars
+        placed.append((slot.start, previous_end))
+    for slot in sorted(middle_slots, key=lambda item: select.length_min // 2 + item.start):
+        low = select.length_min // 2 + slot.start
+        high = low + slot.bars
+        if any(low < other_high and other_low < high for other_low, other_high in placed):
+            raise ValueError(
+                f"{spec.id}: middle slot overlaps an earlier slot at length_min"
+            )
+        placed.append((low, high))
     for slot in sorted(end_slots, key=lambda item: item.bars, reverse=True):
         low = select.length_min - slot.bars
-        if low < position:
+        high = select.length_min
+        if any(low < other_high and other_low < high for other_low, other_high in placed):
             raise ValueError(
                 f"{spec.id}: end slot overlaps an earlier slot at length_min"
             )
-        position = low + slot.bars
+        placed.append((low, high))
 
 
 def register(
@@ -247,7 +277,12 @@ def _slots(
 ) -> list[tuple[int, tuple[int, ...]]]:
     spans: list[tuple[int, tuple[int, ...]]] = []
     for slot in spec.slots:
-        base = total - slot.bars if slot.anchor == "end" else slot.start
+        if slot.anchor == "end":
+            base = total - slot.bars
+        elif slot.anchor == "middle":
+            base = total // 2 + slot.start
+        else:
+            base = slot.start
         low = max(base, 0)
         high = min(base + slot.bars, chunk)
         if low < high:
