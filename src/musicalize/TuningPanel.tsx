@@ -40,6 +40,7 @@ import {
   defaultRatio,
   GUITAR_FADER_KEYS,
   hiddenChangedKeys,
+  helpEndsLine,
   helpText,
   panelColumns,
   panelFields,
@@ -65,7 +66,6 @@ type Props = {
 
 const PANEL_PADDING = 24;
 const MIXER_KEYS = GUITAR_FADER_KEYS;
-const MIXER_PARAM_KEYS = ['register', 'color'] as const;
 
 const HelpContext = React.createContext<(field: ParamsFieldSchema) => void>(() => {});
 
@@ -523,6 +523,7 @@ function ChoiceField({
             <Pressable
               key={choice.value}
               onPress={() => onChange(choice.value)}
+              hitSlop={10}
               style={[styles.choice, active && styles.choiceActive]}
               accessibilityRole="radio"
               accessibilityLabel={choice.label}
@@ -569,6 +570,7 @@ function ToggleRow({
       </View>
       <Pressable
         onPress={() => onChange(!active)}
+        hitSlop={8}
         style={[styles.choice, active && styles.choiceActive, styles.toggleWide]}
         accessibilityRole="switch"
         accessibilityLabel={field.label}
@@ -599,7 +601,7 @@ function HelpCard({
         <Text style={[type.section, styles.groupLabel]}>{field.label}</Text>
         <Pressable
           onPress={onClose}
-          hitSlop={10}
+          hitSlop={14}
           accessibilityRole="button"
           accessibilityLabel="Đóng giải thích"
         >
@@ -613,9 +615,7 @@ function HelpCard({
           {value.detail ? ` · ${value.detail}` : ''}
         </Text>
         {field.type === 'number' ? (
-          <Text style={[type.sans, styles.helpEnds]}>
-            {value.negativeLabel} ← 0 → {value.positiveLabel}
-          </Text>
+          <Text style={[type.sans, styles.helpEnds]}>{helpEndsLine(field)}</Text>
         ) : null}
       </ScrollView>
     </View>
@@ -1184,10 +1184,15 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
       next.add('Default bất biến. Lưu sẽ tạo một bản sao có tên.');
     }
     if (hiddenCount > 0) next.add(`Còn ${hiddenCount} thay đổi ẩn không áp dụng cho màn này.`);
-    for (const text of warningTexts(localWarnings)) next.add(text);
+    // Mobile already repeats tremolo/humanize/breath hints in each row foot.
+    const rowHintCodes = new Set(['high_humanize', 'high_breath']);
+    for (const warning of localWarnings) {
+      if (!wide && rowHintCodes.has(warning.code)) continue;
+      for (const text of warningTexts([warning])) next.add(text);
+    }
     for (const text of serverNotes) next.add(text);
     if (variant === 'guitar' && bpm != null && bpm < 90) {
-      next.add('Nhịp dưới ngưỡng tremolo.');
+      if (wide) next.add('Nhịp dưới ngưỡng tremolo.');
     }
     if (
       variant === 'guitar' &&
@@ -1198,7 +1203,7 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
       next.add('Bè trên +4 đẩy nốt snap khỏi dải móng.');
     }
     return [...next];
-  }, [bpm, changedCount, dirty, hiddenCount, localWarnings, params, profile.id, serverNotes, variant]);
+  }, [bpm, changedCount, dirty, hiddenCount, localWarnings, params, profile.id, serverNotes, variant, wide]);
 
   const scrollEnabled = !wide || contentHeight > availableHeight + 1;
 
@@ -1306,7 +1311,10 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
         <View style={styles.headerMain}>
           <View style={[styles.tabs, { height: wide && layout.dense ? 40 : 44 }]}>
             <Pressable
-              onPress={() => setTab('tune')}
+              onPress={() => {
+                setTab('tune');
+                setHelpField(null);
+              }}
               style={[styles.tab, tab === 'tune' && styles.tabActive]}
               accessibilityRole="tab"
               accessibilityState={{ selected: tab === 'tune' }}
@@ -1317,7 +1325,10 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => setTab('profile')}
+              onPress={() => {
+                setTab('profile');
+                setHelpField(null);
+              }}
               style={[styles.tab, tab === 'profile' && styles.tabActive]}
               accessibilityRole="tab"
               accessibilityState={{ selected: tab === 'profile' }}
@@ -1349,6 +1360,7 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
       <Pressable
         onPress={() => setStatusOpen((current) => !current)}
         style={[styles.statusStrip, { paddingHorizontal: wide ? PANEL_PADDING : 16 }]}
+        hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel="Xem ghi chú và cảnh báo"
         accessibilityState={{ expanded: statusOpen }}
@@ -1357,7 +1369,11 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
           style={[
             type.monoSmall,
             styles.statusText,
-            (localWarnings.length > 0 || serverNotes.length > 0) && styles.statusTextWarn,
+            (localWarnings.length > 0 ||
+              serverNotes.length > 0 ||
+              notes.includes('Nhịp dưới ngưỡng tremolo.') ||
+              notes.includes('Bè trên +4 đẩy nốt snap khỏi dải móng.')) &&
+              styles.statusTextWarn,
           ]}
           numberOfLines={1}
         >
@@ -1372,6 +1388,7 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
             styles.statusPopover,
             {
               top: headerHeight + 40,
+              bottom: 56,
               left: wide ? PANEL_PADDING : 16,
               right: wide ? PANEL_PADDING : 16,
             },
@@ -1381,7 +1398,7 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
             <Text style={[type.section, styles.groupLabel]}>GHI CHÚ</Text>
             <Pressable
               onPress={() => setStatusOpen(false)}
-              hitSlop={8}
+              hitSlop={14}
               accessibilityRole="button"
               accessibilityLabel="Đóng ghi chú"
             >
@@ -2066,7 +2083,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    minHeight: 64,
+    minHeight: 76,
     paddingVertical: 4,
   },
   formTitle: {

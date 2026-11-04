@@ -260,6 +260,20 @@ export function helpText(field: ParamsFieldSchema): string {
   return FIELD_HELP[field.key] ?? field.description;
 }
 
+/**
+ * The "ends" line of the help card. Anchored fields (noise, guitar voices)
+ * have their far left end AT zero, so the ends are the range bounds; centered
+ * fields keep the signed axis around 0%.
+ */
+export function helpEndsLine(field: ParamsFieldSchema): string {
+  const ends = FIELD_ENDS[field.key] ?? { negative: 'Giảm', positive: 'Tăng' };
+  if (field.key === 'noise') {
+    const max = field.max.toFixed(2);
+    return `0% ${ends.negative.toLowerCase()} → ${max}% ${ends.positive.toLowerCase()}`;
+  }
+  return `${ends.negative} ← 0 → ${ends.positive}`;
+}
+
 export function paramDisplay(
   field: ParamsFieldSchema,
   value: ParamValue,

@@ -4,6 +4,7 @@ import {
   changedKeysForPanel,
   defaultRatio,
   fieldAnchor,
+  helpEndsLine,
   helpText,
   GUITAR_FADER_KEYS,
   hiddenChangedKeys,
@@ -75,6 +76,8 @@ equal(layout1024.estimatedHeight, 1116, '1024 estimated height');
 
 const layout1200 = panelLayout(1200, 800, guitar);
 equal(layout1200.columns, 2, '1200 columns');
+equal(panelLayout(1150, 700, guitar).columns, 2, '1150 two columns');
+equal(panelLayout(1099, 700, guitar).columns, 1, '1099 single column');
 
 const layout1280 = panelLayout(1280, 600, guitar);
 equal(layout1280.columns, 3, '1280 columns');
@@ -142,6 +145,18 @@ const colorHelp = helpText(PARAM_FIELD_BY_KEY.color);
 if (colorHelp.includes('0 là khô, 2 là')) {
   throw new Error('color help still uses the old 0/2 wording');
 }
+
+equal(
+  helpEndsLine(PARAM_FIELD_BY_KEY.noise),
+  '0% sạch → 0.50% nhiễu',
+  'noise help ends show the amount range, not a centred zero',
+);
+equal(helpEndsLine(PARAM_FIELD_BY_KEY.color), 'Khô ← 0 → Đậm', 'centered ends stay signed');
+equal(
+  helpEndsLine(PARAM_FIELD_BY_KEY.guitar_mid),
+  'Nhỏ ← 0 → Lớn',
+  'guitar voices stay anchored at 0',
+);
 
 const flat = spectrumLevels(DEFAULT_PARAMS, 'guitar');
 near(flat[0], 0.55, 'spectrum low flat');
