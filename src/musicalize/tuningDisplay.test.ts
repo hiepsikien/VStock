@@ -8,6 +8,7 @@ import {
   panelContentWidth,
   panelFields,
   panelGroups,
+  panelColumns,
   panelLayout,
   panelPushes,
   panelWidthFor,
@@ -48,25 +49,25 @@ equal(panelPushes(1920), true, '1920 pushes');
 const layout1366 = panelLayout(1366, 660, guitar);
 equal(layout1366.columns, 3, '1366 columns');
 equal(layout1366.dense, true, '1366 dense');
-equal(layout1366.rowHeight, 48, '1366 row height');
-equal(layout1366.estimatedHeight, 616, '1366 estimated height');
+equal(layout1366.rowHeight, 50, '1366 row height');
+equal(layout1366.estimatedHeight, 636, '1366 estimated height');
 
 const layout1440 = panelLayout(1440, 800, guitar);
 equal(layout1440.columns, 3, '1440 columns');
 equal(layout1440.dense, false, '1440 not dense');
-equal(layout1440.rowHeight, 58, '1440 row height');
-equal(layout1440.estimatedHeight, 714, '1440 estimated height');
+equal(layout1440.rowHeight, 60, '1440 row height');
+equal(layout1440.estimatedHeight, 720, '1440 estimated height');
 
 const layout1920 = panelLayout(1920, 980, guitar);
 equal(layout1920.columns, 3, '1920 columns');
 equal(layout1920.contentWidth, 1040, '1920 content');
-equal(layout1920.estimatedHeight, 714, '1920 estimated height');
+equal(layout1920.estimatedHeight, 720, '1920 estimated height');
 
 const layout1024 = panelLayout(1024, 620, guitar);
 equal(layout1024.columns, 2, '1024 columns');
 equal(layout1024.dense, true, '1024 dense');
 equal(layout1024.dangStacked, true, '1024 stacks form');
-equal(layout1024.estimatedHeight, 840, '1024 estimated height');
+equal(layout1024.estimatedHeight, 900, '1024 estimated height');
 
 const layout1280 = panelLayout(1280, 600, guitar);
 equal(layout1280.columns, 3, '1280 columns');
@@ -86,13 +87,21 @@ if (guitarGroup?.fields.some((field) => field.key.startsWith('guitar_'))) {
 if (guitarGroups.some((group) => group.id === 'space')) {
   throw new Error('register belongs in the mixer, not a generic group');
 }
+if (guitarGroups.some((group) => group.id === 'performance' && group.fields.some((field) => field.key === 'color'))) {
+  throw new Error('color belongs in the mixer, not a generic group');
+}
+const guitarColumns = panelColumns(guitar, 3);
+const merged = guitarColumns.flat().find((group) => group.id === 'harmony+guitar');
+if (!merged || merged.label !== 'Hòa âm / Guitar') {
+  throw new Error('harmony and guitar must share one header');
+}
 
 const withGuitar = { ...DEFAULT_PARAMS, guitar_high: 3 };
 equal(changedKeysForPanel(withGuitar, guitar).length, 1, 'guitar voices count on guitar');
 equal(changedKeysForPanel(withGuitar, symphony).length, 0, 'guitar voices hidden on symphony');
 equal(hiddenChangedKeys(withGuitar, symphony).length, 1, 'hidden guitar voice on symphony');
 equal(paramSummary(withGuitar, guitar), '1 thay đổi', 'panel summary counts guitar');
-equal(paramSummary(withGuitar, symphony), 'Default', 'panel summary hides guitar');
+equal(paramSummary(withGuitar, symphony), '1 ẩn', 'panel summary hides guitar');
 
 const noise = PARAM_FIELD_BY_KEY.noise;
 equal(fieldAnchor(noise), 0, 'noise anchor is zero');
@@ -106,6 +115,7 @@ near(defaultRatio(humanize), 0.5, 'humanize default is centre');
 const tempo = paramDisplay(PARAM_FIELD_BY_KEY.tempo, 1.08, { baseBpm: 96 });
 equal(tempo.primary, '+8%', 'tempo percent');
 equal(tempo.secondary, '104 BPM', 'tempo BPM');
+equal(tempo.detail, '1.08× · 104 BPM', 'tempo detail');
 
 equal(paramDisplay(PARAM_FIELD_BY_KEY.humanize, 1.6).primary, '+60%', 'humanize +60%');
 equal(paramDisplay(PARAM_FIELD_BY_KEY.humanize, 0.4).primary, '−60%', 'humanize −60%');

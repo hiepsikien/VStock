@@ -16,12 +16,27 @@ export const PANEL_MAX_WIDTH = 1280;
 export const PANEL_CONTENT_MAX = 1040;
 export const PANEL_PUSH_CHART_MIN = 440;
 export const DENSE_ROW_MAX_HEIGHT = 740;
-export const DENSE_ROW_HEIGHT = 48;
-export const COMFORTABLE_ROW_HEIGHT = 58;
+export const DENSE_ROW_HEIGHT = 50;
+export const COMFORTABLE_ROW_HEIGHT = 60;
 export const PANEL_STATUS_HEIGHT = 24;
+export const GROUP_GAP = 8;
+export const COLUMN_GAP = 10;
+export const BODY_GAP = 14;
+export const BODY_PADDING = 28;
+export const FOOTER_HEIGHT = 50;
+export const HEADER_DENSE = 64;
+export const HEADER_COMFORTABLE = 76;
+export const MIXER_DENSE = 184;
+export const MIXER_COMFORTABLE = 210;
+export const MIXER_DENSE_NO_GUITAR = 148;
+export const MIXER_COMFORTABLE_NO_GUITAR = 176;
+export const DANG_DENSE = 64;
+export const DANG_COMFORTABLE = 76;
+export const DANG_STACKED = 124;
 
 export const GUITAR_VOICE_KEYS = new Set(['guitar_high', 'guitar_mid', 'guitar_bass']);
-const MIXER_KEYS = new Set(['register']);
+/** `register` and `color` live in the mixer strip, not in the columns. */
+const MIXER_KEYS = new Set(['register', 'color']);
 const GROUP_LABELS: Record<string, string> = {
   performance: 'Trình diễn',
   texture: 'Chất liệu',
@@ -38,6 +53,12 @@ export type PanelContext = {
   tiers: string[];
 };
 
+export type PanelGroup = {
+  id: string;
+  label: string;
+  fields: ParamsFieldSchema[];
+};
+
 export type PanelLayout = {
   columns: 1 | 2 | 3;
   dense: boolean;
@@ -50,6 +71,7 @@ export type PanelLayout = {
 export type ParamDisplay = {
   primary: string;
   secondary?: string;
+  detail?: string;
   negativeLabel: string;
   positiveLabel: string;
 };
@@ -80,11 +102,11 @@ export function panelFields(context: PanelContext): ParamsFieldSchema[] {
   );
 }
 
-/** Groups for the columns. Voices live in the mixer; register also lives there. */
-export function panelGroups(context: PanelContext): typeof PARAM_GROUPS {
+/** Groups for the columns. Voices/register/color live in the mixer. */
+export function panelGroups(context: PanelContext): PanelGroup[] {
   const visible = new Set(panelFields(context).map((field) => field.key));
   return PARAM_GROUPS.map((group) => ({
-    ...group,
+    id: group.id,
     label: GROUP_LABELS[group.id] ?? group.label,
     fields: group.fields.filter((field) => {
       if (!visible.has(field.key)) return false;
@@ -93,6 +115,30 @@ export function panelGroups(context: PanelContext): typeof PARAM_GROUPS {
       return true;
     }),
   })).filter((group) => group.fields.length > 0);
+}
+
+function mergeGroups(groups: PanelGroup[], ids: string[], label: string): PanelGroup | null {
+  const fields = ids.flatMap((id) => groups.find((group) => group.id === id)?.fields ?? []);
+  if (fields.length === 0) return null;
+  return { id: ids.join('+'), label, fields };
+}
+
+/**
+ * Column composition. `harmony` and `guitar` share one header so a single
+ * technique row does not pay for a second group label in the 3-column layout.
+ */
+export function panelColumns(context: PanelContext, columns: 1 | 2 | 3): PanelGroup[][] {
+  const groups = panelGroups(context);
+  const byId = (id: string) => groups.find((group) => group.id === id) ?? null;
+  const performance = byId('performance');
+  const texture = byId('texture');
+  const harmonyGuitar = mergeGroups(groups, ['harmony', 'guitar'], 'Hòa âm / Guitar');
+  const base = columns === 3
+    ? [[performance], [texture], [harmonyGuitar]]
+    : columns === 2
+      ? [[performance, texture], [harmonyGuitar]]
+      : [[performance, texture, harmonyGuitar]];
+  return base.map((column) => column.filter((group): group is PanelGroup => Boolean(group)));
 }
 
 export function changedKeysForPanel(params: SonifyParams, context: PanelContext): string[] {
@@ -117,7 +163,10 @@ export function hiddenChangedKeys(params: SonifyParams, context: PanelContext): 
 
 export function paramSummary(params: SonifyParams, context: PanelContext): string {
   const count = changedKeysForPanel(params, context).length;
-  return count === 0 ? 'Default' : `${count} thay đổi`;
+  const hidden = hiddenChangedKeys(params, context).length;
+  if (count === 0 && hidden === 0) return 'Default';
+  if (count === 0) return `${hidden} ẩn`;
+  return hidden > 0 ? `${count} thay đổi · ${hidden} ẩn` : `${count} thay đổi`;
 }
 
 export function fieldCenter(field: ParamsFieldSchema): number {
@@ -186,13 +235,15 @@ export function paramDisplay(
     return {
       primary: `${signed((number - 1) * 100)}%`,
       secondary: bpm == null ? undefined : `${bpm} BPM`,
+      detail: bpm == null ? `${number.toFixed(2)}×` : `${number.toFixed(2)}× · ${bpm} BPM`,
       ...labels,
     };
   }
   if (field.key === 'noise') {
     return {
       primary: `${number.toFixed(2)}%`,
-      secondary: 'mặc định 0.10%',
+      secondary: 'mặc định',
+      detail: 'mặc định 0.10%',
       ...labels,
     };
   }
@@ -200,12 +251,14 @@ export function paramDisplay(
     return {
       primary: signed(number),
       secondary: `${Math.round(number)} velocity`,
+      detail: `${Math.round(number)} velocity`,
       ...labels,
     };
   }
   return {
     primary: `${signed((number - 1) * 100)}%`,
     secondary: number.toFixed(2),
+    detail: number.toFixed(2),
     ...labels,
   };
 }
@@ -224,18 +277,17 @@ export function spectrumLevels(
   return [clamp(low, 0.08, 0.95), clamp(mid, 0.08, 0.95), clamp(high, 0.08, 0.95)];
 }
 
-function groupHeight(
-  groups: typeof PARAM_GROUPS,
-  ids: string[],
-  rowHeight: number,
-  labelHeight: number,
-): number {
-  const byId = new Map(groups.map((group) => [group.id, group]));
-  return ids.reduce((total, id) => {
-    const group = byId.get(id);
-    if (!group) return total;
-    return total + group.fields.length * rowHeight + labelHeight;
-  }, 0);
+function groupHeight(group: PanelGroup, rowHeight: number, labelHeight: number): number {
+  const fields = group.fields.length;
+  return labelHeight + fields * rowHeight + fields * GROUP_GAP;
+}
+
+function columnHeight(column: PanelGroup[], rowHeight: number, labelHeight: number): number {
+  if (column.length === 0) return 0;
+  return (
+    column.reduce((total, group) => total + groupHeight(group, rowHeight, labelHeight), 0) +
+    (column.length - 1) * COLUMN_GAP
+  );
 }
 
 export function panelLayout(
@@ -257,28 +309,40 @@ export function panelLayout(
   const rowHeight = dense ? DENSE_ROW_HEIGHT : COMFORTABLE_ROW_HEIGHT;
   const contentWidth = panelContentWidth(windowWidth);
   const columns: 2 | 3 = panelWidthFor(windowWidth) >= 768 ? 3 : 2;
-  const groups = panelGroups(context);
+  const columnsGroups = panelColumns(context, columns);
   const labelHeight = dense ? 20 : 24;
-  const columnsSpec = columns === 3
-    ? [['performance'], ['texture'], ['harmony', 'guitar']]
-    : [['performance', 'texture'], ['harmony', 'guitar']];
   const controlsHeight = Math.max(
-    ...columnsSpec.map((ids) => groupHeight(groups, ids, rowHeight, labelHeight)),
+    ...columnsGroups.map((column) => columnHeight(column, rowHeight, labelHeight)),
     0,
   );
-  const form = groups.find((group) => group.id === 'form');
+  const form = panelGroups(context).find((group) => group.id === 'form');
   const formFields = form?.fields.length ?? 0;
   const formHeight = formFields === 0
     ? 0
     : contentWidth < 640
-      ? formFields * 52 + 20
+      ? DANG_STACKED
       : dense
-        ? 64
-        : 76;
-  const headerHeight = dense ? 64 : 76;
-  const mixerHeight = dense ? 180 : 210;
+        ? DANG_DENSE
+        : DANG_COMFORTABLE;
+  const headerHeight = dense ? HEADER_DENSE : HEADER_COMFORTABLE;
+  const guitar = context.variant === 'guitar';
+  const mixerHeight = guitar
+    ? dense
+      ? MIXER_DENSE
+      : MIXER_COMFORTABLE
+    : dense
+      ? MIXER_DENSE_NO_GUITAR
+      : MIXER_COMFORTABLE_NO_GUITAR;
+  const bodyGap = formHeight > 0 ? BODY_GAP * 2 : BODY_GAP;
   const estimatedHeight =
-    headerHeight + PANEL_STATUS_HEIGHT + mixerHeight + controlsHeight + formHeight + 56 + 16;
+    headerHeight +
+    PANEL_STATUS_HEIGHT +
+    BODY_PADDING +
+    mixerHeight +
+    bodyGap +
+    controlsHeight +
+    formHeight +
+    FOOTER_HEIGHT;
   return {
     columns,
     dense,

@@ -45,6 +45,8 @@ export function TuningSpectrum({ levels, height = 76 }: Props) {
       style={{ width: '100%', height }}
       onLayout={(event) => setWidth(Math.max(80, event.nativeEvent.layout.width))}
       pointerEvents="none"
+      accessible={false}
+      importantForAccessibility="no"
     >
       <Svg width={width} height={height}>
         <Defs>

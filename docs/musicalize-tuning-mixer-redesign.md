@@ -63,6 +63,11 @@ contentWidth = min(panelWidth - 48, 1040)
 | 1920 | 1152 | 60.0% | 1040 | 456 | push |
 | 2560 | 1280 | 50.0% | 1040 | 968 | push |
 
+Header, status strip, body và footer bọc trong một `contentFrame`:
+`maxWidth = 1040 + 2×24 = 1088`, `width: 100%`, `alignSelf: center`.
+Padding 24px hai bên nên nội dung thật = **1040px**. Ở 1920 panel 1152px,
+contentFrame 1088px, hai bên panel còn 32px đệm; không rộng lê thê.
+
 Định nghĩa:
 
 ```ts
@@ -94,32 +99,36 @@ Cấu trúc:
 
 1. **Header dính** gồm tab + profile line. Profile line rời khỏi `TuningTab`
    và lên header để chiều cao body cố định. Dense 64px = tab 40 + profile 20
-   + border 4; thoáng 76px = tab 44 + profile 28 + border 4.
+   + border 4; thoáng 76px = tab 44 + profile 24 + border 4.
 2. **Status strip 24px** dưới header: một dòng cảnh báo/ghi chú, ellipsis.
    `Default note`, `hiddenChanged`, server notes gộp vào đây; bấm để mở popover,
    không làm body cao thêm.
 3. **Mixer ngang toàn panel**: sóng low/mid/high bên trái, 3 fader dọc bên phải,
-   hàng `Vùng âm` + `Đưa 3 bè về 0` ở dưới.
+   hàng dưới gồm `Vùng âm` + `Màu` + `Đưa 3 bè về 0`. Khi không phải Guitar,
+   mixer thu còn ~148/176px thay vì giữ chỗ fader rỗng.
 4. **Controls chia cột**:
    - `panelWidth >= 768` (từ khoảng `1280px` cửa sổ): 3 cột.
    - `panelWidth < 768`: 2 cột.
+   - `Hòa âm` và `Guitar` dùng chung một header `Hòa âm / Guitar` để không
+     tốn thêm label row.
 5. **Dáng full-width** ở dưới controls: `Khung` và `Tiết nhịp` đặt cạnh nhau
    khi `contentWidth >= 640`; dưới ngưỡng thì xếp dọc.
-6. **Compact row trên PC**: đây là layout mới, không phải row 2 tầng 62px hiện
-   tại:
-   - Dense: row **48px** = top line 16px (label + value + `↺`) + gap 2px +
-     control line 24px (`−` 20px + track + `+` 20px) + padding 6px.
-   - Thoáng: row **58px**, track 30px.
+6. **Compact row trên PC**:
+   - Dense: row **50px** = top line 16px (label + value + `↺`) + gap 2px +
+     control line 26px (`−` 24px + track + `+` 24px) + padding 6px.
+   - Thoáng: row **60px**, track 34px.
    - Không dùng `paramFoot` trên PC. BPM nằm trong value cell
      (`+8% · 104 BPM`, dùng `monoSmall` nếu cần); hint/cảnh báo nằm trong
      status strip.
    - Value cell rộng tối đa 96px, `numberOfLines={1}`, ellipsis.
-   - `−`/`+` là 20×20 nhưng có `hitSlop` 12; slider hit 24px + `hitSlop` 10.
-     Tổng vùng chạm vẫn >=44 (giữ `TOUCH_TARGET` về mặt a11y).
-   - Mobile giữ row 2 tầng hiện tại + `paramFoot`, có scroll.
+   - `−`/`+` hitSlop 12; slider hit 26px + `hitSlop` 12; help/reset
+     hitSlop 14. Tổng vùng chạm >=44.
+   - Mobile giữ row 2 tầng + `paramFoot`, track 34px, có scroll.
+   - `?` mở **HelpCard** cố định phía trên footer: nền đục, có scroll, không bị
+     row/ScrollView cắt; hiện description, giá trị, detail và nhãn hai đầu.
 7. **Dense mode theo viewport height**:
-   - `height < 740`: row 48px, mixer 180px, gap 6px.
-   - `height >= 740`: row 58px, mixer 210px, gap 10px.
+   - `height < 740`: row 50px, mixer 184px, group gap 8px, body gap 14px.
+   - `height >= 740`: row 60px, mixer 210px, group gap 8px, body gap 14px.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -132,17 +141,19 @@ Cấu trúc:
 │  │   THẤP      TRUNG      CAO     │   │  ▓  │ │  ▓  │ │  ▓  │       │
 │  └────────────────────────────────┘   └─────┘ └─────┘ └─────┘       │
 │                                       Cao     Trung   Bass          │
-│  Vùng âm  [──────●──────]          [Đưa 3 bè về 0]                    │
+│  Vùng âm [──●──]   Màu [──●──]        [Đưa 3 bè về 0]                │
 ├────────────────────────┬────────────────────────┬────────────────────┤
 │ TRÌNH DIỄN             │ CHẤT LIỆU              │ HÒA ÂM / GUITAR    │
 │  Nhịp       +8%·104BPM↺│  Tương phản  −50%   ↺  │  Màu hòa âm  −40%  │
 │  − ─────●───── +       │  − ─────●───── +       │  − ─────●───── +    │
 │  Người      −40%     ↺ │  Nhiễu       0.10%     │  Nhịp hòa âm 0     │
 │  − ─────●───── +       │  − ─────●───── +       │  − ─────●───── +    │
+│  Hơi thở    −25%     ↺ │  Mật độ      0%        │  Kỹ thuật    0     │
+│  − ─────●───── +       │  − ─────●───── +       │  − ─────●───── +    │
 ├────────────────────────┴────────────────────────┴────────────────────┤
 │ DÁNG   Khung [Tự động | Không | Ngắn | Dài]   Tiết nhịp [seg 5 mục]  │
 ├──────────────────────────────────────────────────────────────────────┤
-│ [Reset]                                                     [Lưu]    │
+│                                              [Reset]      [Lưu]      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -150,37 +161,37 @@ Phân bổ cột:
 
 | Panel | Controls | Cột 1 | Cột 2 | Cột 3 | Dáng |
 |---|---|---|---|---|---|
-| `>= 768` | 3 cột | Trình diễn (4) | Chất liệu (3) | Hòa âm (2) + Guitar (1) | full-width |
-| `< 768` | 2 cột | Trình diễn (4) + Chất liệu (3) | Hòa âm (2) + Guitar (1) | — | full-width |
+| `>= 768` | 3 cột | Trình diễn (3) | Chất liệu (3) | Hòa âm (2) + Guitar (1), chung header | full-width |
+| `< 768` | 2 cột | Trình diễn (3) + Chất liệu (3) | Hòa âm (2) + Guitar (1), chung header | — | full-width |
 
 `Dáng` luôn full-width vì `meter` có 5 lựa chọn. Nếu chỉ một trong hai field
 visible, field còn lại chiếm toàn bộ hàng.
 
-Chiều cao 3 cột: **4 hàng + 1 label row**, không phải 3 label row. Ba cột có ba
-label nằm cùng một hàng; cột 3 có thêm label `Guitar` nhưng chỉ 3 hàng, nên vẫn
-thấp hơn cột 1.
+Chiều cao 3 cột: **3 hàng + 1 label row** mỗi cột. `Hòa âm / Guitar` dùng chung
+label nên không phát sinh label thứ hai.
 
-Ước lượng chiều cao (3 cột, worst case 4 hàng):
+Ước lượng chiều cao (3 cột, worst case 3 hàng):
 
 | Vùng | Dense (`height < 740`) | Thoáng (`height >= 740`) |
 |---|---|---|
 | Header + profile dính | 64 | 76 |
 | Status strip | 24 | 24 |
-| Mixer ngang panel | 180 | 210 |
-| Controls (4 hàng + 1 label row) | 212 | 256 |
+| Mixer ngang panel | 184 | 210 |
+| Body gap (mixer → cột → Dáng) | 28 | 28 |
+| Controls (3 hàng + 1 label + gaps) | 194 | 228 |
 | Dáng full-width | 64 | 76 |
-| Footer | 56 | 56 |
-| Padding body | 16 | 16 |
-| **Tổng** | **616** | **714** |
+| Footer | 50 | 50 |
+| Padding body | 28 | 28 |
+| **Tổng** | **636** | **720** |
 
-- Viewport `1366×660`: 3 cột + dense, tổng 616 → vừa, còn 44px.
-- Viewport `1440×800`: 3 cột + thoáng, tổng 714 → vừa, còn 86px.
-- Viewport `1920×980`: 3 cột + thoáng, `contentWidth = 1040` → rất thoáng.
-- Viewport `1280×600`: 3 cột + dense, tổng 616 → **có thể scroll**; không hứa
+- Viewport `1366×660`: 3 cột + dense, tổng 636 → vừa, còn 24px.
+- Viewport `1440×800`: 3 cột + thoáng, tổng 720 → vừa, còn 80px.
+- Viewport `1920×980`: 3 cột + thoáng, `contentWidth` 1040 → rất thoáng.
+- Viewport `1280×600`: 3 cột + dense, tổng 636 → **có thể scroll**; không hứa
   no-scroll.
-- Viewport `1024×620`: 2 cột + dense, `Dáng` xếp dọc; 2 label rows + 7 hàng +
-  Dáng 124 → **~840**, scroll. Đây là chấp nhận: 1024×768 không nằm trong nhóm
-  “một màn hình”.
+- Viewport `1024×620`: 2 cột + dense, `Dáng` xếp dọc; cột 1 có 2 label rows +
+  6 hàng + Dáng 124 → **~900**, scroll. Đây là chấp nhận: 1024×768 không nằm
+  trong nhóm “một màn hình”.
 - Không dùng `panelLayout` để đoán `scroll`. `scrollEnabled` lấy từ đo thật:
   `onLayout` của khung + `onContentSizeChange` của nội dung.
 - Mobile vẫn một cột cuộn: mixer → Trình diễn → Chất liệu → Hòa âm → Guitar →
@@ -192,7 +203,7 @@ thấp hơn cột 1.
 Nếu mixer nằm trong một cột dọc, cột đó cao khoảng 500px, trong khi cột controls
 còn lại khoảng 870px → vẫn phải cuộn. Đưa mixer thành **dải ngang toàn panel**
 trên cùng và tách `Dáng` thành hàng full-width giúp cột controls cao nhất chỉ
-còn 4 hàng. Đây là lý do bố cục một màn hình khả thi ở viewport 660px.
+còn 3 hàng. Đây là lý do bố cục một màn hình khả thi ở viewport 660px.
 
 ## 4. Các khu vực
 
@@ -204,13 +215,14 @@ còn 4 hàng. Đây là lý do bố cục một màn hình khả thi ở viewpor
 - Phải: 3 fader dọc cho `Bè cao / Bè trung / Bè bass`.
 - Fader chỉ hiện khi `variant === 'guitar'`.
 - Khi không phải Guitar: hiện ghi chú “Bè guitar chỉ mở ở thể loại Guitar”,
-  không hiện fader chết; dải mixer thu lại để nhường chỗ cho controls.
-- Dưới cùng: hàng `Vùng âm` + nút `Đưa 3 bè về 0` (khác `Reset` của profile).
-- `Vùng âm` nằm trong cùng khu vì nó điều khiển độ nghiêng của phổ.
+  không hiện fader chết; mixer thu còn ~148/176px thay vì giữ chỗ fader rỗng.
+- Dưới cùng: hàng `Vùng âm` + `Màu` + nút `Đưa 3 bè về 0`.
+- `Vùng âm` điều khiển độ nghiêng của phổ; `Màu` nằm cùng hàng để giảm một hàng
+  controls và để hai knob “chất liệu không gian” cạnh nhau.
 
 ### 4.2 Trình diễn
 
-- `Nhịp`, `Người`, `Hơi thở`, `Màu`.
+- `Nhịp`, `Người`, `Hơi thở`. `Màu` đã chuyển xuống mixer.
 
 ### 4.3 Chất liệu
 
@@ -233,6 +245,8 @@ còn 4 hàng. Đây là lý do bố cục một màn hình khả thi ở viewpor
 
 - `Kỹ thuật` chỉ hiện khi field thật sự áp dụng (`bach`, `torroba`, tier C).
 - Ba bè đã chuyển sang khu Cân bằng và chỉ hiện khi `variant === 'guitar'`.
+- Trong cột 3, `Hòa âm` và `Guitar` dùng chung header `Hòa âm / Guitar` để
+  không tốn thêm label row.
 
 ### 4.7 Profile tab
 
@@ -289,14 +303,15 @@ Người        −40%  ·  0.60     ↺
               Ít hơn        Nhiều hơn
 ```
 
-- `tempo`: primary `+8%`, secondary `1.08× · 104 BPM` (BPM lấy từ
-  `effectiveBpm(baseBpm, value)`).
+- `tempo`: primary `+8%`, secondary `104 BPM`, detail `1.08× · 104 BPM`
+  (BPM lấy từ `effectiveBpm(baseBpm, value)`).
 - `guitar_*`: primary `+3`, secondary `3 velocity`.
-- `noise`: primary `0.10%`, secondary `mặc định` (không lặp lại số).
+- `noise`: primary `0.10%`, secondary `mặc định`, detail `mặc định 0.10%`.
 - `humanize` / `breath` hiện cảnh báo mềm trong status strip khi
   `humanize > 1.10` hoặc `breath > 1.20` (đúng hằng số
   `HUMANIZE_SOFT_WARNING` / `BREATH_SOFT_WARNING`).
-- Giá trị thô hiện nhỏ cạnh phần trăm để người quen số cũ vẫn đọc được.
+- Row PC chỉ hiện `primary` (tempo kèm BPM). `detail`, giá trị thô và nhãn hai
+  đầu (`Chậm ← 0 → Nhanh`, `Khô ← 0 → Đậm`…) nằm trong **HelpCard** khi bấm `?`.
 
 ### 5.3 Field đổi UI khác
 
@@ -374,9 +389,11 @@ không làm trong đợt UI này.
 - `anchorRatio(field)` → vị trí anchor trên track; `noise` = 0, default tick
   của `noise` = 20%.
 - `paramDisplay(field, value, { baseBpm })` →
-  `{ primary, secondary, deltaText, negativeLabel, positiveLabel }`.
-  Row PC chỉ dùng `primary`; `secondary` chỉ hiện khi value cell đủ chỗ
-  (`tempo` có BPM). Mobile/thoáng có thể hiện thêm `secondary`.
+  `{ primary, secondary, detail, negativeLabel, positiveLabel }`.
+  Row PC chỉ dùng `primary` (tempo kèm BPM). `detail`, giá trị thô và nhãn hai
+  đầu nằm trong HelpCard.
+- `panelColumns(context, columns)` → cột đã gộp `Hòa âm / Guitar`, đã bỏ
+  `register`/`color` khỏi groups.
 - `spectrumLevels(params, variant)` → `[low, mid, high]`; guitar offsets chỉ
   cộng khi `variant === 'guitar'`.
 - `panelWidthFor(windowWidth)`.
@@ -394,7 +411,8 @@ Visibility và đếm thay đổi:
 - `changedCount` dùng `panelFields`, không dùng `visibleFields` trực tiếp.
 - `hiddenChanged` đếm mọi `PARAM_FIELDS` đã đổi nhưng không nằm trong
   `panelFields` (gồm guitar field khi không phải Guitar).
-- Profile summary dùng cùng `changedCount` / `hiddenChanged`.
+- `paramSummary` gộp cả hidden: `Default`, `N thay đổi`, `N ẩn`, hoặc
+  `N thay đổi · M ẩn`.
 - Telemetry: thay `changedKeys(params)` bằng
   `changedKeysForPanel(params, context)` + `hiddenChangedKeys(params, context)`.
   Nhờ vậy `profile_save` / `knob_change` không đếm guitar field như knob đang
@@ -422,16 +440,18 @@ Test tối thiểu:
 - `panelPushes`: 1878 → false; 1879 → true; 1920 → true.
 - `panelLayout` cho Guitar (width/height là viewport, không phải độ phân giải
   màn hình):
-  - `1024×620` → 2 cột, dense, `rowHeight = 48`, `dangStacked = true`,
-    `estimatedHeight ≈ 840`.
-  - `1280×600` → 3 cột, dense, `rowHeight = 48`.
-  - `1366×660` → 3 cột, dense, `rowHeight = 48`, `estimatedHeight = 616`.
-  - `1440×800` → 3 cột, thoáng, `rowHeight = 58`, `estimatedHeight = 714`.
-  - `1920×980` → 3 cột, thoáng, content 1040, `estimatedHeight = 714`.
+  - `1024×620` → 2 cột, dense, `rowHeight = 50`, `dangStacked = true`,
+    `estimatedHeight = 900`.
+  - `1280×600` → 3 cột, dense, `rowHeight = 50`.
+  - `1366×660` → 3 cột, dense, `rowHeight = 50`, `estimatedHeight = 636`.
+  - `1440×800` → 3 cột, thoáng, `rowHeight = 60`, `estimatedHeight = 720`.
+  - `1920×980` → 3 cột, thoáng, content 1040, `estimatedHeight = 720`.
   - `2560×1400` → 3 cột, content 1040.
   - Mobile → 1 cột, row 2 tầng có `paramFoot`.
 - `dangStacked`: `contentWidth` 592 → true; 720 và 1040 → false.
 - `Dáng` stacked cao 124px; side-by-side 64/76px.
+- `panelColumns` 3 cột: `Hòa âm / Guitar` chung một header; `color` không nằm
+  trong `Trình diễn`.
 - `statusStrip` luôn 24px và đã nằm trong `estimatedHeight`; `Default` note,
   `hiddenChanged`, server notes gộp một dòng ellipsis nên không cộng thêm.
 - `panelFields`: Guitar visible khi `variant === 'guitar'`; ẩn ở `symphony`;
@@ -477,9 +497,9 @@ Test tối thiểu:
    chuyển `Dáng` vào cột, phải test wrap ở 224–264px.
 8. **Chiều cao thật**: dùng `innerHeight`, không dùng 768/900 của màn hình.
    `1024×768` và `1280×720` có thể scroll; đừng đưa vào tiêu chí no-scroll.
-9. **Row compact 48px**: phải viết lại `ParamSlider` cho PC. Nếu giữ row 2 tầng
-   62px hiện tại, `1366×660` sẽ thành ~680px và scroll. Đây là điều kiện bắt
-   buộc của tiêu chí no-scroll.
+9. **Row compact 50px**: phải viết lại `ParamSlider` cho PC. Nếu giữ row 2 tầng
+   62px hiện tại, `1366×660` sẽ vượt màn hình. Đây là điều kiện bắt buộc của
+   tiêu chí no-scroll.
 10. **Status strip**: note/cảnh báo phải gộp một dòng ellipsis + popover. Nếu
     render nhiều dòng inline như `TuningTab` hiện tại, 44px margin sẽ mất.
 
@@ -490,7 +510,7 @@ Test tối thiểu:
 2. `TuningSpectrum.tsx`.
 3. Layout mixer ngang toàn panel + controls 2/3 cột + Dáng full-width +
    panel width động.
-4. Compact row PC 48/58px (không `paramFoot`), fader dọc, slider bipolar,
+4. Compact row PC 50/60px (không `paramFoot`), fader dọc, slider bipolar,
    segmented control, readout/a11y.
 5. Header profile dính + status strip 24px + popover chi tiết.
 6. Runtime scroll measurement + `drawerX` resize handling + telemetry
@@ -502,15 +522,15 @@ Test tối thiểu:
 ## 10. Tiêu chí xong
 
 - Panel PC rộng 50–67% viewport, không full-width; `contentWidth` có trần 1040.
-- Guitar trên PC, viewport `1366×660`: panel 820, 3 cột + dense, row 48px,
-  `Dáng` full-width, tổng 616, **không cuộn**.
-- Guitar trên PC, viewport `1440×800`: panel 864, 3 cột thoáng, row 58px,
-  tổng 714, **không cuộn**.
+- Guitar trên PC, viewport `1366×660`: panel 820, 3 cột + dense, row 50px,
+  `Dáng` full-width, tổng 636, **không cuộn**.
+- Guitar trên PC, viewport `1440×800`: panel 864, 3 cột thoáng, row 60px,
+  tổng 720, **không cuộn**.
 - Guitar trên PC, viewport `1920×980`: panel 1152, `contentWidth` 1040, 3 cột,
   **không cuộn**.
 - `1024×768` và `1280×720`: chấp nhận scroll; `1024×620` có `Dáng` stacked
-  ~840. Không hứa no-scroll.
-- PC row 48px không dùng `paramFoot`; BPM nằm trong value cell, hint/cảnh báo
+  ~900. Không hứa no-scroll.
+- PC row 50px không dùng `paramFoot`; BPM nằm trong value cell, hint/cảnh báo
   nằm trong status strip 24px.
 - Status strip gộp `Default` note, `hiddenChanged`, server notes một dòng
   ellipsis + popover; không đẩy body.
@@ -548,12 +568,14 @@ Test tối thiểu:
 Đã kiểm:
 
 - `npx tsc --noEmit`
-- `npm run test:musicalize`
+- `npm run test:unit`
 - `npx expo export --platform web`
 
 Ghi chú triển khai:
 
-- Row compact 48px dùng top line 16 + control line 24; mobile quay lại row 2 tầng
+- Row compact 50px dùng top line 16 + control line 26; mobile quay lại row 2 tầng
   có `paramFoot` và scroll.
 - Ở viewport hẹp (`1024`, `1280×600`) panel vẫn scroll; đúng như tiêu chí đã chốt.
 - `TuningSpectrum` chỉ là preview từ tham số, không dùng `peaks` hay audio thật.
+- Content được bọc trong `contentFrame` max 1088px để nội dung thật dừng ở 1040px.
+- `Màu` nằm cùng hàng `Vùng âm` trong mixer; `Hòa âm / Guitar` dùng chung header.
