@@ -14,6 +14,14 @@ from dataclasses import dataclass, replace
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent
 from app.sonify.phrasing import MIN_RISE
+from app.sonify.sentence_specs import (
+    Select,
+    SentenceSpec,
+    Slot,
+    Span,
+    plan_sentence,
+    register,
+)
 
 _OPEN_BASS = (40, 45, 50)
 _HARMONICS = frozenset({52, 57, 62, 67, 71, 76, 79})
@@ -31,6 +39,25 @@ CASTILLO_WALK = 13
 CASTILLO_CADENCE = 14
 _REAL_TORROBA_FIGURES = frozenset({*range(1, 9), ALCANIZ_OPENING, CASTILLO_WALK, CASTILLO_CADENCE})
 
+# Castillo in 3/4 is one nine-bar figure per phrase: walk on an even phrase
+# number, cadence on an odd one. Kept as data so the selector can grow without
+# another branch; the bar renderers stay in `_FIGURES`.
+CASTILLO_34_WALK = SentenceSpec(
+    id="castillo_34_walk",
+    pattern="castillo",
+    meter="3/4",
+    select=Select(length_min=2, n_parity="even"),
+    span=Span(tile=9, remainder="same_figure", truncate_to_length=True),
+    slots=(Slot(start=0, bars=9, figure=CASTILLO_WALK),),
+)
+CASTILLO_34_CADENCE = SentenceSpec(
+    id="castillo_34_cadence",
+    pattern="castillo",
+    meter="3/4",
+    select=Select(length_min=2, n_parity="odd"),
+    span=Span(tile=9, remainder="same_figure", truncate_to_length=True),
+    slots=(Slot(start=0, bars=9, figure=CASTILLO_CADENCE),),
+)
 # One Juglar chunk is three plucked fingers on one quantized price, and the
 # thumb on the beat under them. p-a-m-i: the four plucks sit on one sixteenth
 # grid, so a 3/4 bar is twelve attacks whatever the tempo.
@@ -1763,6 +1790,11 @@ def _danza_spans(ctx, length: int, closes: bool) -> list[tuple[int, tuple[int, .
 def _phrase_spans(ctx, phrase, pattern: str, n: int) -> list[tuple[int, tuple[int, ...]]]:
     length = len(_bars_of(ctx, phrase))
     closes = bool(phrase.closes)
+    planned = plan_sentence(
+        pattern, ctx.kind, length, n, closes=closes, rise=phrase.rise
+    )
+    if planned is not None:
+        return planned
     if pattern == "sonatina" and closes:
         return _sonatina_close_spans(length, n)
     if pattern == "sonatina":
@@ -3414,6 +3446,7 @@ _FIGURES = {
 }
 
 
+
 def render_torroba_figure(
     ctx,
     bar: int,
@@ -4387,6 +4420,17 @@ _FIGURES[JUGLAR_THIN] = _pen_juglar_thin
 _FIGURES[ALCANIZ_OPENING] = _pen_alcaniz_opening
 _FIGURES[ALCANIZ_SOFT] = _pen_alcaniz_soft
 _FIGURES[OLITE_THIN] = _pen_olite_thin
+
+# Registered after every `_FIGURES` entry exists, so `valid_figures` can reject
+# a slot that points at a figure the renderer does not have. Figures 9-12 are
+# added above; 13/14 are in the literal dict.
+register(
+    "castillo",
+    "3/4",
+    CASTILLO_34_WALK,
+    CASTILLO_34_CADENCE,
+    valid_figures=frozenset(_FIGURES),
+)
 
 
 def _render_torroba_bar(ctx, bar: int, phrase, pattern: str, patterns=None):
