@@ -64,43 +64,92 @@ push = windowWidth - COLUMN_WIDTH - drawerWidth >= 440
 - `960–1366px`: drawer nổi từ phải, có backdrop. Không bóp chart xuống dưới
   ngưỡng đọc.
 
-### 3.2 Bố cục hai cột
+### 3.2 Bố cục một màn hình cho Guitar trên PC
 
-Chia hai cột khi `drawerWidth >= 560`.
+Mục tiêu: ở `1366×768`, `1440×900` và `1920×1080`, panel Guitar mở ra là thấy
+toàn bộ knob, **không phải cuộn**. Vì vậy không dùng một cột dọc.
+
+Cấu trúc:
+
+1. **Mixer full-width** ở trên: sóng low/mid/high bên trái, 3 fader dọc bên phải,
+   hàng `Vùng âm` + `Cân bằng lại` ở dưới.
+2. **Controls chia cột** bên dưới mixer:
+   - `drawerWidth >= 720`: 3 cột.
+   - `drawerWidth < 720`: 2 cột, hàng compact hơn.
+3. **Dense mode theo chiều cao**:
+   - `height < 820`: hàng 48px, mixer 180px, gap 6px.
+   - `height >= 820`: hàng 58px, mixer 210px, gap 10px.
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ TINH CHỈNH   PROFILE                 Default · đã sửa    ✕  │
-├───────────────────────────────┬──────────────────────────────┤
-│ CÂN BẰNG                      │ TRÌNH DIỄN                   │
-│  sóng thấp / trung / cao      │  Nhịp        −   0   +        │
-│                               │  Người       −   0   +        │
-│  ┌───┐  ┌───┐  ┌───┐          │  Hơi thở     −   0   +        │
-│  │ ▓ │  │ ▓ │  │ ▓ │          │  Màu         −   0   +        │
-│  │ ▓ │  │ ▓ │  │ ▓ │          │                              │
-│  └───┘  └───┘  └───┘          │ CHẤT LIỆU                    │
-│  Cao    Trung   Bass          │  Tương phản / Nhiễu / Mật độ │
-│  Vùng âm   [──●──]            │ HÒA ÂM / DÁNG                │
-├───────────────────────────────┴──────────────────────────────┤
-│ [Reset]                                             [Lưu]    │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ TINH CHỈNH   PROFILE                    Default · đã sửa         ✕  │
+├──────────────────────────────────────────────────────────────────────┤
+│ CÂN BẰNG BÈ                                                          │
+│  ┌────────────────────────────────┐   ┌─────┐ ┌─────┐ ┌─────┐       │
+│  │      sóng thấp/trung/cao       │   │  ▓  │ │  ▓  │ │  ▓  │       │
+│  │   THẤP      TRUNG      CAO     │   │  ▓  │ │  ▓  │ │  ▓  │       │
+│  └────────────────────────────────┘   └─────┘ └─────┘ └─────┘       │
+│                                       Cao     Trung   Bass          │
+│  Vùng âm  [──────●──────]   [Cân bằng lại]                           │
+├────────────────────────┬────────────────────────┬────────────────────┤
+│ TRÌNH DIỄN             │ CHẤT LIỆU              │ DÁNG               │
+│  Nhịp      −  0  +     │  Tương phản − 0 +      │  Khung   [seg]     │
+│  Người     −  0  +     │  Nhiễu       − 0 +      │  Tiết nhịp [seg]   │
+│  Hơi thở   −  0  +     │  Mật độ      − 0 +      │                    │
+│  Màu       −  0  +     │                        │ GUITAR             │
+│                        │ HÒA ÂM                 │  Kỹ thuật − 0 +    │
+│                        │  Màu hòa âm  − 0 +     │                    │
+│                        │  Nhịp hòa âm − 0 +     │                    │
+├────────────────────────┴────────────────────────┴────────────────────┤
+│ [Reset]                                                     [Lưu]    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-- Cột trái là khu “mixer”: sóng + 3 fader dọc + `Vùng âm`.
-- Cột phải là các nhóm tham số còn lại.
-- Mobile vẫn một cột, thứ tự: mixer → trình diễn → chất liệu → hòa âm → dáng.
-- Header và footer dính; phần thân cuộn một lần, không lồng nhiều `ScrollView`.
+Phân bổ cột:
+
+| Drawer | Controls | Cột 1 | Cột 2 | Cột 3 |
+|---|---|---|---|---|
+| `>= 720` | 3 cột | Trình diễn (4) | Chất liệu (3) + Hòa âm (2) | Dáng (2) + Guitar (1) |
+| `< 720` | 2 cột | Trình diễn (4) + Chất liệu (3) | Hòa âm (2) + Dáng (2) + Guitar (1) | — |
+
+Ước lượng chiều cao:
+
+| Vùng | Dense (768) | Thoáng (900+) |
+|---|---|---|
+| Header + profile | ~72 | ~80 |
+| Mixer full-width | 180 | 210 |
+| Controls (cột cao nhất 5–7 hàng) | 270–366 | 270–438 |
+| Footer | 56 | 56 |
+| Padding | 24 | 24 |
+| **Tổng** | **602–698** | **640–808** |
+
+- Ở `1366×768`, dùng 2 cột + dense: 7 hàng × 48 + label nhóm + mixer 180 vẫn
+  nằm dưới 768, còn chỗ cho một dòng cảnh báo.
+- Ở `1440×900`, drawer 662 → 2 cột thoáng: 7 hàng × 58 + mixer 210 vẫn dưới 900.
+- Ở `1920×1080`, drawer 760 → 3 cột: cột cao nhất 5 hàng, rất thoáng.
+- Với Guitar, phần thân PC **không dùng `ScrollView`** khi đã đủ chỗ; chỉ bật
+  scroll làm fallback cho cửa sổ thấp bất thường (dưới ~700px) hoặc mobile.
+- Mobile vẫn một cột cuộn: mixer → trình diễn → chất liệu → hòa âm → dáng.
+- Header và footer dính; không lồng nhiều `ScrollView`.
+
+### 3.3 Vì sao không đặt mixer làm một cột riêng?
+
+Nếu mixer nằm trong một cột dọc, cột đó cao khoảng 500px, trong khi cột controls
+còn lại khoảng 870px → vẫn phải cuộn. Đưa mixer thành **dải full-width** trên
+cùng tận dụng chiều ngang, giảm chiều cao mỗi cột controls xuống còn 5–7 hàng.
+Đây là lý do bố cục một màn hình khả thi ở 768px chiều cao.
 
 ## 4. Các khu vực
 
 ### 4.1 Cân bằng
 
-- Sóng low/mid/high co giãn theo chiều rộng cột.
-- 3 fader dọc cho `Bè cao / Bè trung / Bè bass`.
+- Là dải **full-width** trên cùng, không nằm trong một cột dọc.
+- Trái: sóng low/mid/high co giãn theo chiều rộng còn lại.
+- Phải: 3 fader dọc cho `Bè cao / Bè trung / Bè bass`.
 - Fader chỉ hiện khi `variant === 'guitar'`.
 - Khi không phải Guitar: hiện ghi chú “Bè guitar chỉ mở ở thể loại Guitar”,
-  không hiện fader chết.
-- Nút `Cân bằng lại` đưa cả ba bè về `0`.
+  không hiện fader chết; dải mixer thu lại để nhường chỗ cho controls.
+- Dưới cùng: hàng `Vùng âm` + nút `Cân bằng lại` đưa cả ba bè về `0`.
 - `Vùng âm` nằm trong cùng khu vì nó điều khiển độ nghiêng của phổ.
 
 ### 4.2 Trình diễn
@@ -217,7 +266,7 @@ không làm trong đợt UI này.
 
 | File | Việc |
 |---|---|
-| `src/musicalize/TuningPanel.tsx` | layout 2 cột, fader dọc, slider bipolar, segmented control |
+| `src/musicalize/TuningPanel.tsx` | mixer full-width + controls 2/3 cột, fader dọc, slider bipolar, segmented control |
 | `src/musicalize/TuningSpectrum.tsx` | sóng low/mid/high bằng `react-native-svg` |
 | `src/musicalize/tuningDisplay.ts` | helper thuần: tâm field, text hiển thị, spectrum levels, drawer width |
 | `src/musicalize/tuningDisplay.test.ts` | test helper |
@@ -242,6 +291,8 @@ không làm trong đợt UI này.
 - `spectrumLevels(params, variant)` → `[low, mid, high]`.
 - `drawerWidthFor(windowWidth)`.
 - `drawerPushes(windowWidth)`.
+- `panelLayout(windowWidth, windowHeight, variant)` → `{ columns, dense, scroll }`,
+  trong đó `columns` là `2`, `3` hoặc `1` (mobile).
 
 Test tối thiểu:
 
@@ -249,6 +300,12 @@ Test tối thiểu:
 - Text `tempo`, `guitar_*`, `noise` đúng dấu và đơn vị.
 - `spectrumLevels` ở default, ở hai cực `register`, và khi guitar offset bị clamp.
 - `drawerWidthFor` / `drawerPushes` ở các mốc 960, 1280, 1440, 1920.
+- `panelLayout` cho Guitar:
+  - `1366×768` → 2 cột, dense, `scroll = false`.
+  - `1440×900` → 2 cột, thoáng, `scroll = false`.
+  - `1920×1080` → 3 cột, thoáng, `scroll = false`.
+  - `1280×720` → 2 cột, dense, vẫn cố gắng `scroll = false`.
+  - Mobile → 1 cột, `scroll = true`.
 
 ## 8. Rủi ro
 
@@ -264,16 +321,19 @@ Test tối thiểu:
 
 ## 9. Thứ tự triển khai
 
-1. `tuningDisplay.ts` + test.
+1. `tuningDisplay.ts` + test, gồm `panelLayout`.
 2. `TuningSpectrum.tsx`.
-3. Layout 2 cột + drawer width động.
+3. Layout mixer full-width + controls 2/3 cột + drawer width động.
 4. Fader dọc + slider bipolar + segmented control.
-5. Rà 960 / 1280 / 1440 / 1920, web + native.
+5. Rà `1280×720`, `1366×768`, `1440×900`, `1920×1080`, web + native.
 6. Chạy `npm run test:musicalize`.
 
 ## 10. Tiêu chí xong
 
-- Ở 1920px, panel rộng 760px, hai cột, chart vẫn dùng được.
+- Guitar trên PC, `1366×768`: 2 cột + dense, thấy toàn bộ knob, **không cuộn**.
+- Guitar trên PC, `1440×900`: 2 cột thoáng, **không cuộn**.
+- Guitar trên PC, `1920×1080`: panel 760px, 3 cột controls, **không cuộn**.
+- Mixer là dải full-width; không có cột mixer dọc làm cột controls cao quá màn hình.
 - Ở 1280px, panel nổi 589px, không bóp chart xuống dưới 440px.
 - Kéo `Bè cao/trung/bass` thấy fill từ tâm và sóng đổi tương ứng.
 - Các field `0–2` hiện `−% / 0 / +%`; `noise` hiện `%` tuyệt đối.
