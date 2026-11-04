@@ -228,7 +228,7 @@ Vì vậy "Villa 1D dùng `_select_body`" là **sai**: 1D framed đi macro → `
 | `guitar_torroba.py:1660` `_castillo_spans` | **Sentence**: length + `n % 2`; **không** đọc `closes` |
 | `guitar_torroba.py:1763` `_phrase_spans` | **Sentence**: sonatina/fandanguillo/danza mới đọc `closes` |
 | `guitar_torroba.py:3687` `_castillos_figure_plan` | **Figure đơn**, không phải sentence |
-| `guitar_torroba.py:1826` `torroba_figure_plan` | **Sentence plan** (bar → slot) |
+| `guitar_torroba.py:1824` `torroba_figure_plan` | **Sentence plan** (bar → slot) |
 | `guitar_sor.py:291/349` galop cells | **Cell** |
 | `guitar_barrios.py:571` `_perpetual_bars` | **Texture variation** |
 | `guitar_bach.py:490` `_fuga_motif`, `:603` `_compose_fuga_bass` | **Procedure** (imitation) |
@@ -627,6 +627,7 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
 
 - **Vùng:** `_pedal_regions(ctx)` (`guitar_patterns.py:3986`) trả `leading` (từ bar 0 đến hết `_PEDAL`) và `trailing` (từ cuối lên). Door chỉ chạm hai vùng này.
 - **Chọn door:** `_dispatch` (`guitar_frame.py:135-142`) lấy `_extra_doors().get((ctx.ensemble, pattern))`; không có thì rơi về **composer frame** (`_frame_composer`, `:85`).
+- **`pattern` của door là body pattern ở biên**, không phải `headline_id`: `_paint_frames` (`guitar_patterns.py:4081-4092`) gọi `_joined_body_pattern(ctx, leading[-1] + 1, patterns)` cho intro và `... trailing[0] - 1 ...` cho outro. Row `[preludio, tremolo, preludio]` → intro/outro dùng `preludio`; nếu biên là `tremolo` thì door là `tremolo`.
 - **Chữ ký door:** `door(ctx, bar, role, *, steps, closing, index)`. `steps` là **bucket 2 hoặc 4**, không phải độ dài region: `steps = 2 if len(bars) <= 2 else 4` (`_render_region`, `:61`). `length = len(bars)` chỉ được truyền vào `_gesture`; region 1 bar đi `_compressed` (`:111`). `role` lấy từ `frame_roles(length)` (`:29`), tối đa 4 bước `0..3`.
 - **Hợp nhất registry:** `_extra_doors()` (`:623`) merge `guitar_frame_bach_sor.DOORS` → `guitar_frame_rest.DOORS` → `guitar_torroba_doors.DOORS` (update vào `_RETAINED_DOORS`), rồi `_RETAINED_DOORS` **thắng khi trùng**.
 - **Profile:** `_PEDAL_DOOR_PROFILE` (`guitar_patterns.py:4027`) map **body pattern → profile playability** cho vùng cửa; không có entry thì rơi về `"study"`.
@@ -639,7 +640,7 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
   "id": "villa_thumb_door",
   "ensemble": "villa",
   "pattern": "thumb_cantabile",
-  "sections": ["intro", "outro"],
+  "sections": ["intro", "outro", "warmup", "cooldown"],
   "steps": { "short": 2, "long": 4, "threshold": 2, "compress_one_bar": true },
   "roles": [0, 1, 2, 3],
   "profile": "thumb_cantabile",
@@ -648,9 +649,9 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
 }
 ```
 
-- `sections` phải là tập con của `_PEDAL`.
+- `sections` phải là tập con của `_PEDAL`; **cùng một door** `(ensemble, pattern)` phục vụ cả 4 kind (`intro`, `outro`, `warmup`, `cooldown`). `intro`/`outro` chỉ là tên phía body.
 - `steps` là bucket: `short = 2` khi region <= `threshold`, `long = 4` khi dài hơn. **Không** phải độ dài region; region length chỉ dùng để chọn `_compressed`/`frame_roles`.
-- `roles` suy từ `frame_roles(length)`: length 2 → `[0,1]`; length 3 → `[0,2,3]`; length >=4 → `[0,1,2,3]`. Không dùng tên `enter/leave` vì frame 4 bước có 4 role.
+- `roles` trong schema là **tập giá trị** `0..3`, không phải list theo bar. Role từng bar do `frame_roles(length)` quyết định: 2 → `[0,1]`; 3 → `[0,2,3]`; 4 → `[0,1,2,3]`; **>4 thì lặp** theo `min(3, index * 4 // length)`, bar cuối luôn 3 (5 → `[0,0,1,2,3]`; 6 → `[0,0,1,2,2,3]`; 8 → `[0,0,1,1,2,2,3,3]`). Length 1 đi `_compressed` và gọi role 0 rồi 1.
 - `fallback`: code **luôn** rơi về `_frame_composer` khi không có door; `policy_none` chỉ là policy validation (cảnh báo/fail nếu thiếu), không phải hành vi mặc định.
 - `profile`: key trong `_PEDAL_DOOR_PROFILE`.
 
