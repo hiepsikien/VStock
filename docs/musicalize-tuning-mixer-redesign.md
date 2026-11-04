@@ -42,27 +42,39 @@ hơn trên PC, đồng thời giữ nguyên toàn bộ hành vi lưu profile, ha
 
 ### 3.1 Chiều rộng
 
-```ts
-drawerWidth = clamp(560, round(windowWidth * 0.46), 760)
-```
-
-| Cửa sổ | Drawer | Ghi chú |
-|---|---|---|
-| 960 | 560 | overlay |
-| 1280 | 589 | overlay |
-| 1366 | 628 | overlay |
-| 1440 | 662 | push |
-| 1920 | 760 | push, đúng gấp đôi hiện tại |
-
-Chỉ push chart khi chart còn đủ rộng:
+Panel chiếm **một nửa đến hai phần ba chiều rộng màn hình**, không full-width.
+Giữ dạng drawer phải, cùng nền `panel`, viền trái `hairline` và backdrop tối như
+các lớp phủ hiện có.
 
 ```ts
-push = windowWidth - COLUMN_WIDTH - drawerWidth >= 440
+panelWidth = clamp(640, round(windowWidth * 0.60), 1280)
+contentMaxWidth = 1040
 ```
 
-- `>= 1440px`: push. Ở 1440 chart còn khoảng 466px.
-- `960–1366px`: drawer nổi từ phải, có backdrop. Không bóp chart xuống dưới
-  ngưỡng đọc.
+| Cửa sổ | Panel | Tỉ lệ | Ghi chú |
+|---|---|---|---|
+| 960 | 640 | 66.7% | overlay, 2 cột |
+| 1024 | 640 | 62.5% | overlay, 2 cột |
+| 1280 | 768 | 60.0% | overlay, 3 cột |
+| 1366 | 820 | 60.0% | overlay, 3 cột |
+| 1440 | 864 | 60.0% | overlay, 3 cột |
+| 1920 | 1152 | 60.0% | push, chart còn 456px |
+| 2560 | 1280 | 50.0% | push, chart còn 968px |
+
+- Nội dung bên trong giới hạn `maxWidth: 1040` và canh giữa. Ở 1920 panel
+  1152px nhưng phần controls chỉ 1040px, hai bên còn ~56px đệm — đủ thoáng,
+  không rộng lê thê.
+- Chỉ push chart khi chart còn ít nhất 440px:
+
+```ts
+push = windowWidth - COLUMN_WIDTH - panelWidth >= 440
+```
+
+- `>= ~1900px`: push. Ở 1920 chart còn 456px.
+- `960–1899px`: overlay từ phải, có backdrop, chart phía sau mờ đi. Ở 1440 nếu
+  push thì chart chỉ còn 264px — quá hẹp, nên overlay là lựa chọn đúng.
+- Đây là lý do panel vẫn “vừa đủ”: bề rộng panel 60% nhưng nội dung có trần
+  1040px, không kéo chữ và slider ra hết mép màn hình.
 
 ### 3.2 Bố cục một màn hình cho Guitar trên PC
 
@@ -71,11 +83,12 @@ toàn bộ knob, **không phải cuộn**. Vì vậy không dùng một cột d�
 
 Cấu trúc:
 
-1. **Mixer full-width** ở trên: sóng low/mid/high bên trái, 3 fader dọc bên phải,
-   hàng `Vùng âm` + `Cân bằng lại` ở dưới.
+1. **Mixer ngang toàn panel** ở trên: sóng low/mid/high bên trái, 3 fader dọc
+   bên phải, hàng `Vùng âm` + `Cân bằng lại` ở dưới.
 2. **Controls chia cột** bên dưới mixer:
-   - `drawerWidth >= 720`: 3 cột.
-   - `drawerWidth < 720`: 2 cột, hàng compact hơn.
+   - `panelWidth >= 720`: 3 cột. Với panel 60%, việc này xảy ra từ khoảng
+     `1200px`.
+   - `panelWidth < 720`: 2 cột, hàng compact hơn (`960–1199px`).
 3. **Dense mode theo chiều cao**:
    - `height < 820`: hàng 48px, mixer 180px, gap 6px.
    - `height >= 820`: hàng 58px, mixer 210px, gap 10px.
@@ -107,7 +120,7 @@ Cấu trúc:
 
 Phân bổ cột:
 
-| Drawer | Controls | Cột 1 | Cột 2 | Cột 3 |
+| Panel | Controls | Cột 1 | Cột 2 | Cột 3 |
 |---|---|---|---|---|
 | `>= 720` | 3 cột | Trình diễn (4) | Chất liệu (3) + Hòa âm (2) | Dáng (2) + Guitar (1) |
 | `< 720` | 2 cột | Trình diễn (4) + Chất liệu (3) | Hòa âm (2) + Dáng (2) + Guitar (1) | — |
@@ -117,16 +130,19 @@ Phân bổ cột:
 | Vùng | Dense (768) | Thoáng (900+) |
 |---|---|---|
 | Header + profile | ~72 | ~80 |
-| Mixer full-width | 180 | 210 |
+| Mixer ngang panel | 180 | 210 |
 | Controls (cột cao nhất 5–7 hàng) | 270–366 | 270–438 |
 | Footer | 56 | 56 |
 | Padding | 24 | 24 |
 | **Tổng** | **602–698** | **640–808** |
 
-- Ở `1366×768`, dùng 2 cột + dense: 7 hàng × 48 + label nhóm + mixer 180 vẫn
-  nằm dưới 768, còn chỗ cho một dòng cảnh báo.
-- Ở `1440×900`, drawer 662 → 2 cột thoáng: 7 hàng × 58 + mixer 210 vẫn dưới 900.
-- Ở `1920×1080`, drawer 760 → 3 cột: cột cao nhất 5 hàng, rất thoáng.
+- Ở `1366×768`, panel 820 → 3 cột + dense: 5 hàng × 48 + mixer 180 ≈ 602px,
+  còn nhiều chỗ cho cảnh báo.
+- Ở `1440×900`, panel 864 → 3 cột thoáng: 5 hàng × 58 + mixer 210 ≈ 692px.
+- Ở `1920×1080`, panel 1152, content 1040 → 3 cột, cột cao nhất 5 hàng.
+- Ở `1280×720`, panel 768 → 3 cột + dense: ≈ 602px, vẫn vừa.
+- Ở `1024×768`, panel 640 → 2 cột + dense: 7 hàng × 48 + mixer 180 ≈ 698px,
+  vẫn vừa nhưng là ngưỡng thấp nhất nên cần kiểm tra kỹ.
 - Với Guitar, phần thân PC **không dùng `ScrollView`** khi đã đủ chỗ; chỉ bật
   scroll làm fallback cho cửa sổ thấp bất thường (dưới ~700px) hoặc mobile.
 - Mobile vẫn một cột cuộn: mixer → trình diễn → chất liệu → hòa âm → dáng.
@@ -135,15 +151,16 @@ Phân bổ cột:
 ### 3.3 Vì sao không đặt mixer làm một cột riêng?
 
 Nếu mixer nằm trong một cột dọc, cột đó cao khoảng 500px, trong khi cột controls
-còn lại khoảng 870px → vẫn phải cuộn. Đưa mixer thành **dải full-width** trên
-cùng tận dụng chiều ngang, giảm chiều cao mỗi cột controls xuống còn 5–7 hàng.
-Đây là lý do bố cục một màn hình khả thi ở 768px chiều cao.
+còn lại khoảng 870px → vẫn phải cuộn. Đưa mixer thành **dải ngang toàn panel**
+trên cùng tận dụng chiều ngang, giảm chiều cao mỗi cột controls xuống còn 5–7
+hàng. Đây là lý do bố cục một màn hình khả thi ở 768px chiều cao.
 
 ## 4. Các khu vực
 
 ### 4.1 Cân bằng
 
-- Là dải **full-width** trên cùng, không nằm trong một cột dọc.
+- Là dải **ngang toàn panel** trên cùng, không nằm trong một cột dọc và không
+  tràn ra ngoài bề rộng panel 60%.
 - Trái: sóng low/mid/high co giãn theo chiều rộng còn lại.
 - Phải: 3 fader dọc cho `Bè cao / Bè trung / Bè bass`.
 - Fader chỉ hiện khi `variant === 'guitar'`.
@@ -266,11 +283,11 @@ không làm trong đợt UI này.
 
 | File | Việc |
 |---|---|
-| `src/musicalize/TuningPanel.tsx` | mixer full-width + controls 2/3 cột, fader dọc, slider bipolar, segmented control |
+| `src/musicalize/TuningPanel.tsx` | mixer ngang toàn panel + controls 2/3 cột, fader dọc, slider bipolar, segmented control |
 | `src/musicalize/TuningSpectrum.tsx` | sóng low/mid/high bằng `react-native-svg` |
-| `src/musicalize/tuningDisplay.ts` | helper thuần: tâm field, text hiển thị, spectrum levels, drawer width |
+| `src/musicalize/tuningDisplay.ts` | helper thuần: tâm field, text hiển thị, spectrum levels, panel width/layout |
 | `src/musicalize/tuningDisplay.test.ts` | test helper |
-| `src/musicalize/RoomFrame.tsx` | dùng drawer width/push động |
+| `src/musicalize/RoomFrame.tsx` | dùng panel width/push động |
 | `package.json` | thêm test mới vào `test:musicalize` |
 
 ### 7.2 Không đổi
@@ -289,9 +306,9 @@ không làm trong đợt UI này.
 - `anchorRatio(field)` → vị trí tâm trên track.
 - `paramDisplay(field, value)` → `{ primary, secondary, negativeLabel, positiveLabel }`.
 - `spectrumLevels(params, variant)` → `[low, mid, high]`.
-- `drawerWidthFor(windowWidth)`.
-- `drawerPushes(windowWidth)`.
-- `panelLayout(windowWidth, windowHeight, variant)` → `{ columns, dense, scroll }`,
+- `panelWidthFor(windowWidth)`.
+- `panelPushes(windowWidth)`.
+- `panelLayout(windowWidth, windowHeight, variant)` → `{ columns, dense, scroll, contentWidth }`,
   trong đó `columns` là `2`, `3` hoặc `1` (mobile).
 
 Test tối thiểu:
@@ -299,20 +316,23 @@ Test tối thiểu:
 - Mọi field `0–2` có tâm `1`; `guitar_*` có tâm `0`; `noise` neo `0`.
 - Text `tempo`, `guitar_*`, `noise` đúng dấu và đơn vị.
 - `spectrumLevels` ở default, ở hai cực `register`, và khi guitar offset bị clamp.
-- `drawerWidthFor` / `drawerPushes` ở các mốc 960, 1280, 1440, 1920.
+- `panelWidthFor` trả 60% và kẹp trong `640–1280`; `panelPushes` chỉ bật ở
+  `>= ~1900`.
 - `panelLayout` cho Guitar:
-  - `1366×768` → 2 cột, dense, `scroll = false`.
-  - `1440×900` → 2 cột, thoáng, `scroll = false`.
-  - `1920×1080` → 3 cột, thoáng, `scroll = false`.
-  - `1280×720` → 2 cột, dense, vẫn cố gắng `scroll = false`.
+  - `1024×768` → 2 cột, dense, `scroll = false`.
+  - `1280×720` → 3 cột, dense, `scroll = false`.
+  - `1366×768` → 3 cột, dense, `scroll = false`.
+  - `1440×900` → 3 cột, thoáng, `scroll = false`.
+  - `1920×1080` → 3 cột, thoáng, content 1040, `scroll = false`.
   - Mobile → 1 cột, `scroll = true`.
 
 ## 8. Rủi ro
 
 1. **Fader dọc vs ScrollView**: cần `PanResponder` capture đúng để kéo fader không
    cuộn panel. Test trên web và native.
-2. **Ngưỡng push**: hiện `>=1280` đã push. Panel rộng gấp đôi khiến chart quá hẹp
-   ở 1280; đề xuất `>=1440` mới push, nhỏ hơn dùng overlay.
+2. **Ngưỡng push**: panel 60% khiến chart quá hẹp ở 1280–1440. Đề xuất chỉ push
+   khi chart còn >=440px, tức khoảng `>=1900`; các cỡ phổ thông dùng overlay có
+   backdrop. Đây là đánh đổi có chủ ý để giữ panel đúng tỉ lệ 50–66%.
 3. **Guitar đang hiện sai thể loại**: ẩn fader khi không phải Guitar. Nếu muốn
    triệt để, thêm `appliesTo: ['guitar']` cho 3 field trong backend ở việc riêng.
 4. **Sóng là ước lượng**: phải ghi chú rõ để không gây hiểu nhầm là phân tích audio.
@@ -323,18 +343,21 @@ Test tối thiểu:
 
 1. `tuningDisplay.ts` + test, gồm `panelLayout`.
 2. `TuningSpectrum.tsx`.
-3. Layout mixer full-width + controls 2/3 cột + drawer width động.
+3. Layout mixer ngang toàn panel + controls 2/3 cột + panel width động.
 4. Fader dọc + slider bipolar + segmented control.
-5. Rà `1280×720`, `1366×768`, `1440×900`, `1920×1080`, web + native.
+5. Rà `1024×768`, `1280×720`, `1366×768`, `1440×900`, `1920×1080`, web + native.
 6. Chạy `npm run test:musicalize`.
 
 ## 10. Tiêu chí xong
 
-- Guitar trên PC, `1366×768`: 2 cột + dense, thấy toàn bộ knob, **không cuộn**.
-- Guitar trên PC, `1440×900`: 2 cột thoáng, **không cuộn**.
-- Guitar trên PC, `1920×1080`: panel 760px, 3 cột controls, **không cuộn**.
-- Mixer là dải full-width; không có cột mixer dọc làm cột controls cao quá màn hình.
-- Ở 1280px, panel nổi 589px, không bóp chart xuống dưới 440px.
+- Panel PC rộng 50–66% màn hình, không full-width; nội dung có trần 1040px.
+- Guitar trên PC, `1366×768`: panel 820, 3 cột + dense, **không cuộn**.
+- Guitar trên PC, `1440×900`: panel 864, 3 cột thoáng, **không cuộn**.
+- Guitar trên PC, `1920×1080`: panel 1152, content 1040, 3 cột, **không cuộn**.
+- Guitar trên PC, `1024×768`: panel 640, 2 cột + dense, **không cuộn**.
+- Mixer là dải ngang toàn panel; không có cột mixer dọc làm cột controls cao quá
+  màn hình.
+- Ở 1280–1440px, panel dạng overlay, không push chart xuống dưới 440px.
 - Kéo `Bè cao/trung/bass` thấy fill từ tâm và sóng đổi tương ứng.
 - Các field `0–2` hiện `−% / 0 / +%`; `noise` hiện `%` tuyệt đối.
 - Không có slider guitar chết ở thể loại không phải Guitar.
