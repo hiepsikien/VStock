@@ -37,6 +37,9 @@ import { type } from './type';
 import {
   anchorRatio,
   changedKeysForPanel,
+  DANG_COMFORTABLE,
+  DANG_DENSE,
+  DANG_STACKED,
   defaultRatio,
   GUITAR_FADER_KEYS,
   hiddenChangedKeys,
@@ -523,7 +526,7 @@ function ChoiceField({
             <Pressable
               key={choice.value}
               onPress={() => onChange(choice.value)}
-              hitSlop={10}
+              hitSlop={4}
               style={[styles.choice, active && styles.choiceActive]}
               accessibilityRole="radio"
               accessibilityLabel={choice.label}
@@ -570,7 +573,7 @@ function ToggleRow({
       </View>
       <Pressable
         onPress={() => onChange(!active)}
-        hitSlop={8}
+        hitSlop={4}
         style={[styles.choice, active && styles.choiceActive, styles.toggleWide]}
         accessibilityRole="switch"
         accessibilityLabel={field.label}
@@ -827,16 +830,19 @@ function FormStrip({
   fields,
   params,
   dangStacked,
+  dense,
   onChange,
 }: {
   fields: ParamsFieldSchema[];
   params: SonifyParams;
   dangStacked: boolean;
+  dense: boolean;
   onChange: (key: string, value: ParamValue) => void;
 }) {
   if (fields.length === 0) return null;
+  const minHeight = dangStacked ? DANG_STACKED : dense ? DANG_DENSE : DANG_COMFORTABLE;
   return (
-    <View style={styles.formStrip}>
+    <View style={[styles.formStrip, { minHeight }]}>
       <Text style={[type.section, styles.formTitle]}>DÁNG</Text>
       <View style={[styles.formFields, dangStacked ? styles.formFieldsColumn : styles.formFieldsRow]}>
         {fields.map((field) => (
@@ -877,9 +883,6 @@ function TuningBody({
     tempo: guitarLow ? 'Dưới ngưỡng tremolo' : undefined,
     humanize: highHumanize ? 'Trên 1.10 dễ làm phẳng contour' : undefined,
     breath: highBreath ? 'Trên 1.20 đã chạm trần câu' : undefined,
-    guitar_high: numberValue(params, 'guitar_high') > 4 ? 'Trên +4 đẩy nốt snap khỏi dải móng' : undefined,
-    guitar_mid: numberValue(params, 'guitar_mid') > 4 ? 'Trên +4 đẩy nốt snap khỏi dải móng' : undefined,
-    guitar_bass: numberValue(params, 'guitar_bass') > 4 ? 'Trên +4 đẩy nốt snap khỏi dải móng' : undefined,
   };
 
   return (
@@ -914,6 +917,7 @@ function TuningBody({
         fields={formGroup?.fields ?? []}
         params={params}
         dangStacked={layout.dangStacked}
+        dense={layout.dense}
         onChange={(key, value) => setParam(key, value)}
       />
     </View>
@@ -1205,6 +1209,15 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
     return [...next];
   }, [bpm, changedCount, dirty, hiddenCount, localWarnings, params, profile.id, serverNotes, variant, wide]);
 
+  const hasStatusWarning =
+    localWarnings.length > 0 ||
+    serverNotes.length > 0 ||
+    (variant === 'guitar' && bpm != null && bpm < 90 && wide) ||
+    (variant === 'guitar' &&
+      (numberValue(params, 'guitar_high') > 4 ||
+        numberValue(params, 'guitar_mid') > 4 ||
+        numberValue(params, 'guitar_bass') > 4));
+
   const scrollEnabled = !wide || contentHeight > availableHeight + 1;
 
   useEffect(() => {
@@ -1360,7 +1373,7 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
       <Pressable
         onPress={() => setStatusOpen((current) => !current)}
         style={[styles.statusStrip, { paddingHorizontal: wide ? PANEL_PADDING : 16 }]}
-        hitSlop={8}
+        hitSlop={10}
         accessibilityRole="button"
         accessibilityLabel="Xem ghi chú và cảnh báo"
         accessibilityState={{ expanded: statusOpen }}
@@ -1369,11 +1382,7 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
           style={[
             type.monoSmall,
             styles.statusText,
-            (localWarnings.length > 0 ||
-              serverNotes.length > 0 ||
-              notes.includes('Nhịp dưới ngưỡng tremolo.') ||
-              notes.includes('Bè trên +4 đẩy nốt snap khỏi dải móng.')) &&
-              styles.statusTextWarn,
+            hasStatusWarning && styles.statusTextWarn,
           ]}
           numberOfLines={1}
         >
@@ -2052,10 +2061,10 @@ const styles = StyleSheet.create({
   choiceRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 5,
+    gap: 8,
   },
   choice: {
-    minHeight: 28,
+    minHeight: 36,
     paddingHorizontal: 8,
     borderRadius: 4,
     borderWidth: 1,
@@ -2083,7 +2092,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    minHeight: 76,
     paddingVertical: 4,
   },
   formTitle: {
