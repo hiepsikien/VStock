@@ -3,7 +3,9 @@ services:
     build:
       context: ./backend
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Loopback only: external traffic must go through Caddy. Publishing on
+      # 0.0.0.0 would let clients spoof X-Forwarded-For and bypass per-IP limits.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       VSTOCK_DB_PATH: /data/vstock.db
       VSTOCK_AUDIO_DIR: /data/audio

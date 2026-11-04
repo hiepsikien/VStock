@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ from fastapi import HTTPException
 from app.routers import stocks
 from app.routers.stocks import post_sonify_events, pin_params
 from app.sonify.audio import recap_store
-from app.sonify.events import EventStore, RateLimiter
+from app.sonify.events import EventStore, RateLimiter, sanitize_event
 
 
 def _db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -121,6 +122,43 @@ def test_events_drop_unknown_and_pii_fields(
     assert profile["enabledTiers"] == ["A", "B"]
 
 
+def test_events_keep_valid_enum_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _db(tmp_path, monkeypatch)
+    asyncio.run(
+        post_sonify_events(
+            {
+                "events": [
+                    {
+                        "name": "play",
+                        "eventId": "valid-play",
+                        "payload": {
+                            "variant": "guitar",
+                            "ensemble": "bach",
+                            "span": "1D",
+                        },
+                    },
+                    {
+                        "name": "prefetch_fail",
+                        "eventId": "valid-prefetch",
+                        "payload": {"source": "ab", "span": "1M", "index": 2},
+                    },
+                ]
+            }
+        )
+    )
+    connection = sqlite3.connect(db)
+    rows = connection.execute(
+        "SELECT event_id, payload FROM events ORDER BY event_id"
+    ).fetchall()
+    connection.close()
+    payloads = {event_id: json.loads(payload) for event_id, payload in rows}
+    assert payloads["valid-play"]["variant"] == "guitar"
+    assert payloads["valid-play"]["ensemble"] == "bach"
+    assert payloads["valid-prefetch"] == {"source": "ab", "span": "1M", "index": 2}
+
+
 def test_event_summary_answers_gate_questions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -178,6 +216,15 @@ def test_event_endpoint_rate_limit_uses_env(
     with pytest.raises(HTTPException) as error:
         asyncio.run(post_sonify_events(second))
     assert error.value.status_code == 429
+
+
+def test_sanitize_event_clamps_bad_clock() -> None:
+    now = time.time()
+    old = sanitize_event({"name": "play", "eventId": "old", "at": now - 10 * 365 * 86_400})
+    future = sanitize_event({"name": "play", "eventId": "future", "at": now + 10 * 86_400})
+    assert old is not None and future is not None
+    assert old["at"] >= now - 371 * 86_400
+    assert future["at"] <= now + 2 * 86_400
 
 
 def test_events_prune_old_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

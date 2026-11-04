@@ -32,6 +32,10 @@ TIERS = frozenset({"A", "B", "C"})
 VARIANTS = frozenset(ALL_VARIANTS)
 ENSEMBLES = frozenset(ALL_ENSEMBLES)
 PROFILE_SOURCES = frozenset({"play", "create", "save"})
+EVENT_SOURCES = {
+    "profile_save": PROFILE_SOURCES,
+    "prefetch_fail": frozenset({"ab"}),
+}
 BC_KEYS = frozenset(
     key for key, field in FIELD_BY_KEY.items() if field.tier in ("B", "C")
 )
@@ -102,7 +106,7 @@ def sanitize_payload(name: str, payload: Any) -> dict[str, Any]:
             continue
         if key == "ensemble" and text not in ENSEMBLES:
             continue
-        if key == "source" and text not in PROFILE_SOURCES:
+        if key == "source" and text not in EVENT_SOURCES.get(name, frozenset()):
             continue
         out[key] = text
     for key in numbers:
@@ -171,7 +175,9 @@ class RateLimiter:
                 for name in stale[:2_000]:
                     self._hits.pop(name, None)
                 # If every bucket is still live, evict arbitrary oldest keys
-                # so memory stays bounded under a spoofed-IP flood.
+                # so memory stays bounded under a spoofed-IP flood. This can
+                # reset the current key's window; that is preferable to
+                # unbounded memory.
                 while len(self._hits) > 10_000:
                     self._hits.pop(next(iter(self._hits)), None)
             return True

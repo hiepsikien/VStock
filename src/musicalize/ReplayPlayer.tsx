@@ -1,18 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { completedSlot, loadedSlot, resumedSlot, shouldAnnounceAudible } from './playerState';
+import {
+  completedSlot,
+  loadedSlot,
+  resumedSlot,
+  shouldAnnounceAudible,
+  type PlayerSlot as Slot,
+} from './playerState';
 import { shouldArmFinish, shouldResumePlay } from './seek';
 
 export type SeekCommand = { id: number; seconds: number };
 
 type SlotName = 'a' | 'b';
-
-type Slot = {
-  url: string | null;
-  startSec: number;
-  play: boolean;
-  gain: number;
-};
 
 type Slots = Record<SlotName, Slot>;
 

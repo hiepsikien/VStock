@@ -228,10 +228,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [startSec, setStartSec] = useState(0);
   const [abSide, setAbSide] = useState<'A' | 'B'>('A');
   const [abPreparing, setAbPreparing] = useState(false);
+  const [movementPreparing, setMovementPreparing] = useState(false);
   const [abNotice, setAbNotice] = useState<string | null>(null);
   const sessionId = useRef(`s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
   const pendingPosition = useRef<MusicalPosition | null>(null);
   const audibleIndex = useRef(0);
+  const abPreparingRef = useRef(false);
   const abRevert = useRef<{ side: 'A' | 'B'; params: SonifyParams } | null>(null);
   const pinnedHashes = useRef<string[]>([]);
   const rememberHash = useCallback((hash?: string) => {
@@ -240,6 +242,21 @@ export function ReplayRoom({ wide, onMode }: Props) {
       pinnedHashes.current = [...pinnedHashes.current, hash].slice(-8);
     }
     void pinParams(pinnedHashes.current);
+  }, []);
+  const revertAbSwitch = useCallback(() => {
+    const previous = abRevert.current;
+    if (previous) {
+      setAbSide(previous.side);
+      setPlayingParams(previous.params);
+    }
+    abRevert.current = null;
+    abPreparingRef.current = false;
+    setAbPreparing(false);
+  }, []);
+  const ackNoCrossfade = useCallback(() => {
+    abRevert.current = null;
+    abPreparingRef.current = false;
+    setAbPreparing(false);
   }, []);
   const [seek, setSeek] = useState<SeekCommand | null>(null);
   const [focus, setFocus] = useState<ChartFocus | null>(null);
@@ -1078,7 +1095,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       try {
         if (chosenSpan === '1D') {
           if (!chosenDate) {
-            if (options?.crossfade) setAbPreparing(false);
+            if (options?.crossfade) revertAbSwitch();
             return;
           }
           const recap = await fetchRecap(
@@ -1127,6 +1144,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
           setMovementTime(at);
           setStartSec(at);
           setSeek(null);
+          if (options?.crossfade && recap.audioUrl === manifest?.audioUrl) {
+            // Same file on both sides: there is no URL change to trigger a
+            // player acknowledgement, so close the preparing state here.
+            ackNoCrossfade();
+          }
           if (!options?.crossfade) {
             setAudible(false);
             setPlayerEpoch((epoch) => epoch + 1);
@@ -1144,7 +1166,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         );
         if (controller.signal.aborted) return;
         if (!plan.movements.length) {
-          if (options?.crossfade) setAbPreparing(false);
+          if (options?.crossfade) revertAbSwitch();
           setError('Chưa đủ phiên để soạn bản này.');
           return;
         }
@@ -1169,6 +1191,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
         setStartSec(at);
         setSeek(null);
         setResting(false);
+        if (options?.crossfade && plan.movements[chapter]?.audioUrl === movements?.[index]?.audioUrl) {
+          // Same file on both sides: no player URL change will acknowledge.
+          ackNoCrossfade();
+        }
         if (!options?.crossfade) {
           setAudible(false);
           setPlayerEpoch((epoch) => epoch + 1);
@@ -1176,7 +1202,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         setPlaying(true);
       } catch (err) {
         if (controller.signal.aborted || isAbort(err)) return;
-        if (options?.crossfade) setAbPreparing(false);
+        if (options?.crossfade) revertAbSwitch();
         setError(failureText(err, chosenSpan));
       } finally {
         if (request.current === controller) {
@@ -1187,7 +1213,18 @@ export function ReplayRoom({ wide, onMode }: Props) {
       }
     })();
     },
-    [date, ensemble, heardParams, rememberHash, resetPeaksState, span, symbol, variant],
+    [
+      date,
+      ensemble,
+      ackNoCrossfade,
+      heardParams,
+      rememberHash,
+      resetPeaksState,
+      revertAbSwitch,
+      span,
+      symbol,
+      variant,
+    ],
   );
 
   // Play commits the latest saved profile first; this effect starts the listen
@@ -1364,7 +1401,20 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const switchAB = useCallback(
     (side: 'A' | 'B') => {
       if (side === abSide) return;
+      const targetParams = side === 'A' ? normalizeParams(heardParams) : normalizeParams(params);
+      void trackEvent('ab_toggle', { sessionId: sessionId.current, side, span });
+      if (paramsEqual(targetParams, playingParams)) {
+        // Same audio on both sides: there is nothing to load or crossfade.
+        abPreparingRef.current = false;
+        setAbPreparing(false);
+        setMovementPreparing(false);
+        setAbNotice(null);
+        setAbSide(side);
+        setPlayingParams(targetParams);
+        return;
+      }
       abRevert.current = { side: abSide, params: playingParams };
+      abPreparingRef.current = true;
       const timing =
         span === '1D'
           ? manifest
@@ -1378,9 +1428,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
         : { index, bar: 0, beat: 0, fraction: 0, ratio: 0 };
       setAbSide(side);
       setAbPreparing(true);
-      setPlayingParams(side === 'A' ? normalizeParams(heardParams) : normalizeParams(params));
-      void trackEvent('ab_toggle', { sessionId: sessionId.current, side, span });
-      listen(side === 'A' ? heardParams : normalizeParams(params), { crossfade: true });
+      setPlayingParams(targetParams);
+      listen(targetParams, { crossfade: true });
     },
     [
       abSide,
@@ -2062,6 +2111,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onAB={switchAB}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
+          status={movementPreparing ? 'Đang chuẩn bị movement…' : undefined}
           notice={abNotice ?? autoSavedNotice}
           tuningBaseBpm={baseBpmFor(variant, ensemble)}
           dfi={activeDfi}
@@ -2080,13 +2130,22 @@ export function ReplayRoom({ wide, onMode }: Props) {
         seek={seek}
         muted={muted}
         onPreparingChange={(preparing) => {
-          // Only A/B owns this button state. Movement crossfades are normal
-          // playback and must not flash the A/B trigger for a whole render.
-          if (!preparing) setAbPreparing(false);
+          // Only A/B owns the trigger state. Movement crossfades get their
+          // own status line instead of flashing the A/B buttons.
+          if (preparing) {
+            if (!abPreparingRef.current) setMovementPreparing(true);
+            return;
+          }
+          abPreparingRef.current = false;
+          setAbPreparing(false);
+          setMovementPreparing(false);
         }}
         onSwitchFailed={(message) => {
+          const wasAb = abRevert.current != null;
+          abPreparingRef.current = false;
           setAbPreparing(false);
-          if (abPreparing) {
+          setMovementPreparing(false);
+          if (wasAb) {
             const previous = abRevert.current;
             if (previous) {
               setAbSide(previous.side);
@@ -2096,19 +2155,35 @@ export function ReplayRoom({ wide, onMode }: Props) {
             setAbNotice(message);
             return;
           }
-          // A movement loaded too slowly. The previous audio is still
-          // playing, so put the chart back on the movement it belongs to.
+          // The old movement already ended, so "still playing" would be a
+          // lie. Rewind it paused and let Play/Replay restart cleanly.
+          setAudible(false);
+          setPlaying(false);
+          setFinished(false);
+          setResting(false);
+          setParked(false);
           setIndex(audibleIndex.current);
-          setAbNotice('Không chuẩn bị được movement kế tiếp. Vẫn đang phát movement hiện tại.');
+          setMovementTime(0);
+          setStartSec(0);
+          setSeek(null);
+          setPlayerEpoch((epoch) => epoch + 1);
+          setAbNotice('Movement kế chưa soạn xong. Bấm Play để nghe lại movement hiện tại.');
         }}
         onTime={onTime}
         onEnded={onEnded}
         onAudible={() => {
+          abPreparingRef.current = false;
+          abRevert.current = null;
+          setAbPreparing(false);
+          setMovementPreparing(false);
           setAudible(true);
           audibleIndex.current = index;
         }}
         onError={(message) => {
+          abPreparingRef.current = false;
+          abRevert.current = null;
           setAbPreparing(false);
+          setMovementPreparing(false);
           setError(message);
         }}
         onDuration={(seconds) => {

@@ -94,10 +94,16 @@ def main() -> None:
 
     since = _timestamp(args.since, end=False) if args.since else None
     until = _timestamp(args.until, end=True) if args.until else None
-    paths = [Path(item) for item in args.db] or [None]
-    for path in paths:
-        if path is not None and not path.is_file():
-            parser.error(f"database not found: {path}")
+    if args.db:
+        paths = [Path(item) for item in args.db]
+        for path in paths:
+            if not path.is_file():
+                parser.error(f"database not found: {path}")
+    else:
+        # Do not create an empty default DB just because the operator asked
+        # for a report before the first event arrived.
+        default = EventStore().path
+        paths = [default] if default.is_file() else []
     if args.prune_days is not None:
         cutoff = time.time() - max(0, args.prune_days) * 86_400
         deleted = sum(EventStore(path).prune(cutoff) for path in paths)

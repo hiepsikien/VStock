@@ -41,7 +41,7 @@ docker compose exec api python scripts/sonify_events_report.py --since 2026-11-0
 docker compose exec api python scripts/sonify_events_report.py --prune-days 90
 ```
 
-Rate limit dùng `request.client.host`; khi đứng sau Caddy/nginx phải bật `--proxy-headers` (Dockerfile đã bật) và đặt `FORWARDED_ALLOW_IPS` đúng proxy, nếu không mọi client sẽ chung một bucket IP của proxy. Endpoint không có auth; chỉ mở API qua proxy và giữ port 8000 private.
+Rate limit dùng `request.client.host`; khi đứng sau Caddy/nginx phải bật `--proxy-headers` (Dockerfile đã bật) và đặt `FORWARDED_ALLOW_IPS` đúng proxy, nếu không mọi client sẽ chung một bucket IP của proxy. Endpoint không có auth; chỉ mở API qua proxy. `docker-compose.yml` bind API vào `127.0.0.1:${API_PORT}:8000`; nếu operator đổi sang `0.0.0.0` thì phải đặt `FORWARDED_ALLOW_IPS` đúng subnet của proxy, nếu không client có thể spoof `X-Forwarded-For`.
 
 ---
 
