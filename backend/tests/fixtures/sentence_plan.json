@@ -1,0 +1,5617 @@
+{
+ "castillo_34|0|0": [],
+ "castillo_34|0|1": [],
+ "castillo_34|0|2": [],
+ "castillo_34|0|3": [],
+ "castillo_34|10|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo_34|10|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo_34|10|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo_34|10|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo_34|11|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo_34|11|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo_34|11|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo_34|11|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo_34|12|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo_34|12|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo_34|12|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo_34|12|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo_34|1|0": [],
+ "castillo_34|1|1": [],
+ "castillo_34|1|2": [],
+ "castillo_34|1|3": [],
+ "castillo_34|2|0": [
+  [
+   13,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo_34|2|1": [
+  [
+   14,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo_34|2|2": [
+  [
+   13,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo_34|2|3": [
+  [
+   14,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo_34|3|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo_34|3|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo_34|3|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo_34|3|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo_34|4|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo_34|4|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo_34|4|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo_34|4|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo_34|5|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo_34|5|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo_34|5|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo_34|5|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo_34|6|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo_34|6|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo_34|6|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo_34|6|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo_34|7|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo_34|7|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo_34|7|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo_34|7|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo_34|8|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo_34|8|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo_34|8|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo_34|8|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo_34|9|0": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo_34|9|1": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo_34|9|2": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo_34|9|3": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo|0|0|3/4": [],
+ "castillo|0|0|4/4": [],
+ "castillo|0|0|6/8": [],
+ "castillo|0|1|3/4": [],
+ "castillo|0|1|4/4": [],
+ "castillo|0|1|6/8": [],
+ "castillo|0|2|3/4": [],
+ "castillo|0|2|4/4": [],
+ "castillo|0|2|6/8": [],
+ "castillo|0|3|3/4": [],
+ "castillo|0|3|4/4": [],
+ "castillo|0|3|6/8": [],
+ "castillo|10|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo|10|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|10|0|6/8": [],
+ "castillo|10|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo|10|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|10|1|6/8": [],
+ "castillo|10|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo|10|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|10|2|6/8": [],
+ "castillo|10|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9
+   ]
+  ]
+ ],
+ "castillo|10|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|10|3|6/8": [],
+ "castillo|11|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo|11|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|11|0|6/8": [],
+ "castillo|11|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo|11|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|11|1|6/8": [],
+ "castillo|11|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo|11|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|11|2|6/8": [],
+ "castillo|11|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10
+   ]
+  ]
+ ],
+ "castillo|11|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|11|3|6/8": [],
+ "castillo|12|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo|12|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|12|0|6/8": [],
+ "castillo|12|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo|12|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|12|1|6/8": [],
+ "castillo|12|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   13,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo|12|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|12|2|6/8": [],
+ "castillo|12|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ],
+  [
+   14,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "castillo|12|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|12|3|6/8": [],
+ "castillo|1|0|3/4": [],
+ "castillo|1|0|4/4": [],
+ "castillo|1|0|6/8": [],
+ "castillo|1|1|3/4": [],
+ "castillo|1|1|4/4": [],
+ "castillo|1|1|6/8": [],
+ "castillo|1|2|3/4": [],
+ "castillo|1|2|4/4": [],
+ "castillo|1|2|6/8": [],
+ "castillo|1|3|3/4": [],
+ "castillo|1|3|4/4": [],
+ "castillo|1|3|6/8": [],
+ "castillo|2|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|0|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|0|6/8": [],
+ "castillo|2|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|1|6/8": [],
+ "castillo|2|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|2|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|2|6/8": [],
+ "castillo|2|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|2|3|6/8": [],
+ "castillo|3|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo|3|0|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|3|0|6/8": [],
+ "castillo|3|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo|3|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|3|1|6/8": [],
+ "castillo|3|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo|3|2|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|3|2|6/8": [],
+ "castillo|3|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo|3|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|3|3|6/8": [],
+ "castillo|4|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo|4|0|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|4|0|6/8": [],
+ "castillo|4|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo|4|1|4/4": [
+  [
+   8,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo|4|1|6/8": [],
+ "castillo|4|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo|4|2|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "castillo|4|2|6/8": [],
+ "castillo|4|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "castillo|4|3|4/4": [
+  [
+   8,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "castillo|4|3|6/8": [],
+ "castillo|5|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|0|6/8": [],
+ "castillo|5|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|1|6/8": [],
+ "castillo|5|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|2|6/8": [],
+ "castillo|5|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|5|3|6/8": [],
+ "castillo|6|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo|6|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|6|0|6/8": [],
+ "castillo|6|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo|6|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|6|1|6/8": [],
+ "castillo|6|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo|6|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|6|2|6/8": [],
+ "castillo|6|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "castillo|6|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|6|3|6/8": [],
+ "castillo|7|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo|7|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|7|0|6/8": [],
+ "castillo|7|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo|7|1|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|7|1|6/8": [],
+ "castillo|7|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo|7|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|7|2|6/8": [],
+ "castillo|7|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "castillo|7|3|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|7|3|6/8": [],
+ "castillo|8|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo|8|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|8|0|6/8": [],
+ "castillo|8|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo|8|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|8|1|6/8": [],
+ "castillo|8|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo|8|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|8|2|6/8": [],
+ "castillo|8|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "castillo|8|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|8|3|6/8": [],
+ "castillo|9|0|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo|9|0|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|9|0|6/8": [],
+ "castillo|9|1|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo|9|1|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|9|1|6/8": [],
+ "castillo|9|2|3/4": [
+  [
+   13,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo|9|2|4/4": [
+  [
+   7,
+   [
+    0,
+    1,
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "castillo|9|2|6/8": [],
+ "castillo|9|3|3/4": [
+  [
+   14,
+   [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "castillo|9|3|4/4": [
+  [
+   8,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   8,
+   [
+    4,
+    5
+   ]
+  ],
+  [
+   1,
+   [
+    2
+   ]
+  ]
+ ],
+ "castillo|9|3|6/8": [],
+ "danza|0|False|3/4": [],
+ "danza|0|False|4/4": [],
+ "danza|0|False|6/8": [],
+ "danza|0|True|3/4": [],
+ "danza|0|True|4/4": [],
+ "danza|0|True|6/8": [],
+ "danza|10|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|10|False|4/4": [],
+ "danza|10|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|10|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|10|True|4/4": [],
+ "danza|10|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|11|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|11|False|4/4": [],
+ "danza|11|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|11|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|11|True|4/4": [],
+ "danza|11|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|12|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|12|False|4/4": [],
+ "danza|12|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|12|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|12|True|4/4": [],
+ "danza|12|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|1|False|3/4": [],
+ "danza|1|False|4/4": [],
+ "danza|1|False|6/8": [],
+ "danza|1|True|3/4": [],
+ "danza|1|True|4/4": [],
+ "danza|1|True|6/8": [],
+ "danza|2|False|3/4": [],
+ "danza|2|False|4/4": [],
+ "danza|2|False|6/8": [],
+ "danza|2|True|3/4": [],
+ "danza|2|True|4/4": [],
+ "danza|2|True|6/8": [],
+ "danza|3|False|3/4": [],
+ "danza|3|False|4/4": [],
+ "danza|3|False|6/8": [],
+ "danza|3|True|3/4": [],
+ "danza|3|True|4/4": [],
+ "danza|3|True|6/8": [],
+ "danza|4|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|4|False|4/4": [],
+ "danza|4|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|4|True|3/4": [],
+ "danza|4|True|4/4": [],
+ "danza|4|True|6/8": [],
+ "danza|5|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|5|False|4/4": [],
+ "danza|5|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|5|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|5|True|4/4": [],
+ "danza|5|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|6|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|6|False|4/4": [],
+ "danza|6|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|6|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|6|True|4/4": [],
+ "danza|6|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|7|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|7|False|4/4": [],
+ "danza|7|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|7|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|7|True|4/4": [],
+ "danza|7|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|8|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|8|False|4/4": [],
+ "danza|8|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|8|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|8|True|4/4": [],
+ "danza|8|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|9|False|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|9|False|4/4": [],
+ "danza|9|False|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|9|True|3/4": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "danza|9|True|4/4": [],
+ "danza|9|True|6/8": [
+  [
+   6,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|0|0|False|0": [],
+ "fandanguillo|0|0|False|1": [],
+ "fandanguillo|0|0|False|2": [],
+ "fandanguillo|0|0|True|0": [],
+ "fandanguillo|0|0|True|1": [],
+ "fandanguillo|0|0|True|2": [],
+ "fandanguillo|0|1|False|0": [],
+ "fandanguillo|0|1|False|1": [],
+ "fandanguillo|0|1|False|2": [],
+ "fandanguillo|0|1|True|0": [],
+ "fandanguillo|0|1|True|1": [],
+ "fandanguillo|0|1|True|2": [],
+ "fandanguillo|0|2|False|0": [],
+ "fandanguillo|0|2|False|1": [],
+ "fandanguillo|0|2|False|2": [],
+ "fandanguillo|0|2|True|0": [],
+ "fandanguillo|0|2|True|1": [],
+ "fandanguillo|0|2|True|2": [],
+ "fandanguillo|0|3|False|0": [],
+ "fandanguillo|0|3|False|1": [],
+ "fandanguillo|0|3|False|2": [],
+ "fandanguillo|0|3|True|0": [],
+ "fandanguillo|0|3|True|1": [],
+ "fandanguillo|0|3|True|2": [],
+ "fandanguillo|10|0|False|0": [],
+ "fandanguillo|10|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|0|True|0": [],
+ "fandanguillo|10|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|1|False|0": [],
+ "fandanguillo|10|1|False|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|10|1|False|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|10|1|True|0": [],
+ "fandanguillo|10|1|True|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|10|1|True|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|10|2|False|0": [],
+ "fandanguillo|10|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|2|True|0": [],
+ "fandanguillo|10|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|10|3|False|0": [],
+ "fandanguillo|10|3|False|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|10|3|False|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|10|3|True|0": [],
+ "fandanguillo|10|3|True|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|10|3|True|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|0|False|0": [],
+ "fandanguillo|11|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|0|True|0": [],
+ "fandanguillo|11|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|1|False|0": [],
+ "fandanguillo|11|1|False|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|1|False|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|1|True|0": [],
+ "fandanguillo|11|1|True|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|1|True|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|2|False|0": [],
+ "fandanguillo|11|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|2|True|0": [],
+ "fandanguillo|11|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|11|3|False|0": [],
+ "fandanguillo|11|3|False|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|3|False|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|3|True|0": [],
+ "fandanguillo|11|3|True|1": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|11|3|True|2": [
+  [
+   2,
+   [
+    4,
+    5
+   ]
+  ]
+ ],
+ "fandanguillo|12|0|False|0": [],
+ "fandanguillo|12|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|0|True|0": [],
+ "fandanguillo|12|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|1|False|0": [],
+ "fandanguillo|12|1|False|1": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|12|1|False|2": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|12|1|True|0": [],
+ "fandanguillo|12|1|True|1": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|12|1|True|2": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|12|2|False|0": [],
+ "fandanguillo|12|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|2|True|0": [],
+ "fandanguillo|12|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|12|3|False|0": [],
+ "fandanguillo|12|3|False|1": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|12|3|False|2": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|12|3|True|0": [],
+ "fandanguillo|12|3|True|1": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|12|3|True|2": [
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "fandanguillo|1|0|False|0": [],
+ "fandanguillo|1|0|False|1": [],
+ "fandanguillo|1|0|False|2": [],
+ "fandanguillo|1|0|True|0": [],
+ "fandanguillo|1|0|True|1": [],
+ "fandanguillo|1|0|True|2": [],
+ "fandanguillo|1|1|False|0": [],
+ "fandanguillo|1|1|False|1": [],
+ "fandanguillo|1|1|False|2": [],
+ "fandanguillo|1|1|True|0": [],
+ "fandanguillo|1|1|True|1": [],
+ "fandanguillo|1|1|True|2": [],
+ "fandanguillo|1|2|False|0": [],
+ "fandanguillo|1|2|False|1": [],
+ "fandanguillo|1|2|False|2": [],
+ "fandanguillo|1|2|True|0": [],
+ "fandanguillo|1|2|True|1": [],
+ "fandanguillo|1|2|True|2": [],
+ "fandanguillo|1|3|False|0": [],
+ "fandanguillo|1|3|False|1": [],
+ "fandanguillo|1|3|False|2": [],
+ "fandanguillo|1|3|True|0": [],
+ "fandanguillo|1|3|True|1": [],
+ "fandanguillo|1|3|True|2": [],
+ "fandanguillo|2|0|False|0": [],
+ "fandanguillo|2|0|False|1": [],
+ "fandanguillo|2|0|False|2": [],
+ "fandanguillo|2|0|True|0": [],
+ "fandanguillo|2|0|True|1": [],
+ "fandanguillo|2|0|True|2": [],
+ "fandanguillo|2|1|False|0": [],
+ "fandanguillo|2|1|False|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|2|1|False|2": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|2|1|True|0": [],
+ "fandanguillo|2|1|True|1": [],
+ "fandanguillo|2|1|True|2": [],
+ "fandanguillo|2|2|False|0": [],
+ "fandanguillo|2|2|False|1": [],
+ "fandanguillo|2|2|False|2": [],
+ "fandanguillo|2|2|True|0": [],
+ "fandanguillo|2|2|True|1": [],
+ "fandanguillo|2|2|True|2": [],
+ "fandanguillo|2|3|False|0": [],
+ "fandanguillo|2|3|False|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|2|3|False|2": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|2|3|True|0": [],
+ "fandanguillo|2|3|True|1": [],
+ "fandanguillo|2|3|True|2": [],
+ "fandanguillo|3|0|False|0": [],
+ "fandanguillo|3|0|False|1": [],
+ "fandanguillo|3|0|False|2": [],
+ "fandanguillo|3|0|True|0": [],
+ "fandanguillo|3|0|True|1": [],
+ "fandanguillo|3|0|True|2": [],
+ "fandanguillo|3|1|False|0": [],
+ "fandanguillo|3|1|False|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|3|1|False|2": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|3|1|True|0": [],
+ "fandanguillo|3|1|True|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|3|1|True|2": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|3|2|False|0": [],
+ "fandanguillo|3|2|False|1": [],
+ "fandanguillo|3|2|False|2": [],
+ "fandanguillo|3|2|True|0": [],
+ "fandanguillo|3|2|True|1": [],
+ "fandanguillo|3|2|True|2": [],
+ "fandanguillo|3|3|False|0": [],
+ "fandanguillo|3|3|False|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|3|3|False|2": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|3|3|True|0": [],
+ "fandanguillo|3|3|True|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|3|3|True|2": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "fandanguillo|4|0|False|0": [],
+ "fandanguillo|4|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|4|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|4|0|True|0": [],
+ "fandanguillo|4|0|True|1": [],
+ "fandanguillo|4|0|True|2": [],
+ "fandanguillo|4|1|False|0": [],
+ "fandanguillo|4|1|False|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|4|1|False|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|4|1|True|0": [],
+ "fandanguillo|4|1|True|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|4|1|True|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|4|2|False|0": [],
+ "fandanguillo|4|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|4|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|4|2|True|0": [],
+ "fandanguillo|4|2|True|1": [],
+ "fandanguillo|4|2|True|2": [],
+ "fandanguillo|4|3|False|0": [],
+ "fandanguillo|4|3|False|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|4|3|False|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|4|3|True|0": [],
+ "fandanguillo|4|3|True|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|4|3|True|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|0|False|0": [],
+ "fandanguillo|5|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|0|True|0": [],
+ "fandanguillo|5|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|1|False|0": [],
+ "fandanguillo|5|1|False|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|1|False|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|1|True|0": [],
+ "fandanguillo|5|1|True|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|1|True|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|2|False|0": [],
+ "fandanguillo|5|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|2|True|0": [],
+ "fandanguillo|5|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|5|3|False|0": [],
+ "fandanguillo|5|3|False|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|3|False|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|3|True|0": [],
+ "fandanguillo|5|3|True|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|5|3|True|2": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "fandanguillo|6|0|False|0": [],
+ "fandanguillo|6|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|0|True|0": [],
+ "fandanguillo|6|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|1|False|0": [],
+ "fandanguillo|6|1|False|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|1|False|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|1|True|0": [],
+ "fandanguillo|6|1|True|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|1|True|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|2|False|0": [],
+ "fandanguillo|6|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|2|True|0": [],
+ "fandanguillo|6|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|3|False|0": [],
+ "fandanguillo|6|3|False|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|3|False|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|3|True|0": [],
+ "fandanguillo|6|3|True|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|6|3|True|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|0|False|0": [],
+ "fandanguillo|7|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|0|True|0": [],
+ "fandanguillo|7|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|1|False|0": [],
+ "fandanguillo|7|1|False|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|1|False|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|1|True|0": [],
+ "fandanguillo|7|1|True|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|1|True|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|2|False|0": [],
+ "fandanguillo|7|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|2|True|0": [],
+ "fandanguillo|7|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|3|False|0": [],
+ "fandanguillo|7|3|False|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|3|False|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|3|True|0": [],
+ "fandanguillo|7|3|True|1": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|7|3|True|2": [
+  [
+   2,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|0|False|0": [],
+ "fandanguillo|8|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|0|True|0": [],
+ "fandanguillo|8|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|1|False|0": [],
+ "fandanguillo|8|1|False|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|8|1|False|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|8|1|True|0": [],
+ "fandanguillo|8|1|True|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|8|1|True|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|8|2|False|0": [],
+ "fandanguillo|8|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|2|True|0": [],
+ "fandanguillo|8|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|8|3|False|0": [],
+ "fandanguillo|8|3|False|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|8|3|False|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|8|3|True|0": [],
+ "fandanguillo|8|3|True|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|8|3|True|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|0|False|0": [],
+ "fandanguillo|9|0|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|0|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|0|True|0": [],
+ "fandanguillo|9|0|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|0|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|1|False|0": [],
+ "fandanguillo|9|1|False|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|1|False|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|1|True|0": [],
+ "fandanguillo|9|1|True|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|1|True|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|2|False|0": [],
+ "fandanguillo|9|2|False|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|2|False|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|2|True|0": [],
+ "fandanguillo|9|2|True|1": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|2|True|2": [
+  [
+   5,
+   [
+    0,
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "fandanguillo|9|3|False|0": [],
+ "fandanguillo|9|3|False|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|3|False|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|3|True|0": [],
+ "fandanguillo|9|3|True|1": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "fandanguillo|9|3|True|2": [
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "galop_reset|0": 8,
+ "galop_reset|1": 7,
+ "galop_reset|2": 6,
+ "galop_reset|3": 5,
+ "galop_reset|4": 4,
+ "galop_reset|5": 3,
+ "galop_reset|6": 2,
+ "galop_reset|7": 1,
+ "galop_reset|8": 0,
+ "galop_reset|9": 9,
+ "galop|1": 0,
+ "galop|10": 9,
+ "galop|11": 10,
+ "galop|12": 11,
+ "galop|13": 12,
+ "galop|14": 13,
+ "galop|15": 14,
+ "galop|16": 15,
+ "galop|17": 16,
+ "galop|18": 17,
+ "galop|19": 18,
+ "galop|2": 1,
+ "galop|20": 19,
+ "galop|21": 20,
+ "galop|22": 21,
+ "galop|23": 22,
+ "galop|24": 23,
+ "galop|25": 24,
+ "galop|26": 25,
+ "galop|27": 26,
+ "galop|28": 27,
+ "galop|29": 28,
+ "galop|3": 2,
+ "galop|30": 29,
+ "galop|4": 3,
+ "galop|5": 4,
+ "galop|6": 5,
+ "galop|7": 6,
+ "galop|8": 7,
+ "galop|9": 8,
+ "sonatina_close|0|0": [],
+ "sonatina_close|0|1": [],
+ "sonatina_close|0|2": [],
+ "sonatina_close|0|3": [],
+ "sonatina_close|10|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    7,
+    8,
+    9
+   ]
+  ]
+ ],
+ "sonatina_close|10|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    7,
+    8,
+    9
+   ]
+  ]
+ ],
+ "sonatina_close|10|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    7,
+    8,
+    9
+   ]
+  ]
+ ],
+ "sonatina_close|10|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    7,
+    8,
+    9
+   ]
+  ]
+ ],
+ "sonatina_close|11|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    8,
+    9,
+    10
+   ]
+  ]
+ ],
+ "sonatina_close|11|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    8,
+    9,
+    10
+   ]
+  ]
+ ],
+ "sonatina_close|11|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    8,
+    9,
+    10
+   ]
+  ]
+ ],
+ "sonatina_close|11|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    8,
+    9,
+    10
+   ]
+  ]
+ ],
+ "sonatina_close|12|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "sonatina_close|12|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "sonatina_close|12|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "sonatina_close|12|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    9,
+    10,
+    11
+   ]
+  ]
+ ],
+ "sonatina_close|1|0": [
+  [
+   3,
+   [
+    0
+   ]
+  ]
+ ],
+ "sonatina_close|1|1": [
+  [
+   3,
+   [
+    0
+   ]
+  ]
+ ],
+ "sonatina_close|1|2": [
+  [
+   3,
+   [
+    0
+   ]
+  ]
+ ],
+ "sonatina_close|1|3": [
+  [
+   3,
+   [
+    0
+   ]
+  ]
+ ],
+ "sonatina_close|2|0": [
+  [
+   3,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_close|2|1": [
+  [
+   3,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_close|2|2": [
+  [
+   3,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_close|2|3": [
+  [
+   3,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_close|3|0": [
+  [
+   3,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "sonatina_close|3|1": [
+  [
+   3,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "sonatina_close|3|2": [
+  [
+   3,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "sonatina_close|3|3": [
+  [
+   3,
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ ],
+ "sonatina_close|4|0": [
+  [
+   3,
+   [
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "sonatina_close|4|1": [
+  [
+   3,
+   [
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "sonatina_close|4|2": [
+  [
+   3,
+   [
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "sonatina_close|4|3": [
+  [
+   3,
+   [
+    1,
+    2,
+    3
+   ]
+  ]
+ ],
+ "sonatina_close|5|0": [
+  [
+   3,
+   [
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_close|5|1": [
+  [
+   3,
+   [
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_close|5|2": [
+  [
+   3,
+   [
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_close|5|3": [
+  [
+   3,
+   [
+    2,
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_close|6|0": [
+  [
+   1,
+   [
+    0
+   ]
+  ],
+  [
+   3,
+   [
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "sonatina_close|6|1": [
+  [
+   1,
+   [
+    0
+   ]
+  ],
+  [
+   3,
+   [
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "sonatina_close|6|2": [
+  [
+   1,
+   [
+    0
+   ]
+  ],
+  [
+   3,
+   [
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "sonatina_close|6|3": [
+  [
+   1,
+   [
+    0
+   ]
+  ],
+  [
+   3,
+   [
+    3,
+    4,
+    5
+   ]
+  ]
+ ],
+ "sonatina_close|7|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_close|7|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_close|7|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_close|7|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    4,
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_close|8|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "sonatina_close|8|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "sonatina_close|8|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "sonatina_close|8|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    5,
+    6,
+    7
+   ]
+  ]
+ ],
+ "sonatina_close|9|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "sonatina_close|9|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "sonatina_close|9|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "sonatina_close|9|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   3,
+   [
+    6,
+    7,
+    8
+   ]
+  ]
+ ],
+ "sonatina_open|0|0": [],
+ "sonatina_open|0|1": [],
+ "sonatina_open|0|2": [],
+ "sonatina_open|0|3": [],
+ "sonatina_open|10|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|10|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|10|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|10|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|11|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|11|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|11|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|11|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|12|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|12|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|12|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|12|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|1|0": [],
+ "sonatina_open|1|1": [],
+ "sonatina_open|1|2": [],
+ "sonatina_open|1|3": [],
+ "sonatina_open|2|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_open|2|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_open|2|2": [
+  [
+   1,
+   [
+    0
+   ]
+  ]
+ ],
+ "sonatina_open|2|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_open|3|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_open|3|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ]
+ ],
+ "sonatina_open|3|2": [
+  [
+   1,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_open|3|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ]
+ ],
+ "sonatina_open|4|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ]
+ ],
+ "sonatina_open|4|1": [
+  [
+   2,
+   [
+    1,
+    2
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ]
+ ],
+ "sonatina_open|4|2": [
+  [
+   1,
+   [
+    0
+   ]
+  ],
+  [
+   4,
+   [
+    2,
+    3
+   ]
+  ]
+ ],
+ "sonatina_open|4|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ]
+ ],
+ "sonatina_open|5|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ]
+ ],
+ "sonatina_open|5|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_open|5|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ]
+ ],
+ "sonatina_open|5|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_open|6|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_open|6|1": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   4,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_open|6|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   2,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_open|6|3": [
+  [
+   2,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   4,
+   [
+    3,
+    4
+   ]
+  ]
+ ],
+ "sonatina_open|7|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|7|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|7|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|7|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|8|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|8|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|8|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|8|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|9|0": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|9|1": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|9|2": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ],
+ "sonatina_open|9|3": [
+  [
+   4,
+   [
+    0,
+    1
+   ]
+  ],
+  [
+   1,
+   [
+    3
+   ]
+  ],
+  [
+   2,
+   [
+    5,
+    6
+   ]
+  ]
+ ]
+}
