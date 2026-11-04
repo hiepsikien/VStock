@@ -48,8 +48,8 @@ WRITE = os.environ.get("VSTOCK_WRITE_CLASSIC_PLAN") == "1"
 SPANS = ("1D", "1W", "1M", "3M")
 CHARACTERS = (None, "calm", "rally", "selloff", "volatile")
 SHAPES = ("held", "running")
-# 72 is the slow floor, 90 the shared opening-body floor, 101 sits just above
-# the 100 bar, and 120 is the fast end of the classic ladders.
+# 72 is the slow floor, 90 the shared opening-body floor, and 101/120 sample
+# the fast band. Classic has no 100 BPM threshold; 101 is not a boundary.
 TEMPOS = (72, 90, 101, 120)
 UNFRAMED_BARS = 32
 

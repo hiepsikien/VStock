@@ -76,6 +76,10 @@ def test_galop_needs_a_wide_major_rally_body() -> None:
     assert (
         classic_pattern(MACRO, _macro(**{**wide, "rel_span": 0.011})) == "study"
     )
+    # The exact 1.2% boundary is a galop; lock the >= direction.
+    assert (
+        classic_pattern(MACRO, _macro(**{**wide, "rel_span": 0.012})) == "galop"
+    )
     assert classic_pattern(MACRO, _macro(**{**wide, "minor": True})) == "study"
     assert (
         classic_pattern(
@@ -98,6 +102,35 @@ def test_galop_needs_a_wide_major_rally_body() -> None:
             ),
         )
         == "galop"
+    )
+    # Marking is not a substitute for the wide span.
+    assert (
+        classic_pattern(
+            MACRO,
+            _macro(
+                mood="rally",
+                bpm=100,
+                character=None,
+                rel_span=0.0,
+                rally_marked=True,
+            ),
+        )
+        == "study"
+    )
+    # Marking does not override the minor-mode guard either.
+    assert (
+        classic_pattern(
+            MACRO,
+            _macro(
+                mood="rally",
+                bpm=100,
+                character=None,
+                rel_span=0.05,
+                minor=True,
+                rally_marked=True,
+            ),
+        )
+        == "study"
     )
 
 
