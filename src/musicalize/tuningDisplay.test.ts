@@ -54,24 +54,24 @@ const layout1366 = panelLayout(1366, 660, guitar);
 equal(layout1366.columns, 3, '1366 columns');
 equal(layout1366.dense, true, '1366 dense');
 equal(layout1366.rowHeight, 50, '1366 row height');
-equal(layout1366.estimatedHeight, 636, '1366 estimated height');
+equal(layout1366.estimatedHeight, 648, '1366 estimated height');
 
 const layout1440 = panelLayout(1440, 800, guitar);
 equal(layout1440.columns, 3, '1440 columns');
 equal(layout1440.dense, false, '1440 not dense');
 equal(layout1440.rowHeight, 60, '1440 row height');
-equal(layout1440.estimatedHeight, 720, '1440 estimated height');
+equal(layout1440.estimatedHeight, 732, '1440 estimated height');
 
 const layout1920 = panelLayout(1920, 980, guitar);
 equal(layout1920.columns, 3, '1920 columns');
 equal(layout1920.contentWidth, 1040, '1920 content');
-equal(layout1920.estimatedHeight, 720, '1920 estimated height');
+equal(layout1920.estimatedHeight, 732, '1920 estimated height');
 
 const layout1024 = panelLayout(1024, 620, guitar);
 equal(layout1024.columns, 1, '1024 columns');
 equal(layout1024.dense, true, '1024 dense');
 equal(layout1024.dangStacked, true, '1024 stacks form');
-equal(layout1024.estimatedHeight, 1104, '1024 estimated height');
+equal(layout1024.estimatedHeight, 1116, '1024 estimated height');
 
 const layout1200 = panelLayout(1200, 800, guitar);
 equal(layout1200.columns, 1, '1200 columns');

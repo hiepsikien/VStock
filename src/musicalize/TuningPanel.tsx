@@ -709,24 +709,24 @@ function Mixer({
   const mixerHeight = guitar
     ? compact
       ? dense
-        ? 184
-        : 210
+        ? 196
+        : 222
       : 324
     : compact
       ? dense
-        ? 148
-        : 176
+        ? 168
+        : 188
       : 252;
   const topHeight = guitar
     ? compact
       ? dense
-        ? 116
-        : 138
+        ? 132
+        : 150
       : 156
     : compact
       ? dense
-        ? 84
-        : 104
+        ? 104
+        : 116
       : 120;
   const bottomHeight = compact ? (dense ? 44 : 52) : guitar ? 148 : 112;
   const waveHeight = guitar
@@ -743,8 +743,8 @@ function Mixer({
   const faderHeight = guitar ? (compact ? (dense ? 58 : 74) : 70) : 0;
 
   return (
-    <View style={[styles.mixer, { height: mixerHeight }]}>
-      <View style={[styles.mixerTop, { height: topHeight }]}>
+    <View style={[styles.mixer, compact && { height: mixerHeight }]}>
+      <View style={[styles.mixerTop, compact && { height: topHeight }]}>
         <View style={styles.mixerWave}>
           <Text style={[type.section, styles.groupLabel]}>CÂN BẰNG BÈ</Text>
           <TuningSpectrum levels={levels} height={waveHeight} />
@@ -783,7 +783,7 @@ function Mixer({
       <View
         style={[
           styles.mixerBottom,
-          { height: bottomHeight },
+          compact && { height: bottomHeight },
           !compact && styles.mixerBottomColumn,
         ]}
       >
@@ -1832,6 +1832,7 @@ const styles = StyleSheet.create({
   },
   columnsStacked: {
     flexDirection: 'column',
+    alignItems: 'stretch',
     gap: 10,
   },
   column: {

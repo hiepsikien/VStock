@@ -105,7 +105,7 @@ Cấu trúc:
    không làm body cao thêm.
 3. **Mixer ngang toàn panel**: sóng low/mid/high bên trái, 3 fader dọc bên phải,
    hàng dưới gồm `Vùng âm` + `Màu` + `Đưa 3 bè về 0`. Khi không phải Guitar,
-   mixer thu còn ~148/176px thay vì giữ chỗ fader rỗng.
+   mixer thu còn ~164/188px thay vì giữ chỗ fader rãnh.
 4. **Controls chia cột**:
    - `windowWidth < 1280`: **1 cột** — gồm mobile và cửa sổ hẹp kiểu mobile.
    - `>= 1280` (panel >= 768): 3 cột.
@@ -128,7 +128,7 @@ Cấu trúc:
      row/ScrollView cắt; hiện `helpText(field)` (copy UI mới, không dùng
      description 0/1/2 cũ trong schema), giá trị, detail và nhãn hai đầu.
 7. **Dense mode theo viewport height**:
-   - `height < 740`: row 50px, mixer 184px, group gap 8px, body gap 14px.
+   - `height < 740`: row 50px, mixer 192px, group gap 8px, body gap 14px.
    - `height >= 740`: row 60px, mixer 210px, group gap 8px, body gap 14px.
 
 ```text
@@ -177,21 +177,21 @@ label nên không phát sinh label thứ hai.
 |---|---|---|
 | Header + profile dính | 64 | 76 |
 | Status strip | 24 | 24 |
-| Mixer ngang panel | 184 | 210 |
+| Mixer ngang panel | 192 | 222 |
 | Body gap (mixer → cột → Dáng) | 28 | 28 |
 | Controls (3 hàng + 1 label + gaps) | 194 | 228 |
 | Dáng full-width | 64 | 76 |
 | Footer | 50 | 50 |
 | Padding body | 28 | 28 |
-| **Tổng** | **636** | **720** |
+| **Tổng** | **644** | **732** |
 
-- Viewport `1366×660`: 3 cột + dense, tổng 636 → vừa, còn 24px.
-- Viewport `1440×800`: 3 cột + thoáng, tổng 720 → vừa, còn 80px.
+- Viewport `1366×660`: 3 cột + dense, tổng 644 → vừa, còn 16px.
+- Viewport `1440×800`: 3 cột + thoáng, tổng 732 → vừa, còn 68px.
 - Viewport `1920×980`: 3 cột + thoáng, `contentWidth` 1040 → rất thoáng.
-- Viewport `1280×600`: 3 cột + dense, tổng 636 → **có thể scroll**; không hứa
+- Viewport `1280×600`: 3 cột + dense, tổng 644 → **có thể scroll**; không hứa
   no-scroll.
 - Viewport `1024×620`: **1 cột** + dense, `Dáng` xếp dọc; 3 group nối tiếp +
-  Dáng 124 → **~1104**, scroll. Đây là chấp nhận: 1024×768 không nằm trong nhóm
+  Dáng 124 → **~1112**, scroll. Đây là chấp nhận: 1024×768 không nằm trong nhóm
   “một màn hình”; ưu tiên 1 cột dễ đọc trên cửa sổ hẹp.
 - Không dùng `panelLayout` để đoán `scroll`. `scrollEnabled` lấy từ đo thật:
   `onLayout` của khung + `onContentSizeChange` của nội dung.
@@ -216,7 +216,7 @@ còn 3 hàng. Đây là lý do bố cục một màn hình khả thi ở viewpor
 - Phải: 3 fader dọc theo thứ tự **Bè bass → Bè trung → Bè cao**, khớp trái→phải với dải tần THẤP → TRUNG → CAO.
 - Fader chỉ hiện khi `variant === 'guitar'`.
 - Khi không phải Guitar: hiện ghi chú “Bè guitar chỉ mở ở thể loại Guitar”,
-  không hiện fader chết; mixer thu còn ~148/176px thay vì giữ chỗ fader rỗng.
+  không hiện fader chết; mixer thu còn ~164/188px thay vì giữ chỗ fader rãnh.
 - Dưới cùng: hàng `Vùng âm` + `Màu` + nút `Đưa 3 bè về 0`.
 - `Vùng âm` điều khiển độ nghiêng của phổ; `Màu` nằm cùng hàng để giảm một hàng
   controls và để hai knob “chất liệu không gian” cạnh nhau.
@@ -449,11 +449,11 @@ Test tối thiểu:
 - `panelLayout` cho Guitar (width/height là viewport, không phải độ phân giải
   màn hình):
   - `1024×620` → 1 cột, dense, `rowHeight = 50`, `dangStacked = true`,
-    `estimatedHeight = 1104`.
+    `estimatedHeight = 1112`.
   - `1280×600` → 3 cột, dense, `rowHeight = 50`.
-  - `1366×660` → 3 cột, dense, `rowHeight = 50`, `estimatedHeight = 636`.
-  - `1440×800` → 3 cột, thoáng, `rowHeight = 60`, `estimatedHeight = 720`.
-  - `1920×980` → 3 cột, thoáng, content 1040, `estimatedHeight = 720`.
+  - `1366×660` → 3 cột, dense, `rowHeight = 50`, `estimatedHeight = 644`.
+  - `1440×800` → 3 cột, thoáng, `rowHeight = 60`, `estimatedHeight = 732`.
+  - `1920×980` → 3 cột, thoáng, content 1040, `estimatedHeight = 732`.
   - `2560×1400` → 3 cột, content 1040.
   - Mobile → 1 cột, row 2 tầng có `paramFoot`.
 - `dangStacked`: `contentWidth` 592 → true; 720 và 1040 → false.
@@ -531,13 +531,13 @@ Test tối thiểu:
 
 - Panel PC rộng 50–67% viewport, không full-width; `contentWidth` có trần 1040.
 - Guitar trên PC, viewport `1366×660`: panel 820, 3 cột + dense, row 50px,
-  `Dáng` full-width, tổng 636, **không cuộn**.
+  `Dáng` full-width, tổng 644, **không cuộn**.
 - Guitar trên PC, viewport `1440×800`: panel 864, 3 cột thoáng, row 60px,
-  tổng 720, **không cuộn**.
+  tổng 732, **không cuộn**.
 - Guitar trên PC, viewport `1920×980`: panel 1152, `contentWidth` 1040, 3 cột,
   **không cuộn**.
 - `1024×768` và `1280×720`: chấp nhận scroll; `1024×620` dùng 1 cột,
-  `Dáng` stacked ~1104. Không hứa no-scroll.
+  `Dáng` stacked ~1112. Không hứa no-scroll.
 - PC row 50px không dùng `paramFoot`; BPM nằm trong value cell, hint/cảnh báo
   nằm trong status strip 24px.
 - Status strip gộp `Default` note, `hiddenChanged`, server notes một dòng
