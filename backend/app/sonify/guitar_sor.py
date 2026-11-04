@@ -189,22 +189,35 @@ def _galop_sparkle(
 
 
 
+def _galop_continues(ctx: _Ctx, cursor: int, patterns: list[str]) -> bool:
+    """True when `cursor` is a body bar with the galop id, not a pedal break."""
+    if ctx.kind_at.get(cursor, "phrase") in _PEDAL:
+        return False
+    return _bar_pattern(ctx, cursor, patterns) == "galop"
+
+
+def _galop_run_bounds(ctx: _Ctx, bar: int, patterns: list[str]) -> tuple[int, int]:
+    """First and last bar of the maximal galop run that contains `bar`."""
+    start = bar
+    cursor = bar - 1
+    while cursor >= 0 and _galop_continues(ctx, cursor, patterns):
+        start = cursor
+        cursor -= 1
+    end = bar
+    cursor = bar + 1
+    while cursor < ctx.bars and _galop_continues(ctx, cursor, patterns):
+        end = cursor
+        cursor += 1
+    return start, end
+
+
 def _galop_body_index(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
     """Index of `bar` inside its run of consecutive body bars whose id is galop.
 
     Intro and outro doors are not counted. A study bar, or any other id, ends
     the run. The first bar of a run is 0.
     """
-    index = 0
-    cursor = bar - 1
-    while cursor >= 0:
-        if ctx.kind_at.get(cursor, "phrase") in _PEDAL:
-            break
-        if _bar_pattern(ctx, cursor, patterns) != "galop":
-            break
-        index += 1
-        cursor -= 1
-    return index
+    return bar - _galop_run_bounds(ctx, bar, patterns)[0]
 
 
 def _galop_cell_legacy(index: int) -> str:
@@ -216,27 +229,18 @@ def _galop_cell_legacy(index: int) -> str:
 
 def _galop_run_length(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
     """Bars from `bar` to the end of its run, counted forward."""
-    length = 1
-    cursor = bar + 1
-    while cursor < ctx.bars:
-        if ctx.kind_at.get(cursor, "phrase") in _PEDAL:
-            break
-        if _bar_pattern(ctx, cursor, patterns) != "galop":
-            break
-        length += 1
-        cursor += 1
-    return length
+    return _galop_run_bounds(ctx, bar, patterns)[1] - bar + 1
 
 
 def _galop_run_cell(ctx: _Ctx, bar: int, patterns: list[str]) -> tuple[int, str]:
     """Run index for `bar`, then the cell the registry plans at that index.
 
-    `plan_run` receives the whole run (`index` bars before this one plus the
-    bars after it), so a cycle sees its real length. The legacy chooser answers
-    only if the registry has no plan.
+    `plan_run` receives the whole run, so a cycle sees its real length. The
+    legacy chooser answers only if the registry has no plan.
     """
-    index = _galop_body_index(ctx, bar, patterns)
-    run_length = index + _galop_run_length(ctx, bar, patterns)
+    start, end = _galop_run_bounds(ctx, bar, patterns)
+    index = bar - start
+    run_length = end - start + 1
     planned = plan_run("galop", ctx.kind, run_length)
     cell = planned[index] if planned else _galop_cell_legacy(index)
     return index, cell

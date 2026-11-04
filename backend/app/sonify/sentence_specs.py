@@ -376,7 +376,8 @@ def _tile(
     length: int,
     place: Callable[[SentenceSpec, int, int, int], list[tuple]] | None = None,
 ) -> list[tuple]:
-    place = place or _slots
+    if place is None:
+        place = _slots
     span = spec.span
     if span.exact or span.remainder == "exact":
         if span.tile is not None and length != span.tile:
