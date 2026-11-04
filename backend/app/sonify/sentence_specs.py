@@ -26,8 +26,10 @@ the first figure repeats, which is a plan-level post-pass.
 from __future__ import annotations
 
 import importlib
+import json
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
+from pathlib import Path
 
 # Owner modules call register() at import. plan_sentence() imports them lazily
 # so a caller that only imports this module still gets a plan.
@@ -292,6 +294,51 @@ def register(
         if not replace:
             raise ValueError(f"sentence specs already registered for {key}")
     SENTENCE_SPECS[key] = ordered
+
+
+def load_specs(
+    path: str | Path, replace: bool = False
+) -> tuple[SentenceSpec, ...]:
+    """Load a v1 JSON wrapper and register its specs.
+
+    Identical re-registration is a no-op, a new `(pattern, meter)` pair is
+    added, and a changed existing pair raises unless `replace=True`. The whole
+    file is checked before anything is registered, so a rejected file does not
+    leave a partial update behind.
+
+    The JSON is an authoring source and test fixture only: this function
+    registers code specs, it does not install an interpreter. Use
+    `app.studio.sentence_spec.parse_payload` to build specs without touching
+    the global registry.
+    """
+    from app.studio.sentence_spec import parse_payload
+
+    source = Path(path)
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    specs = parse_payload(payload)
+
+    groups: dict[tuple[str, str], list[SentenceSpec]] = {}
+    for spec in specs:
+        groups.setdefault((spec.pattern, spec.meter), []).append(spec)
+
+    ordered_groups = [
+        (
+            key,
+            tuple(sorted(group, key=lambda spec: (spec.select.length_min, spec.id))),
+        )
+        for key, group in sorted(groups.items())
+    ]
+    for key, ordered in ordered_groups:
+        existing = SENTENCE_SPECS.get(key)
+        if existing is not None and existing != ordered and not replace:
+            raise ValueError(
+                f"{source}: sentence specs already registered for {key}; "
+                "use replace=True to replace them"
+            )
+
+    for (pattern, meter), group in ordered_groups:
+        register(pattern, meter, *group, replace=replace)
+    return specs
 
 
 def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -> bool:

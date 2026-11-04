@@ -1,0 +1,62 @@
+{
+  "runtime": "code",
+  "schema_version": 1,
+  "specs": [
+    {
+      "id": "castillo_34_cadence",
+      "meter": "3/4",
+      "pattern": "castillo",
+      "select": {
+        "closes": null,
+        "length_max": null,
+        "length_min": 2,
+        "n_mod": null,
+        "n_parity": "odd",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 9,
+          "figure": 14,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": false,
+        "remainder": "same_figure",
+        "tile": 9,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "castillo_34_walk",
+      "meter": "3/4",
+      "pattern": "castillo",
+      "select": {
+        "closes": null,
+        "length_max": null,
+        "length_min": 2,
+        "n_mod": null,
+        "n_parity": "even",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 9,
+          "figure": 13,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": false,
+        "remainder": "same_figure",
+        "tile": 9,
+        "truncate_to_length": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "runtime": "code",
+  "schema_version": 1,
+  "specs": [
+    {
+      "id": "galop_cycle",
+      "meter": "*",
+      "pattern": "galop",
+      "select": {
+        "closes": null,
+        "length_max": null,
+        "length_min": 1,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 4,
+          "cell": "galop1",
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 4,
+          "cell": "galop2",
+          "start": 4
+        }
+      ],
+      "span": {
+        "cycle": true,
+        "exact": false,
+        "remainder": "truncate_cycle",
+        "tile": 8,
+        "truncate_to_length": true
+      }
+    }
+  ]
+}
