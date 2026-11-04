@@ -658,6 +658,19 @@ Torroba đã chứng minh: bar renderer vẫn code, chỉ **chọn slot** là da
 - Sentence cho composer mới **không** làm thay đổi `PATTERN_NAMES`/`Movement.title` — nó là lớp trong pattern.
 
 
+### 13.10. Studio sentence JSON (MVP)
+
+Phase 0/1 cho pilot **Torroba + Sor**:
+
+- **Schema:** wrapper `{"schema_version": 1, "runtime": "code", "specs": [...]}`; mỗi spec mang `id`, `pattern`, `meter`, `select`, `span`, `slots`. Code: `backend/app/studio/sentence_spec.py` (`spec_to_mapping`, `parse_spec`, `parse_payload`).
+- **File:** `backend/app/studio/specs/*.json`, một file mỗi `(pattern, meter)`, 7 file / 38 spec. Export/check: `python3 -m app.studio.export [--check]`.
+- **Loader:** `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True`; cả file được validate trước khi register nên không có partial update.
+- **API:** `POST /v1/studio/sentence/validate` (`{ok, errors}`) và `POST /v1/studio/sentence/preview` (`{spec, fixture}` → plan/row/notes/renderHash/matrix).
+- **Sandbox:** preview plan trên bản copy `SENTENCE_SPECS`; `plan_sentence`/`plan_run` nhận `registry=` nên không mutate global registry.
+- **Runtime:** vẫn code-backed. `runtime` bắt buộc `"code"`; figure/cell renderer vẫn là code; **không** procedure/interpreter.
+
+Preview fixture: `pattern`, `meter`, `length` (hoặc `run_length` cho cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix selection mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
+
 ---
 
 ## 14. Door pipeline (intro/outro)

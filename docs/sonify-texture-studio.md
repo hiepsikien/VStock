@@ -1,10 +1,31 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: đề xuất, revision 7 — thêm §0.4 từ vựng chuẩn và link mô hình âm nhạc; thân bài rev 6 **chưa** đổi theo từ vựng mới. **Chưa code.**
-> **Phạm vi đợt đầu**: Villa-Lobos (`ensemble = "villa"`), texture lấy từ *Suite Popular Brasileira*.
+> **Trạng thái**: **Phase 0/1 MVP đã code** cho pilot Torroba + Sor. Phần lớn thân bài vẫn là proposal revision 7; các mục chưa code được ghi rõ.
+> **Phạm vi đợt đầu**: **Torroba + Sor** (castillo, sonatina, fandanguillo, danza, galop). Villa để sau khi có figure registry.
 > **Nơi chạy**: trong app Musicalize (room mới), backend FastAPI phía sau.
 > **Mở cho tất cả bây giờ**, nhưng có session namespace và seam quyền truy cập để sau này giới hạn.
 > **Liên quan**: [`sonify-guitar-model.md`](./sonify-guitar-model.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
+
+---
+
+## 0. MVP Phase 0/1 đã code
+
+Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
+
+| Mảng | Đã có |
+|---|---|
+| JSON | `backend/app/studio/specs/*.json` — 7 file / 38 spec, wrapper `{schema_version, runtime: "code", specs}` |
+| Export | `python3 -m app.studio.export` và `--check` (stale detector) |
+| Loader | `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True` |
+| Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}` |
+| Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix |
+| UI | Studio room: JSON editor, Validate, Preview; audio để sprint sau |
+| Sandbox | Preview plan trên **bản copy registry**; `plan_sentence`/`plan_run` nhận `registry=` nên không mutate `SENTENCE_SPECS` |
+| Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
+
+Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
+
+**Chưa làm:** publish/DB/versioning đầy đủ, audio preview, figure/texture mới cho Villa/Barrios/Brouwer, procedure/Bach exposition, Phase 2 interpreter.
 
 ---
 
