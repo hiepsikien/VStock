@@ -58,12 +58,35 @@ class Observed:
     bpm: int
     kind: str
     framed: bool
+    bands: tuple[str, ...]
 
 
-def _bars(shape: str) -> list[Bar]:
-    if shape == "held":
-        return [Bar(100.0)] * 96
-    return [Bar(100.0 + (index % 7) * 2) for index in range(96)]
+# Two traded levels 4x apart, so `marking_for_volume` returns `p` and `f`
+# instead of collapsing every slot to `mf`. The quiet block is a minority of
+# the body, so the default matrix still reaches the etude and 6/8 macro rules;
+# `_quiet_bars` is the dedicated quiet-majority shape below.
+LOW_BARS = 38
+LOW_VOLUME = 100.0
+HIGH_VOLUME = 400.0
+
+
+def _volume(index: int, *, quiet: bool = False) -> float:
+    if quiet:
+        return 0.0 if index < 72 else HIGH_VOLUME
+    return LOW_VOLUME if index < LOW_BARS else HIGH_VOLUME
+
+
+def _bars(shape: str, *, quiet: bool = False) -> list[Bar]:
+    bars: list[Bar] = []
+    for index in range(96):
+        close = 100.0 if shape == "held" else 100.0 + (index % 7) * 2
+        bars.append(Bar(close, _volume(index, quiet=quiet)))
+    return bars
+
+
+def _quiet_bars(shape: str) -> list[Bar]:
+    """A body with untraded bars in the majority, to fire the macro quiet rule."""
+    return _bars(shape, quiet=True)
 
 
 def _form(span: str, bpm: int | None, *, sessions: int = 1, movement: int = 0):
@@ -83,10 +106,22 @@ def _form(span: str, bpm: int | None, *, sessions: int = 1, movement: int = 0):
     return spec if bpm is None else replace(spec, bpm=bpm)
 
 
-def _body_spec(bpm: int, meter) -> FormSpec:
-    """A body with no pedal frame, so `_patterns` keeps the per-phrase path."""
+def _body_spec(bpm: int, meter, *, trio: bool = False, bridge: bool = False) -> FormSpec:
+    """A body with no pedal frame, so `_patterns` keeps the per-phrase path.
+
+    The contrast flag sits on the second phrase, not the opening one: the
+    opening-body rule would otherwise shadow the thumb rule and hide the
+    phrase ladder's trio/bridge branch.
+    """
     sections = tuple(
-        FormSection(bar, min(bar + 8, UNFRAMED_BARS), "phrase", 0)
+        FormSection(
+            bar,
+            min(bar + 8, UNFRAMED_BARS),
+            "phrase",
+            0,
+            bridge=bridge and bar == 8,
+            trio=trio and bar == 8,
+        )
         for bar in range(0, UNFRAMED_BARS, 8)
     )
     return FormSpec(UNFRAMED_BARS, bpm, sections, meter=meter)
@@ -158,6 +193,7 @@ def _observe(
         bpm=ctx.bpm,
         kind=ctx.kind,
         framed=gp._framed(ctx),
+        bands=tuple(sorted(set(ctx.band_at.values()))),
     )
 
 
@@ -224,6 +260,20 @@ def _build_cases() -> dict[str, Observed]:
                 _bars(shape), character, _form("3M", bpm), movement_index=0
             )
 
+    # Quiet-majority macro bodies. These use the partially untraded shape so
+    # the macro rule really fires and pre-empts the etude rows it sits above.
+    for shape, character in (("held", None), ("running", "rally")):
+        key = f"1D|{character or 'none'}|{shape}|auto|quiet"
+        cases[key] = _observe(_quiet_bars(shape), character, _form("1D", None))
+    for movement, character, bpm in ((0, "rally", 120), (2, "volatile", 120)):
+        key = f"1M|{character}|held|{bpm}|quiet|m{movement}"
+        cases[key] = _observe(
+            _quiet_bars("held"),
+            character,
+            _form("1M", bpm, movement=movement),
+            movement_index=movement,
+        )
+
     # Unframed: the daily body at the ensemble tempo (100 for Villa).
     for shape in SHAPES:
         for character in CHARACTERS:
@@ -262,6 +312,19 @@ def _build_cases() -> dict[str, Observed]:
         cases[key] = _observe(
             _bars("held"), character, _body_spec(120, METER_68), framed=False
         )
+
+    # Unframed contrast: the phrase ladder answers trio/bridge on the thumb,
+    # while the macro ladder never reads either flag. The second phrase carries
+    # the flag, so the opening-body rule does not shadow it.
+    for flag in ("trio", "bridge"):
+        for bpm in (72, 120):
+            key = f"unframed|4/4|none|held|{bpm}|{flag}"
+            cases[key] = _observe(
+                _bars("held"),
+                None,
+                _body_spec(bpm, METER_44, **{flag: True}),
+                framed=False,
+            )
     return cases
 
 
@@ -286,9 +349,14 @@ def test_villa_plan_matches_the_fixture() -> None:
         if os.environ.get("CI"):
             pytest.fail("refusing to regenerate villa_plan.json in CI")
         FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-        FIXTURE.write_text(
-            json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        # One case per line: a rule change diffs a handful of rows, not 3.5k.
+        lines = ["{"]
+        items = sorted(rows.items())
+        for index, (key, row) in enumerate(items):
+            comma = "," if index < len(items) - 1 else ""
+            lines.append(f"  {json.dumps(key, ensure_ascii=False)}: {json.dumps(row)}{comma}")
+        lines.append("}")
+        FIXTURE.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return
     expected = _load()
     missing = sorted(set(rows) - set(expected))
@@ -300,7 +368,7 @@ def test_villa_plan_matches_the_fixture() -> None:
 
 
 def test_matrix_size_is_intentional() -> None:
-    assert len(_cases()) == 103, len(_cases())
+    assert len(_cases()) == 111, len(_cases())
 
 
 def test_matrix_covers_every_span_character_shape_and_tempo() -> None:
@@ -344,3 +412,42 @@ def test_matrix_covers_every_span_character_shape_and_tempo() -> None:
         for key, case in cases.items()
         if key.startswith("1M|") and key.endswith("|m1")
     )
+
+    # The fixture must see the real dynamic bands, not a wall of `mf`: a `p`
+    # phrase and the macro quiet-majority rule only fire when bands vary.
+    band_values = {band for case in cases.values() for band in case.bands}
+    assert {"p", "f"} <= band_values, band_values
+    assert any(
+        "p" in case.bands for key, case in cases.items() if not key.startswith("unframed|")
+    )
+    assert any(
+        "p" in case.bands for key, case in cases.items() if key.startswith("unframed|")
+    )
+
+    # The phrase ladder's trio/bridge branch is in the golden, not only in the
+    # synthetic unit test.
+    for flag in ("trio", "bridge"):
+        rows = [
+            case.patterns for key, case in cases.items() if key.endswith(f"|{flag}")
+        ]
+        assert rows and all("thumb_cantabile" in row for row in rows), flag
+
+    # The default matrix still reaches the macro rows below quiet-majority, so
+    # adding the quiet cases did not collapse the ladder into one branch.
+    macro_rows = [
+        case.patterns
+        for key, case in cases.items()
+        if not key.startswith("unframed|")
+    ]
+    for pattern in ("villa_pattern", "chord_melody", "etude1", "etude11", "thumb_cantabile"):
+        assert any(pattern in row for row in macro_rows), pattern
+
+    # A quiet-majority daily body is all block chords, even at rally tempo.
+    quiet_daily = [
+        case.patterns
+        for key, case in cases.items()
+        if key.startswith("1D|") and key.endswith("|quiet")
+    ]
+    assert quiet_daily
+    for row in quiet_daily:
+        assert {pattern for pattern in row if pattern != "pedal"} == {"chord_melody"}

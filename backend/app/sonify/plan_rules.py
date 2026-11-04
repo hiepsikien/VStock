@@ -26,9 +26,12 @@ should be unified:
   stays the eighth-note roll below the tremolo floor. The macro path applies
   the etude rules to the whole body, opening phrase included.
 
-`trio`/`bridge` are carried by `VillaInputs` for the phrase rules. The macro
+`trio`/`bridge` are carried by `PhraseInputs` for the phrase rules. The macro
 rules ignore them by design (see above), and `_dominant_pattern_auto` is only
-called for non-contrast material.
+called for non-contrast material. The two ladders take different input types
+on purpose: a macro rule cannot read `band`, `trio`, or `first_body` because
+those fields do not exist in `MacroInputs`, and `villa_pattern` refuses an
+input type that does not match its mode.
 
 Villa never reads `_has_hold` or `_running`; those predicates feed the Barrios
 branches of `_select_body`, so they are not inputs to this table.
@@ -38,33 +41,49 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any, Literal, TypeAlias
 
 from app.sonify.guitar import BARRIOS_TREMOLO_MIN_BPM
 
-PHRASE = "phrase"
-MACRO = "macro"
+Mode: TypeAlias = Literal["phrase", "macro"]
+PHRASE: Mode = "phrase"
+MACRO: Mode = "macro"
 
 
 @dataclass(frozen=True)
-class VillaInputs:
-    """Everything either Villa ladder can read. Unused fields keep their default."""
+class PhraseInputs:
+    """Everything the phrase ladder can read. All fields are required."""
 
-    trio: bool = False
-    bridge: bool = False
-    mood: str | None = None
-    bpm: int = 0
-    band: str = "mf"
-    first_body: bool = False
-    kind: str = "4/4"
-    quiet_majority: bool = False
+    trio: bool
+    bridge: bool
+    mood: str | None
+    bpm: int
+    band: str
+    first_body: bool
+    kind: str
+
+
+@dataclass(frozen=True)
+class MacroInputs:
+    """Everything the macro ladder can read. All fields are required."""
+
+    mood: str | None
+    bpm: int
+    kind: str
+    quiet_majority: bool
+
+
+VillaInputs: TypeAlias = PhraseInputs | MacroInputs
+
+_INPUTS: dict[str, type] = {PHRASE: PhraseInputs, MACRO: MacroInputs}
 
 
 @dataclass(frozen=True)
 class Rule:
     """One ordered decision: `when` -> `pattern`, with the reason kept as data."""
 
-    mode: str
-    when: Callable[[VillaInputs], bool]
+    mode: Mode
+    when: Callable[[Any], bool]
     pattern: str
     why: str
 
@@ -156,11 +175,20 @@ VILLA_RULES: tuple[Rule, ...] = (
     ),
 )
 
-VILLA_FALLBACK = {PHRASE: "villa_pattern", MACRO: "villa_pattern"}
+VILLA_FALLBACK: dict[Mode, str] = {PHRASE: "villa_pattern", MACRO: "villa_pattern"}
 
 
-def villa_pattern(mode: str, case: VillaInputs) -> str:
-    """First rule for `mode` that matches, else that mode's fallback row."""
+def villa_pattern(mode: Mode, case: VillaInputs) -> str:
+    """First rule for `mode` that matches, else that mode's fallback row.
+
+    The input type must match the mode: a macro call cannot smuggle in phrase
+    fields, and a phrase call cannot silently default them.
+    """
+    expected = _INPUTS[mode]
+    if not isinstance(case, expected):
+        raise TypeError(
+            f"{mode} needs {expected.__name__}, got {type(case).__name__}"
+        )
     for rule in VILLA_RULES:
         if rule.mode == mode and rule.when(case):
             return rule.pattern

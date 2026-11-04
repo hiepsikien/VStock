@@ -36,7 +36,7 @@ from app.sonify.guitar import (
 from app.sonify.keys import C_KEY, KeySpec
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, bell_budget, quantize_strong_beats, swell, written
-from app.sonify.plan_rules import MACRO, PHRASE, VillaInputs, villa_pattern
+from app.sonify.plan_rules import MACRO, PHRASE, MacroInputs, PhraseInputs, villa_pattern
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
@@ -951,7 +951,7 @@ def _select_body(
         # roll that the shared branch above applied for Villa before dispatch.
         return villa_pattern(
             PHRASE,
-            VillaInputs(
+            PhraseInputs(
                 trio=trio,
                 bridge=bridge,
                 mood=mood,
@@ -1136,7 +1136,7 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
         quiet = sum(1 for bar in bars if ctx.band(bar) == "p")
         return villa_pattern(
             MACRO,
-            VillaInputs(
+            MacroInputs(
                 mood=mood,
                 bpm=ctx.bpm,
                 kind=ctx.kind,
