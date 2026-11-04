@@ -58,6 +58,97 @@ CASTILLO_34_CADENCE = SentenceSpec(
     span=Span(tile=9, remainder="same_figure", truncate_to_length=True),
     slots=(Slot(start=0, bars=9, figure=CASTILLO_CADENCE),),
 )
+
+# Castillo in 4/4 is Arada: type 7 for a five-bar stretch, type 8 pairs, and a
+# one-bar type 1 link when an odd long phrase turns. Slots are placed where
+# `_castillo_spans` places them; bars without a slot stay on the base grid.
+CASTILLO_44_SHORT = SentenceSpec(
+    id="castillo_44_short",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=2, length_max=3),
+    span=Span(exact=True, remainder="exact"),
+    slots=(Slot(start=0, bars=2, figure=8),),
+)
+CASTILLO_44_PAIR_EVEN = SentenceSpec(
+    id="castillo_44_pair_even",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=4, length_max=4, n_parity="even"),
+    span=Span(tile=4, exact=True, remainder="exact"),
+    slots=(Slot(start=0, bars=2, figure=8),),
+)
+CASTILLO_44_PAIR_ODD = SentenceSpec(
+    id="castillo_44_pair_odd",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=4, length_max=4, n_parity="odd"),
+    span=Span(tile=4, exact=True, remainder="exact"),
+    slots=(Slot(start=1, bars=2, figure=8),),
+)
+CASTILLO_44_TYPE7_L5 = SentenceSpec(
+    id="castillo_44_type7_l5",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=5, length_max=5, n_parity="even"),
+    span=Span(tile=5, exact=True, remainder="exact"),
+    slots=(Slot(start=0, bars=5, figure=7),),
+)
+CASTILLO_44_PAIRS_ODD = SentenceSpec(
+    id="castillo_44_pairs_odd",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=5, length_max=6, n_parity="odd"),
+    span=Span(exact=True, remainder="exact"),
+    slots=(Slot(start=0, bars=2, figure=8), Slot(start=3, bars=2, figure=8)),
+)
+CASTILLO_44_TYPE7_L6 = SentenceSpec(
+    id="castillo_44_type7_l6",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=6, length_max=6, n_parity="even"),
+    span=Span(tile=6, exact=True, remainder="exact"),
+    slots=(Slot(start=0, bars=5, figure=7),),
+)
+CASTILLO_44_TYPE7_L7 = SentenceSpec(
+    id="castillo_44_type7_l7",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=7, length_max=7),
+    span=Span(tile=7, exact=True, remainder="exact"),
+    slots=(Slot(start=0, bars=5, figure=7),),
+)
+CASTILLO_44_LONG_EVEN = SentenceSpec(
+    id="castillo_44_long_even",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=8, n_parity="even"),
+    span=Span(exact=True, remainder="exact"),
+    slots=(Slot(start=0, bars=5, figure=7),),
+)
+CASTILLO_44_LONG_ODD = SentenceSpec(
+    id="castillo_44_long_odd",
+    pattern="castillo",
+    meter="4/4",
+    select=Select(length_min=8, n_parity="odd"),
+    span=Span(exact=True, remainder="exact"),
+    slots=(
+        Slot(start=0, bars=2, figure=8),
+        Slot(start=4, bars=2, figure=8),
+        Slot(start=2, bars=1, figure=1),
+    ),
+)
+CASTILLO_44_SPECS = (
+    CASTILLO_44_SHORT,
+    CASTILLO_44_PAIR_EVEN,
+    CASTILLO_44_PAIR_ODD,
+    CASTILLO_44_TYPE7_L5,
+    CASTILLO_44_PAIRS_ODD,
+    CASTILLO_44_TYPE7_L6,
+    CASTILLO_44_TYPE7_L7,
+    CASTILLO_44_LONG_EVEN,
+    CASTILLO_44_LONG_ODD,
+)
 # One Juglar chunk is three plucked fingers on one quantized price, and the
 # thumb on the beat under them. p-a-m-i: the four plucks sit on one sixteenth
 # grid, so a 3/4 bar is twelve attacks whatever the tempo.
@@ -4429,6 +4520,12 @@ register(
     "3/4",
     CASTILLO_34_WALK,
     CASTILLO_34_CADENCE,
+    valid_figures=frozenset(_FIGURES),
+)
+register(
+    "castillo",
+    "4/4",
+    *CASTILLO_44_SPECS,
     valid_figures=frozenset(_FIGURES),
 )
 
