@@ -37,6 +37,7 @@ from app.sonify.keys import C_KEY, KeySpec
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, bell_budget, quantize_strong_beats, swell, written
 from app.sonify.plan_rules import MACRO, PHRASE, MacroInputs, PhraseInputs, villa_pattern
+from app.sonify.plan_rules_bach import bach_region_patterns
 from app.sonify.plan_rules_barrios import (
     DAILY,
     BarriosMacroInputs,
@@ -924,9 +925,9 @@ def _select_body(
         return primary
     if ctx.ensemble == "bach":
         bar = min(ctx.bars - 1, phrase.apex.start // ctx.epb)
-        primary = _bach_primary(ctx, [phrase], [bar], mood)
+        primary = _bach_primary(ctx, [phrase], [bar], mood, mode=PHRASE)
         if trio or bridge:
-            return _bach_contrast(ctx, primary, mood)
+            return _bach_contrast(ctx, primary, mood, mode=PHRASE)
         return primary
     if ctx.ensemble == "torroba":
         primary = _torroba_primary(ctx, mood)
@@ -1135,7 +1136,7 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
     if ctx.ensemble == "brouwer":
         return _brouwer_primary(ctx, mood, MACRO)
     if ctx.ensemble == "bach":
-        return _bach_primary(ctx, phrases, bars, mood)
+        return _bach_primary(ctx, phrases, bars, mood, mode=MACRO)
     if ctx.ensemble == "torroba":
         return _torroba_primary(ctx, mood, framed_macro=True)
     if ctx.ensemble == "classic":
@@ -1288,22 +1289,8 @@ def _barrios_region_patterns(palette: tuple[str, ...], count: int) -> list[str]:
 
 
 def _bach_region_patterns(palette: tuple[str, ...], count: int) -> list[str]:
-    """Opening, guests, and a reprise that does not close on Prelude.
-
-    Barrios still returns to its opening. Bach does too, except when that
-    return would put Prelude last in a row that already has another dance.
-    The close then repeats the dance already playing in front of it. A
-    two-part row has no reprise, so Sarabande — Prelude stays.
-    """
-    row = _barrios_region_patterns(palette, count)
-    if (
-        count >= 3
-        and row
-        and row[-1] == "bach_prelude"
-        and any(item != "bach_prelude" for item in row[:-1])
-    ):
-        row[-1] = row[-2]
-    return row
+    """Barrios' opening/guest/reprise row with Bach's no-closing-Prelude pass."""
+    return bach_region_patterns(_barrios_region_patterns(palette, count))
 
 
 def _torroba_regions(ctx: _Ctx) -> list[tuple[int, int, bool]]:
@@ -1348,7 +1335,7 @@ def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list
     if ctx.ensemble == "brouwer":
         return _brouwer_contrast(primary)
     if ctx.ensemble == "bach":
-        return _bach_contrast(ctx, primary, mood)
+        return _bach_contrast(ctx, primary, mood, mode=MACRO)
     if ctx.ensemble == "torroba":
         return _torroba_contrast(ctx, primary, _torroba_opening_mood(ctx))
     if ctx.ensemble == "classic":
