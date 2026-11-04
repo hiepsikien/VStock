@@ -4,14 +4,19 @@ Names come from the production path `render` -> `_written_dance`, captured
 through `program.guitar_movement_name`. The fixture records one name per case
 so a refactor that silently renames or reorders a dance shows up as a diff.
 
-The matrix is deterministic and sampled where a movement is long. `villa` and
-`brouwer` plan their harmony per bar and cost seconds each, so they take one
-character per long span, two on the day span (the characters rotate until every
-one is used), and both bar shapes across those day characters. The other four
+The matrix runs under default params (`compose_params({})`), so names that
+depend on tempo/frame/meter are pinned to tier A defaults. It is deterministic
+and sampled where a movement is long. `villa` and `brouwer` plan their harmony
+per bar and cost seconds each, so they take one character per long span, two on
+the day span, and both bar shapes across those day characters. The other four
 ensembles carry the full five characters on 1D/1W/1M, three on 3M, and always
-both bar shapes on 1D. Every ensemble appears on every span, every character
-appears on every span, and both held/running shapes and 72/120 tempos appear on
-every span. 1D has no bpm knob (its tempo is `GUITAR_BPM[ensemble]`).
+both bar shapes on 1D.
+
+Coverage: every ensemble appears on every span, every character/shape/tempo
+appears per ensemble (pooled over spans), 1M samples all four movement indices
+for every ensemble, and 3M samples m1/m2 for the four cheap ensembles
+(villa/brouwer stay on m0 for cost). 1D has no bpm knob (its tempo is
+`GUITAR_BPM[ensemble]`). 1W sessions 2-4 are out of scope.
 
 Regenerate the fixture on purpose with:
 
@@ -28,7 +33,10 @@ import pathlib
 from dataclasses import replace
 from functools import lru_cache
 
+import pytest
+
 from app.sonify.model import Bar
+from app.sonify.params import compose_params
 from app.sonify.program import guitar_movement_name
 from app.sonify.span import FormSpec, attach_frame, month_specs, quarter_specs, week_spec
 
@@ -103,8 +111,10 @@ def _key(ensemble: str, span: str, character: str | None, shape: str, bpm: int |
     )
 
 
-@lru_cache(maxsize=1)
-def _cases() -> dict[str, str]:
+CHEAP_3M = ("classic", "barrios", "bach", "torroba")
+
+
+def _build_cases() -> dict[str, str]:
     cases: dict[str, str] = {}
     for ensemble_index, ensemble in enumerate(ENSEMBLES):
         heavy = ensemble in HEAVY
@@ -123,6 +133,7 @@ def _cases() -> dict[str, str]:
                         ensemble=ensemble,
                         character=character,
                         form=_form(span, bpm),
+                        movement_index=0,
                     )
 
     # A full 1W is five sessions, so its row can name three patterns. The
@@ -135,11 +146,12 @@ def _cases() -> dict[str, str]:
             ensemble=ensemble,
             character=character,
             form=replace(week_spec(5), bpm=120),
+            movement_index=0,
         )
 
-    # A 1M movement index changes which row is named. Sample all four
-    # movements for the ensembles whose rows walk.
-    for ensemble in ("villa", "barrios", "torroba"):
+    # A 1M movement index changes which row is named for every ensemble; sample
+    # all four.
+    for ensemble in ENSEMBLES:
         for movement in range(4):
             character = "rally" if movement % 2 else "calm"
             key = _key(ensemble, "1M", character, "running", 120) + f"|m{movement}"
@@ -148,8 +160,29 @@ def _cases() -> dict[str, str]:
                 ensemble=ensemble,
                 character=character,
                 form=_form("1M", 120, movement),
+                movement_index=movement,
+            )
+
+    # 3M has three movements too. Villa and Brouwer are expensive, so only the
+    # cheap ensembles take m1/m2; m0 is covered by the base matrix.
+    for ensemble in CHEAP_3M:
+        for movement in (1, 2):
+            character = "selloff" if movement == 1 else "volatile"
+            key = _key(ensemble, "3M", character, "running", 120) + f"|m{movement}"
+            cases[key] = guitar_movement_name(
+                _bars("running"),
+                ensemble=ensemble,
+                character=character,
+                form=_form("3M", 120, movement),
+                movement_index=movement,
             )
     return cases
+
+
+@lru_cache(maxsize=1)
+def _cases() -> dict[str, str]:
+    with compose_params({}):
+        return _build_cases()
 
 
 def _load() -> dict[str, str]:
@@ -160,6 +193,8 @@ def _load() -> dict[str, str]:
 def test_names_match_the_fixture() -> None:
     cases = _cases()
     if WRITE:
+        if os.environ.get("CI"):
+            pytest.fail("refusing to regenerate name_parity.json in CI")
         FIXTURE.parent.mkdir(parents=True, exist_ok=True)
         FIXTURE.write_text(json.dumps(cases, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return
@@ -174,26 +209,36 @@ def test_names_match_the_fixture() -> None:
     assert not mismatched, list(mismatched.items())[:3]
 
 
-def test_matrix_is_bounded() -> None:
-    assert 100 <= len(_cases()) <= 300, len(_cases())
+def test_matrix_size_is_intentional() -> None:
+    assert len(_cases()) == 140, len(_cases())
 
 
 def test_matrix_covers_every_ensemble_span_and_character() -> None:
     cases = _cases()
     for ensemble in ENSEMBLES:
-        for span in SPANS:
-            keys = [key for key in cases if key.startswith(f"{ensemble}|{span}|")]
-            assert keys, (ensemble, span)
-            # The whole span, not each ensemble, carries the character/shape/
-            # tempo sweep: villa and brouwer are sampled hardest.
-            span_keys = [key for key in cases if key.split("|")[1] == span]
-            characters = {key.split("|")[2] for key in span_keys}
-            assert characters == {character or "none" for character in CHARACTERS}, (
-                span,
-                characters,
-            )
-            assert {key.split("|")[3] for key in span_keys} == set(SHAPES), span
-            if span != "1D":
-                assert {key.split("|")[4] for key in span_keys} == {
-                    str(bpm) for bpm in TEMPOS
-                }, span
+        keys = [key for key in cases if key.startswith(f"{ensemble}|")]
+        assert keys, ensemble
+        assert {key.split("|")[1] for key in keys} >= set(SPANS), ensemble
+        assert {key.split("|")[2] for key in keys} == {
+            character or "none" for character in CHARACTERS
+        }, ensemble
+        assert {key.split("|")[3] for key in keys} == set(SHAPES), ensemble
+        assert {
+            key.split("|")[4] for key in keys if key.split("|")[1] != "1D"
+        } == {str(bpm) for bpm in TEMPOS}, ensemble
+
+    for ensemble in ENSEMBLES:
+        movements = {
+            key.split("|")[-1]
+            for key in cases
+            if key.startswith(f"{ensemble}|1M|") and key.split("|")[-1].startswith("m")
+        }
+        assert movements == {f"m{index}" for index in range(4)}, ensemble
+
+    for ensemble in CHEAP_3M:
+        movements = {
+            key.split("|")[-1]
+            for key in cases
+            if key.startswith(f"{ensemble}|3M|") and key.split("|")[-1].startswith("m")
+        }
+        assert movements == {"m1", "m2"}, ensemble
