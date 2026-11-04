@@ -1,6 +1,6 @@
 # Mô hình âm nhạc của lớp guitar — Topic / Texture / Procedure / Sentence / Plan
 
-> **Trạng thái**: đề xuất, dùng làm căn bản cho refactor renderer. **Chưa code.**
+> **Trạng thái**: căn bản cho refactor renderer. **Phase 1 đã code (PR #147):** `castillo` 3/4 đã migrate sang sentence data; `castillo` 4/4, `sonatina`, `fandanguillo`, `danza`, `galop` còn ở code.
 > **Phạm vi**: lớp `guitar` trong `backend/app/sonify/` (villa, torroba, barrios, brouwer, bach, classic).
 > **Liên quan**: [`sonify-texture-studio.md`](./sonify-texture-studio.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md).
 > **Thứ tự**: doc này là điều kiện trước cho (a) refactor renderer và (b) Texture Studio khi thêm texture cho Villa-Lobos.
@@ -403,7 +403,7 @@ Mục tiêu: **thêm sentence cho bất kỳ composer nào** mà không phải v
 
 ### 13.1. Định nghĩa
 
-> **`SentenceSpec`** = template N ô: span + vai (role) + slot, chọn theo `(length, n, closes, rise, meter, previous_figure)`. Mỗi slot là **một realizer**: texture (cách điền ô) hoặc, về sau, procedure (phép biến đổi).
+> **`SentenceSpec`** = template N ô: span + vai (role) + slot, chọn theo `(length, n, closes, rise, meter)`. `previous_figure` là post-pass của `select_torroba_spans`, không phải input của planner. Mỗi slot là **một realizer**: texture (cách điền ô) hoặc, về sau, procedure (phép biến đổi).
 
 Quan hệ với các khái niệm khác:
 
@@ -427,6 +427,20 @@ Quan hệ với các khái niệm khác:
 | `span.exact` | slots phủ đúng `length`, không lặp (castillo 4/4, sonatina, fandanguillo, danza) |
 | `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4, sonatina close L<=3) |
 | `slots[].start`, `bars`, `realizer` | vị trí + độ dài + figure/cell/procedure |
+
+**Phase 1 (PR #147) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
+
+| Doc §13 | Code Phase 1 |
+|---|---|
+| `plan_sentences(pattern, specs, ...)` | `plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)`; specs tra registry `(pattern, meter)` |
+| `Select.length = [min, max]` | `Select.length_min`, `length_max` |
+| `Select.n_parity` / `n_mod` / `closes` / `rise_min` | đã có đủ |
+| `Span.tile` / `remainder` / `truncate_to_length` / `cycle` / `exact` | đã có đủ |
+| `Slot.realizer {kind, figure}` | `Slot.figure: int` (cell id); `kind: procedure` chưa có |
+| `previous_figure` trong contract | **không** truyền vào planner; rotation nằm ở `select_torroba_spans` |
+| `None` vs `[]` | `None` = chưa có data cho cặp pattern/meter; `[]` = có data nhưng length/select không khớp |
+
+`register()` validate `tile >= 1`, slot bounds/overlap, `n_parity`/`n_mod`/`closes`/`remainder`, và từ chối key trùng. `plan_sentence()` tự load owner module nếu registry rỗng, nên caller chỉ import `sentence_specs` vẫn chạy.
 
 **Castillo 3/4** — một figure 9 ô, `n % 2` chọn WALK/CADENCE, length nhỏ bị cắt:
 
@@ -502,11 +516,12 @@ Turn 0/1/2 là **ba archetype riêng** cho length 2–4; length 5–6 dùng `n_p
 ### 13.3. Selector contract
 
 ```
-plan_sentences(pattern, specs, meter_key, length, n, closes, rise, previous_figure)
-    -> [(realizer, start, bars)] | []
+plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
+    -> [(figure, (bar, ...))] | None
 ```
 
-- Input đủ: `length`, `n`, `closes`, **`rise`**, **`previous_figure`**, `meter_key`.
+- `specs` tra từ registry `(pattern, meter)`. `None` = cặp này chưa migrate, caller dùng code cũ; `[]` = đã migrate nhưng length/select không khớp.
+- Input đủ: `length`, `n`, `closes`, `rise`, `meter`. **`previous_figure` không phải input** (xem dưới).
 - **Avoid-repeat là post-pass ở tầng pattern**, không phải field của archetype: sau khi chọn, nếu `first_realizer == previous_figure` thì tính lại **một lần** với `n + 1` (`select_torroba_spans`, `guitar_torroba.py:1795-1800`). Vì rotation đổi cả `n % 2` lẫn `n % 3`, nó phải nằm trong contract, không thể "xử lý sau".
 - Không fallback: sai meter/length/parity/closes/rise → `[]`.
 - Deterministic.
@@ -522,6 +537,8 @@ plan_sentences(pattern, specs, meter_key, length, n, closes, rise, previous_figu
 7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
 8. `sentence.meter` thuộc `pattern.meter_variants`; realizer tồn tại; plan golden.
 
+Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycle và `unsupported_lengths` vẫn là việc của test, chưa phải validator runtime.
+
 ### 13.5. Test matrix
 
 - `meter × length (1..12) × n (0..5) × closes (open/close/null) × rise (0/1/2) × previous_figure (null + mỗi figure)` → plan.
@@ -533,10 +550,12 @@ plan_sentences(pattern, specs, meter_key, length, n, closes, rise, previous_figu
 
 ### 13.6. Inventory archetype Torroba + status
 
+**Đã migrate (PR #147):** `castillo` 3/4 walk/cadence. Tất cả dòng còn lại **còn ở code**; `plan_sentence` trả `None` cho chúng.
+
 | Family | Select | Span | Slots (start, bars, figure) |
 |---|---|---|---|
-| `castillo` 3/4 walk | L>=2, n even | tile 9, same_figure, truncate | `(0, 9, walk)` |
-| `castillo` 3/4 cadence | L>=2, n odd | tile 9, same_figure, truncate | `(0, 9, cadence)` |
+| ✓ `castillo` 3/4 walk | L>=2, n even | tile 9, same_figure, truncate | `(0, 9, walk)` |
+| ✓ `castillo` 3/4 cadence | L>=2, n odd | tile 9, same_figure, truncate | `(0, 9, cadence)` |
 | `castillo` 4/4 short | L 2–3 | exact | `(0, 2, 8)` |
 | `castillo` 4/4 pair even | L 4, n even | exact | `(0, 2, 8)` |
 | `castillo` 4/4 pair odd | L 4, n odd | exact | `(1, 2, 8)` |
