@@ -440,7 +440,7 @@ Quan hệ với các khái niệm khác:
 | `previous_figure` trong contract | **không** truyền vào planner; rotation nằm ở `select_torroba_spans` |
 | `None` vs `[]` | `None` = chưa có data cho cặp pattern/meter; `[]` = có data nhưng length/select không khớp |
 
-`register()` validate `tile >= 1`, slot bounds/overlap, `n_parity`/`n_mod`/`closes`/`remainder`, và từ chối key trùng. `plan_sentence()` tự load owner module nếu registry rỗng, nên caller chỉ import `sentence_specs` vẫn chạy.
+`register()` validate `tile >= 1`, slot bounds/overlap, `n_parity`/`n_mod`/`closes`/`remainder`, **`figure` phải có trong `_FIGURES`** (owner truyền `valid_figures`), id trùng; re-register giống hệt là no-op nên reload an toàn. `plan_sentence()` load các module trong `_OWNER_MODULES` khi registry rỗng — thêm module owner khi migrate family mới (galop → `guitar_sor`).
 
 **Castillo 3/4** — một figure 9 ô, `n % 2` chọn WALK/CADENCE, length nhỏ bị cắt:
 
