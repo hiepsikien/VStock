@@ -12,8 +12,10 @@ prints for that slot where one is stable, and the work behind the texture
 Entries marked `# TODO review` are drafts that need an editorial pass; every
 other row is a topic name the ensemble already prints today.
 
-`1Y` has no row. A year is twelve calendar movements; `span.py` reuses the
-`1M` programme by month instead of inventing a second table here.
+`1D` and `1W` also read the character: `CHARACTER_TITLES` overrides the
+default row so a calm day does not print the same name as a rally day. `1Y`
+has no row; a year is twelve calendar movements, and `span.py` reuses the `1M`
+programme by month instead of inventing a second table here.
 """
 
 from __future__ import annotations
@@ -34,11 +36,11 @@ TITLES: dict[tuple[str, str, int], str] = {
     ("villa", "1D", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
     ("villa", "1W", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
     ("villa", "1M", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
-    ("villa", "1M", 1): "Prelude",  # TODO review: thumb_cantabile (Prélude No. 1)
+    ("villa", "1M", 1): "Cathedral",  # TODO review: thumb_cantabile (Prélude No. 1)
     ("villa", "1M", 2): "Mazurka-Choro",  # TODO review: chord_melody (Chord Melody)
     ("villa", "1M", 3): "Etude 11",
     ("villa", "3M", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
-    ("villa", "3M", 1): "Prelude",  # TODO review: thumb_cantabile (Prélude No. 1)
+    ("villa", "3M", 1): "Cathedral",  # TODO review: thumb_cantabile (Prélude No. 1)
     ("villa", "3M", 2): "Etude 1",
     # Barrios. `Cathedral` is the printed name of `preludio`; the tremolo rows
     # take the work that drives the texture.
@@ -84,6 +86,76 @@ TITLES: dict[tuple[str, str, int], str] = {
 }
 
 
-def movement_title(ensemble: str, span: str, index: int) -> str:
-    """One movement's printed name. A missing key raises `KeyError`."""
+# `1D` and `1W` are one movement whose character changes what the writer picks,
+# so their printed name turns with the character too. The index-keyed `TITLES`
+# row above is the `character is None` default; these override it.
+CHARACTER_TITLES: dict[tuple[str, str, str], str] = {
+    # Sor
+    ("classic", "1D", "calm"): "Cantabile",
+    ("classic", "1D", "rally"): "Galop",
+    ("classic", "1D", "selloff"): "Elegy",
+    ("classic", "1D", "volatile"): "Variations",
+    ("classic", "1W", "calm"): "Cantabile",
+    ("classic", "1W", "rally"): "Etude",
+    ("classic", "1W", "selloff"): "Elegy",
+    ("classic", "1W", "volatile"): "Variations",
+    # Villa-Lobos: the old texture names map to the work they are drawn from.
+    ("villa", "1D", "calm"): "Mazurka-Choro",
+    ("villa", "1D", "rally"): "Etude 1",
+    ("villa", "1D", "selloff"): "Cathedral",
+    ("villa", "1D", "volatile"): "Etude 11",
+    ("villa", "1W", "calm"): "Mazurka-Choro",
+    ("villa", "1W", "rally"): "Etude 1",
+    ("villa", "1W", "selloff"): "Cathedral",
+    ("villa", "1W", "volatile"): "Etude 11",
+    # Barrios: a day is the tremolo; a week opens on the prelude until the
+    # character turns to selloff/volatile.
+    ("barrios", "1D", "calm"): "Ultimo Tremolo",
+    ("barrios", "1D", "rally"): "Ultimo Tremolo",
+    ("barrios", "1D", "selloff"): "Ultimo Tremolo",
+    ("barrios", "1D", "volatile"): "Ultimo Tremolo",
+    ("barrios", "1W", "calm"): "Cathedral",
+    ("barrios", "1W", "rally"): "Cathedral",
+    ("barrios", "1W", "selloff"): "Ultimo Tremolo",
+    ("barrios", "1W", "volatile"): "Ultimo Tremolo",
+    # Brouwer
+    ("brouwer", "1D", "calm"): "Ballade",
+    ("brouwer", "1D", "rally"): "Etude",
+    ("brouwer", "1D", "selloff"): "Sarabande",
+    ("brouwer", "1D", "volatile"): "Dance",
+    ("brouwer", "1W", "calm"): "Ballade",
+    ("brouwer", "1W", "rally"): "Etude",
+    ("brouwer", "1W", "selloff"): "Sarabande",
+    ("brouwer", "1W", "volatile"): "Dance",
+    # Bach: a day keeps the suite order; the turn names the movement it picks.
+    ("bach", "1D", "calm"): "Prelude",
+    ("bach", "1D", "rally"): "Courante",
+    ("bach", "1D", "selloff"): "Chaconne",
+    ("bach", "1D", "volatile"): "Fugue",
+    ("bach", "1W", "calm"): "Prelude",
+    ("bach", "1W", "rally"): "Bourree",
+    ("bach", "1W", "selloff"): "Chaconne",
+    ("bach", "1W", "volatile"): "Fugue",
+    # Torroba: the day opens on a castle; the week keeps its opening.
+    ("torroba", "1D", "calm"): "Castillo",
+    ("torroba", "1D", "rally"): "Olite",
+    ("torroba", "1D", "selloff"): "Castillo",
+    ("torroba", "1D", "volatile"): "Olite",
+    ("torroba", "1W", "calm"): "Olite",
+    ("torroba", "1W", "rally"): "Olite",
+    ("torroba", "1W", "selloff"): "Olite",
+    ("torroba", "1W", "volatile"): "Olite",
+}
+
+
+def movement_title(
+    ensemble: str, span: str, index: int, character: str | None = None
+) -> str:
+    """One movement's printed name. A missing key raises `KeyError`.
+
+    `1D`/`1W` also read `character`; the index-keyed row is the default when
+    the caller has no character. `1M`/`3M` are identities of the slot order.
+    """
+    if span in ("1D", "1W") and character is not None:
+        return CHARACTER_TITLES[(ensemble, span, character)]
     return TITLES[(ensemble, span, index)]

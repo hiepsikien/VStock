@@ -267,7 +267,7 @@ Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, charact
 
 **Checklist migration `Movement.title` — 4 mắt xích + 3 quyết định, phải làm cùng lúc:**
 
-- [x] **Backend:** `title` cho `Movement` và `PreparedMovement`, cộng đường 1D; bảng curated `movement_titles.TITLES` theo `(ensemble, span, index)`.
+- [x] **Backend:** `title` cho `Movement` và `PreparedMovement`, cộng đường 1D; bảng curated `movement_titles.TITLES` theo `(ensemble, span, index)` + `CHARACTER_TITLES` cho `1D`/`1W`.
 - [ ] **Frontend:** `src/sonify/program.ts` — `PATTERN_NAMES`, `isPatternForm`, `workForm`, `pieceCopy`; title tự do phải qua được `formatMovement`, và 1D phải giữ tên bài trong **title**. Test: `src/sonify/program.test.ts:185-192`.
 - [x] **Cache:** bump `SPAN_REVISION` + `RECAP_REVISION`. `movementName` nằm trong payload, cache key không chứa tên.
 - [x] **Name golden:** `test_name_parity.py` khoá tên in; `test_program.py` khoá row A–B–A (non-printed). **Không** dùng Score hash.
@@ -293,7 +293,7 @@ Lưu ý: `data_digest` (`dfi.py:52`) chỉ hash bar, `scale_fingerprint` (`span.
 | 1 | `study` (classic) in "Etude" ở mọi đoạn mặc định: giữ `topic` hay chuyển `texture`? | "Etude" là thể loại, không phải kỹ thuật → được phép in; nhưng `study` là fallback mặc định nên in "Etude" ở mọi đoạn có thể là nhiễu | giữ `topic` + "Etude" (đúng thể loại); chỉ đổi nếu nghe thấy nhiễu |
 | 2 | `mozart_var` in "Variations" nhưng code chỉ là bass + counter-melody | Tên gợi `procedure: variation` nhưng **không có procedure** trong code | giữ nhãn, khai `procedure: none`, ghi backlog "variations thật" |
 | 3 | `bach_gigue` có nên dùng `procedure: imitation`? | Gigue ngoài đời thường fugal; code hiện không imitation | không, ở giai đoạn này — thêm là **thay đổi hành vi**, cần nghe duyệt |
-| 4 | `Movement.title` lấy từ đâu, và 1D lấy gì? | `FormSpec` **không có** `title`; `month_specs` dùng chung cho mọi symbol, nên title theo bài không thể nằm trong spec. `pieceCopy` là hàm hiển thị frontend, không phải nguồn dữ liệu | **Đã chốt (A):** bảng curated `(ensemble, span, index) → title` trong `movement_titles.py`, total cho 6 ensemble × 4 span; 1D dùng `("1D", 0)`. 1Y tái dùng chương trình `1M` theo tháng. |
+| 4 | `Movement.title` lấy từ đâu, và 1D lấy gì? | `FormSpec` **không có** `title`; `month_specs` dùng chung cho mọi symbol, nên title theo bài không thể nằm trong spec. `pieceCopy` là hàm hiển thị frontend, không phải nguồn dữ liệu | **Đã chốt (A):** bảng curated `(ensemble, span, index) → title` trong `movement_titles.py`, total cho 6 ensemble × 4 span; 1D dùng `("1D", 0)`. `1D`/`1W` đọc thêm `character` qua `CHARACTER_TITLES` (calm/rally/selloff/volatile) để giữ variety. 1Y tái dùng chương trình `1M` theo tháng. |
 
 ---
 

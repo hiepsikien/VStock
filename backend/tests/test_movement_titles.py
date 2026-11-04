@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.sonify.movement_titles import TITLES, movement_title
+from app.sonify.movement_titles import CHARACTER_TITLES, TITLES, movement_title
 from app.sonify.span import _planned_title, plan_month, plan_quarter, plan_week
 
 ENSEMBLES = ("classic", "villa", "barrios", "brouwer", "bach", "torroba")
@@ -28,15 +28,34 @@ def test_table_is_total_for_every_ensemble_and_span():
     assert all(TITLES[key].strip() for key in expected)
 
 
+def test_character_overrides_are_total_for_day_and_week():
+    expected = {
+        (ensemble, span, character)
+        for ensemble in ENSEMBLES
+        for span in ("1D", "1W")
+        for character in ("calm", "rally", "selloff", "volatile")
+    }
+    assert set(CHARACTER_TITLES) == expected
+    assert all(CHARACTER_TITLES[key].strip() for key in expected)
+
+
 def test_a_missing_key_raises_instead_of_printing_blank():
     with pytest.raises(KeyError):
         movement_title("classic", "1M", 4)
     with pytest.raises(KeyError):
         movement_title("violin", "1M", 0)
+    with pytest.raises(KeyError):
+        movement_title("classic", "1D", 0, "unknown")
 
 
 def test_plan_fills_the_title_for_guitar_only():
     assert [movement.title for movement in plan_week(5, "guitar", "bach")] == ["Bourree"]
+    assert [movement.title for movement in plan_week(5, "guitar", "bach", "calm")] == [
+        "Prelude"
+    ]
+    assert [
+        movement.title for movement in plan_week(5, "guitar", "villa", "selloff")
+    ] == ["Cathedral"]
     assert [movement.title for movement in plan_month([1, 1, 1, 1], "guitar", "barrios")] == [
         "Cathedral",
         "Andante",

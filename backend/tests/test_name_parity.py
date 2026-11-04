@@ -118,10 +118,12 @@ def _key(ensemble: str, span: str, character: str | None, shape: str, bpm: int |
 CHEAP_3M = ("classic", "barrios", "bach", "torroba")
 
 
-def _case_name(ensemble: str, span: str, index: int, **render) -> str:
+def _case_name(
+    ensemble: str, span: str, index: int, character: str | None = None, **render
+) -> str:
     """Printed title for the case, after proving the case still renders."""
-    guitar_form_description(ensemble=ensemble, **render)
-    return movement_title(ensemble, span, index)
+    guitar_form_description(ensemble=ensemble, character=character, **render)
+    return movement_title(ensemble, span, index, character)
 
 
 def _build_cases() -> dict[str, str]:

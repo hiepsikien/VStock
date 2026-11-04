@@ -50,9 +50,10 @@ from app.sonify.session import VN, is_session_closed
 
 logger = logging.getLogger(__name__)
 
-# Bump when the score, the sound, or a printed movement name changes, so old
-# files are not replayed with a stale name.
-RECAP_REVISION = "81"
+# Bump when the score or the sound changes, so old files are not replayed.
+# The printed movement name is recomputed on read, so a name change does not
+# need a new file.
+RECAP_REVISION = "80"
 # Long-form files live beside the daily recap and use their own revision.
 # Bump when the score, sound, a printed movement name, or a manifest field that
 # changes playback changes. Additive diagnostic fields (renderSec, renderRatio)
@@ -1704,6 +1705,7 @@ class RecapStore:
         key = self._stem(symbol, day, variant, len(bars), ensemble, values)
         from app.sonify.keys import movement_character, stock_home_key
 
+        character = movement_character([bar.close for bar in bars], "1D")
         with compose_params(values):
             score, form_row = _compose(
                 variant,
@@ -1711,12 +1713,12 @@ class RecapStore:
                 bars,
                 title=f"{symbol} {day.isoformat()}",
                 key=stock_home_key(symbol),
-                character=movement_character([bar.close for bar in bars], "1D"),
+                character=character,
                 movement_index=0,
             )
             # A day prints the movement title, not the pattern row.
             dance = (
-                guitar_movement_title(ensemble, "1D", 0)
+                guitar_movement_title(ensemble, "1D", 0, character)
                 if variant == "guitar"
                 else ""
             )

@@ -1,6 +1,6 @@
 # Tên pattern: Cathedral và Torroba
 
-Từ naming release, **tên chương in ra** lấy từ `movement_titles.TITLES` (`backend/app/sonify/movement_titles.py`) theo `(ensemble, span, index)`, không lấy từ `pattern_form`. `_PATTERN_TITLE` vẫn là tên của pattern; `pattern_title` trả tên đó cho caller trực tiếp, nhưng `pattern_form` bỏ mọi id có `level == texture`, nên `Arpeggio`/`Tremolo`/`Chord Melody` không còn đi vào tên chương. `PATTERN_NAMES` trong `src/sonify/program.ts` là tập cũ để client nhận diện row pattern; frontend cần nhận `name` tự do của guitar.
+Từ naming release, **tên chương in ra** lấy từ `movement_titles` (`backend/app/sonify/movement_titles.py`): `TITLES` theo `(ensemble, span, index)`, và `CHARACTER_TITLES` theo `(ensemble, 1D/1W, character)`. Không lấy từ `pattern_form`. `_PATTERN_TITLE` vẫn là tên của pattern; `pattern_title` trả tên đó cho caller trực tiếp, nhưng `pattern_form` bỏ mọi id có `level == texture`, nên `Arpeggio`/`Tremolo`/`Chord Melody` không còn đi vào tên chương. `PATTERN_NAMES` trong `src/sonify/program.ts` là tập cũ để client nhận diện row pattern; frontend cần nhận `name` tự do của guitar.
 
 Tên chương là **identity**, không phải mô tả hình thức. `pattern_form` không còn ghi tên chương; nó dựng `formDescription` (A–B–A sau khi lọc texture) và không in. `formatMovement` trong `src/sonify/program.ts` giữ hậu tố nhịp và BPM, ví dụ `Cathedral (4/4, 96 BPM)`, hoặc `Finale: …` khi có tiền tố Finale; A–B–A chỉ dùng cho tooltip/subtitle nếu có.
 

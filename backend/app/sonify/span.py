@@ -808,22 +808,32 @@ class Movement:
     title: str = ""
 
 
-def _planned_title(variant: str, ensemble: str, span: str, index: int) -> str:
+def _planned_title(
+    variant: str,
+    ensemble: str,
+    span: str,
+    index: int,
+    character: str | None = None,
+) -> str:
     """Printed name for a guitar movement; other variants keep their own table.
 
     A year has no curated row: it reuses the month programme, so December's
-    closer takes the fourth name. Non-guitar variants name their movements in
+    closer takes the fourth name. `1D`/`1W` also read `character`; the other
+    spans ignore it. Non-guitar variants name their movements in
     `movement_title` below, not here.
     """
     if variant != "guitar":
         return ""
     if span == "1Y":
         span, index = "1M", index % 4
-    return curated_movement_title(ensemble, span, index)
+    return curated_movement_title(ensemble, span, index, character)
 
 
 def plan_week(
-    session_count: int, variant: str = "symphony", ensemble: str = "classic"
+    session_count: int,
+    variant: str = "symphony",
+    ensemble: str = "classic",
+    character: str | None = None,
 ) -> tuple[Movement, ...]:
     spec = week_spec(session_count)
     return (
@@ -832,7 +842,7 @@ def plan_week(
             spec,
             session_count,
             0.0,
-            title=_planned_title(variant, ensemble, "1W", 0),
+            title=_planned_title(variant, ensemble, "1W", 0, character),
         ),
     )
 
@@ -1173,7 +1183,8 @@ def prepare_week(
     if not usable:
         raise ValueError("a week needs one session")
     flat = [bar for bars in usable for bar in bars]
-    movement = plan_week(len(usable), variant, ensemble)[0]
+    character = movement_character([bar.close for bar in flat], "1W")
+    movement = plan_week(len(usable), variant, ensemble, character)[0]
     session_characters = tuple(
         movement_character([bar.close for bar in bars], "1W") for bars in usable
     )
@@ -1208,7 +1219,7 @@ def prepare_week(
             groups=week_source_groups([len(bars) for bars in usable]),
             rest_after=0.0,
             key=_home(symbol),
-            character=movement_character([bar.close for bar in flat], "1W"),
+            character=character,
             outro_override=outro,
             session_characters=session_characters,
             bar_characters=bar_characters,

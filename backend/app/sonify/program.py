@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.sonify.guitar_patterns import _FORM, _HEADLINE, _SKIP_VOICES
 from app.sonify.keys import KeySpec, MovementCharacter
 from app.sonify.model import Bar
+from app.sonify.movement_titles import movement_title as guitar_movement_title
 from app.sonify.pattern_registry import meta as pattern_meta
 from app.sonify.render import render
 from app.sonify.span import FormSpec, PreparedMovement, movement_title
@@ -169,6 +170,24 @@ def _label_month(label: str) -> int | None:
         return None
     month = int(head)
     return month if 1 <= month <= 12 else None
+
+
+def recap_movement_name(
+    *,
+    variant: str,
+    ensemble: str,
+    character: str | None,
+    stored: str = "",
+) -> str:
+    """Printed daily name, recomputed on read.
+
+    The daily recap stores a name beside its audio. Reading it from the table
+    instead means a naming release does not invalidate every daily file; the
+    stored value stays as a fallback for other variants.
+    """
+    if variant != "guitar":
+        return stored
+    return guitar_movement_title(ensemble, "1D", 0, character)
 
 
 def span_movement_name(
