@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from app.sonify.guitar_patterns import _FAMILY
+from app.sonify.guitar_wave import PROFILES
 from app.sonify.pattern_registry import (
     LEVELS,
     NAME_SOURCES,
@@ -55,8 +56,9 @@ def test_level_sets_are_exact() -> None:
 
 
 def test_every_topic_prints_a_title() -> None:
-    for pattern in _TOPIC:
-        assert pattern_title(pattern, "classic"), pattern
+    for ensemble, pattern in PROFILES:
+        if PATTERN_META[pattern].level == "topic":
+            assert pattern_title(pattern, ensemble), (ensemble, pattern)
 
 
 def test_name_source_rules() -> None:

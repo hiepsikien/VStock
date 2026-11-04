@@ -21,8 +21,7 @@ from types import MappingProxyType
 
 # `topic` = names itself; `texture` = an idiom that fills a cell.
 LEVELS = frozenset({"topic", "texture"})
-# Where a printed topic name comes from. Same axes as the model doc section 2,
-# plus `tempo` (Andante) and `device` (Hemiola), which the six did not cover.
+# Where a printed topic name comes from. Same eight axes as the model doc section 2.
 NAME_SOURCES = frozenset(
     {"dance", "work", "genre", "form", "function", "character", "tempo", "device"}
 )
@@ -50,7 +49,7 @@ PATTERN_META: Mapping[str, PatternMeta] = MappingProxyType({
     "bach_gigue": PatternMeta("bach_gigue", "topic", "dance"),
     "bach_prelude": PatternMeta("bach_prelude", "topic", "function"),
     "bach_sarabande": PatternMeta("bach_sarabande", "topic", "dance"),
-    # Barrios: three dances, a tempo marking, a genre, and one rhythmic device.
+    # Barrios: two dances, a tempo marking, a genre, a function, and one rhythmic device.
     "andante": PatternMeta("andante", "topic", "tempo"),
     "choro": PatternMeta("choro", "topic", "genre"),
     "hemiola": PatternMeta("hemiola", "topic", "device"),
@@ -64,7 +63,7 @@ PATTERN_META: Mapping[str, PatternMeta] = MappingProxyType({
     "elogio_pizz": PatternMeta("elogio_pizz", "topic", "dance"),
     "noviembre": PatternMeta("noviembre", "topic", "genre"),
     "sarabande": PatternMeta("sarabande", "topic", "dance"),
-    # Classic: three character pieces, one dance, one form, one genre.
+    # Classic: one character piece, one dance, one form, two genres.
     "cantabile": PatternMeta("cantabile", "topic", "character"),
     "elegiaque": PatternMeta("elegiaque", "topic", "genre"),
     "galop": PatternMeta("galop", "topic", "dance"),
@@ -110,6 +109,17 @@ def validate() -> None:
         raise ValueError(
             f"registry drifted from _FAMILY: missing={missing} extra={extra}"
         )
+    profile_patterns = {pattern for _ensemble, pattern in PROFILES}
+    unknown = sorted(profile_patterns - set(_FAMILY))
+    if unknown:
+        raise ValueError(f"PROFILES has ids outside _FAMILY: {unknown}")
+    topics = {
+        pattern for pattern, found in PATTERN_META.items() if found.level == "topic"
+    }
+    missing_rows = sorted(topics - profile_patterns)
+    if missing_rows:
+        raise ValueError(f"topics without a PROFILES row: {missing_rows}")
+
     for pattern, found in PATTERN_META.items():
         if found.id != pattern:
             raise ValueError(f"{pattern}: id is {found.id!r}")

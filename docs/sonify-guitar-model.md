@@ -336,7 +336,7 @@ Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. 1D là movement 
 
 Nguồn: `PROFILES` = **38 dòng** `(ensemble, id)` nhưng chỉ **37 id unique** (`thumb_cantabile` có ở cả barrios và villa); `_FAMILY` = **38 id** (gồm `pedal`), nên bảng có **39 dòng** = 38 dòng `PROFILES` + `pedal`. `level` đã chốt trong `pattern_registry.py`; `?` còn lại chỉ là câu hỏi nội dung (procedure/level của `study`). Texture lấy từ docstring của renderer tương ứng.
 
-Bảng `level` + `name_source` theo id hiện nằm trong `backend/app/sonify/pattern_registry.py`: **38 id = 33 topic + 5 texture**. Bảng dưới có 39 dòng vì `thumb_cantabile` xuất hiện ở hai ensemble. `validate()` kiểm coverage với `_FAMILY`, enum `name_source`, và title cho mọi topic.
+Bảng `level` + `name_source` theo id hiện nằm trong `backend/app/sonify/pattern_registry.py`: **38 id = 33 topic + 5 texture**. Bảng dưới có 39 dòng vì `thumb_cantabile` xuất hiện ở hai ensemble. `validate()` kiểm coverage với `_FAMILY`, enum `name_source`, và title cho mọi dòng `(ensemble, id)` của topic.
 
 | Ensemble | id | Title hiện tại | Level | Texture (+cells) | Procedure | Sentence |
 |---|---|---|---|---|---|---|
