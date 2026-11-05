@@ -219,6 +219,8 @@ def _chord_at(ctx: Any, bar: int) -> Any:
     if bar in chord_at:
         return chord_at[bar]
     earlier = [key for key in chord_at if isinstance(key, int) and key <= bar]
+    # `_Ctx.chord()` itself falls back to C when the table has no earlier bar;
+    # mirror that production default instead of inventing a different policy.
     return chord_at[max(earlier)] if earlier else C
 
 

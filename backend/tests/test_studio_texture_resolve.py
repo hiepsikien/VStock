@@ -20,6 +20,7 @@ from app.sonify import sentence_specs
 from app.sonify.chords import G7
 from app.sonify.form import METER_44
 from app.sonify.model import NoteEvent
+from app.studio import texture_resolve
 from app.studio.texture_spec import AuthoredEvent, PitchRef, TextureError, TextureSpec
 from app.studio.texture_resolve import (
     HAND_SPAN_LIMIT,
@@ -78,6 +79,22 @@ def test_melody_eighth_reads_the_render_melody_and_offset() -> None:
     assert resolve_pitch(PitchRef.melody_eighth(0, offset=2), ctx) == 64
     assert resolve_pitch(PitchRef.melody_eighth(8), ctx) == 67
     assert resolve_pitch(PitchRef.melody_eighth(15, offset=0), ctx) == 65
+
+
+def test_runtime_mirrors_match_production() -> None:
+    """Hand-mirrored constants/walk must not drift from the renderer."""
+    import app.sonify.guitar_patterns as runtime
+
+    assert texture_resolve._MAX_FRET == runtime._MAX_FRET
+    for mode in ("major", "minor"):
+        ctx = _case(mode=mode)
+        low = int(ctx.treble_floor)
+        high = int(ctx.treble_top)
+        center = (low + high) // 2
+        for steps in (-3, -1, 0, 1, 4):
+            assert texture_resolve._resolve_scale_step(ctx, steps) == runtime._walk(
+                center, steps, mode, low, high
+            )
 
 
 def test_melody_eighth_out_of_range_is_rejected_not_clamped() -> None:
