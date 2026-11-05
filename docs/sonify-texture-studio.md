@@ -988,40 +988,111 @@ Quy tắc:
 
 ### 6.9. Micro-velocity contour (optional, authored)
 
-Mỗi figure/sentence có thể mang một **contour offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối và không phải derived. Không khai báo = **offset 0** cho mọi nốt (kể cả thumb).
+Mỗi figure/pattern/sentence có thể mang **offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối. Không khai báo = offset 0 cho mọi nốt, kể cả thumb. Offset 0 phải cho **NoteEvent byte-identical** với code hiện tại.
+
+#### Carrier (nơi lưu)
+
+| Tầng | Field | Ghi chú |
+|---|---|---|
+| Figure registry | `figure.microVelocity` | default contour của figure; code-owned, Studio bóc tách/ghi đè |
+| Sentence | `SentenceSpec.slots[].microVelocity` | override contour cho slot đó; slot vẫn dùng `figure: int` |
+| Pattern / TextureSpec | `TextureSpec.microVelocity` | pattern-level contour; dùng khi pattern không có sentence slot |
+| Note-level | `AuthoredEvent.velocityOffset` | optional cho spec nhập tay; cùng nghĩa delta |
+
+Không có field `figures[]` mới: figure id vẫn là `int` trong `Slot`; contour gắn vào slot/registry, không đổi realizer.
+
+#### Toạ độ nốt
+
+Mỗi entry dùng toạ độ **tương đối trong figure/slot**, không phải index toàn bài:
 
 ```json
 {
-  "figure": "tremolo",
-  "microVelocity": {
-    "base": 58,
-    "notes": [
-      { "slot": 0, "voice": 1, "offset": -6 },
-      { "slot": 1, "voice": 1, "offset": -3 },
-      { "slot": 2, "voice": 1, "offset": -4 },
-      { "slot": 3, "voice": 1, "offset": -6 }
-    ],
-    "thumb": [
-      { "slot": 0, "voice": 3, "offset": -4 },
-      { "slot": 1, "voice": 3, "offset": 0 },
-      { "slot": 2, "voice": 3, "offset": 4 },
-      { "slot": 3, "voice": 3, "offset": 1 }
-    ]
-  }
+  "bar": 0,
+  "eighth": 0,
+  "voice": 1,
+  "finger": "a",
+  "offset": -6
 }
 ```
 
-Quy tắc:
+- `bar`: 0-based, tương đối từ đầu figure/slot (Galop 8 bar dùng 0..7).
+- `eighth`: 0-based trong bar.
+- `voice`: 1–4; UI bắt buộc lane 1–3, lane 4 chỉ hiện khi figure thực sự dùng voice 4.
+- `finger`: optional `p | a | m | i`; dùng cho tremolo/fingerstyle.
+- `offset`: delta trên level figure viết ra; **không** phải velocity tuyệt đối.
+- `pinned: true` + `velocity`: attack do layer absolute kiểm soát (snap/stab/fan/tremolo trim) thì lưu velocity cuối, không lưu offset.
 
-- `notes` là offset theo slot/beat/voice; `thumb` là lane riêng. `thumb: []` hoặc vắng = thumb offset 0.
-- `base` optional; nếu thiếu, offset là delta thuần trên level renderer viết ra.
-- Contour có thể **fixed per note** (Tremolo, Etude1 arc) hoặc **rule/step table** (Galop `_galop*_steps`, Cathedral role nudge). UI flatten contour theo fixture đang chọn, nhưng dữ liệu lưu rule gốc.
-- Thứ tự render: `figure level` → **apply micro offsets** → `apply_guitar_wave` (giữ relative bằng `center + (written - 64)`) → snap/stab/trim → humanize.
-- Không layer nào được tự đặt lại offset; chỉ được dịch/clamp. Exception phải khai rõ (ví dụ `TREMOLO_BASS_TRIM=2` sau snap).
-- **Zero-diff bắt buộc:** contour vắng mặt, hoặc contour bóc tách từ code, phải cho ra **cùng NoteEvent (bar/beat/midi/voice/velocity/flags) và cùng renderHash** như code hiện tại. Test baseline vs contour cho Tremolo, Galop, Cathedral Preludio, Etude1, Etude11.
-- Studio UI: click figure/slot → **velocity lane** (x = note/slot/beat, y = offset), nhóm voice 1–4, thumb lane riêng, empty = 0; toggle “authored offsets → sau wave/humanize” để thấy layer giảm thêm. Sửa offset và lưu vào figure/slot; không sửa velocity tuyệt đối.
+#### Hai dạng contour
+
+```json
+{
+  "kind": "offsets",
+  "notes": [
+    { "bar": 0, "eighth": 0, "voice": 1, "finger": "a", "offset": -6 },
+    { "bar": 0, "eighth": 1, "voice": 1, "finger": "m", "offset": -3 }
+  ],
+  "thumb": [
+    { "bar": 0, "eighth": 0, "voice": 3, "finger": "p", "offset": -4 }
+  ]
+}
+```
+
+```json
+{
+  "kind": "rule",
+  "ruleId": "galop1",
+  "ruleVersion": 1,
+  "params": { "step": 2, "floor": 40 },
+  "notes": []
+}
+```
+
+- `thumb: []` hoặc vắng = thumb offset 0.
+- `kind: "rule"` lưu rule/step table gốc; UI flatten thành per-note cho fixture đang chọn, nhưng dữ liệu lưu vẫn là rule.
+- Không có `base` áp vào velocity. Nếu UI cần mốc hiển thị, dùng level figure viết ra làm reference; không lưu/không cộng `base`.
+
+#### Thứ tự render và exception
+
+```
+figure writer (level gốc)
+  → relative micro offsets
+  → apply_guitar_wave (center + (written - 64), giữ relative)
+  → snap / stab / fan / tremolo trim (absolute, overwrite)
+  → humanize
+```
+
+- Relative offsets chỉ áp cho attack **không pinned**.
+- `_apply_snaps`, `_apply_stabs`, `_apply_fans`, `_apply_tremolo_bass_trim` là **absolute writers**. Chúng overwrite velocity; contour của các attack đó phải là `pinned: true` + `velocity` (không phải offset). `TREMOLO_BASS_TRIM=2` là một trong các exception này, không phải exception duy nhất.
+- `restamp_passage_hairpins` / `_restamp_swarm_hairpins` chỉ đổi hairpin, không ghi velocity; nếu tương lai chúng ghi velocity, phải thêm vào danh sách pinned.
+- Không layer nào được tự đặt lại offset của attack không pinned; chỉ dịch/clamp.
+
+#### Zero-diff bắt buộc
+
+- **Production patterns** (Tremolo, Galop, Cathedral, Etude1, Etude11) không có Studio `renderHash`. Zero-diff so **danh sách `NoteEvent`** (bar/beat/midi/voice/velocity/flags) và **golden digest/score-level artifact**, không phải `renderHash`.
+- **Studio preview** có `renderHash`; ở đó mới so hash.
+- Quy trình: baseline code → render fixture cố định → extract contour → render lại với contour → so từng NoteEvent + digest. Chỉ accept khi **identical**; nếu lệch, contour/schema sai, không được nới tolerance.
+- Contour vắng hoặc offset 0 phải identical; đây là điều kiện rollout.
+
+#### UI
+
+- Click figure/slot → **velocity lane**: x = bar/eighth/note, y = offset; nhóm voice 1–4; thumb lane riêng.
+- Empty = 0; pinned attack hiện nhãn layer (snap/stab/fan/trim) và velocity tuyệt đối, không cho kéo offset.
+- Toggle “authored offsets → sau wave/humanize” **chỉ để xem**, không đổi dữ liệu lưu và không tạo hai render mode.
+- Sửa offset lưu vào figure/slot; không sửa velocity tuyệt đối của note thường.
+
+#### Ví dụ đã có trong code
+
+| Figure | Contour |
+|---|---|
+| Tremolo | thumb 4/4 `-4,0,+4,+1` quanh 58; fill `-6,-3,-4,-6`; trim 2 sau snap |
+| Galop | `_galop1_steps` / `_galop2_steps` × `_GALOP_STEP=2`, floor 40; rule-based |
+| Cathedral Preludio | role center + `_catedral_level` nudge, `_catedral_under(level,canto)=min(level,canto-6)`, whisper base 52/bottom-2 |
+| Etude1 | `_ETUDE1_ARC` theo sixteenth (`-2/-2/-2/0/0/+2...`), middle 52, bass sung-4 |
+| Etude11 | arch `-10/-6/-7/-10`, band nudge, `_ETUDE11_TILT`, lead hairpin/-8, bass hairpin-4 |
 
 ---
+
+## 7. Runtime target---
 
 ## 7. Runtime target và ai đọc spec
 
@@ -1753,12 +1824,12 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 22. **Media token**: preview/export dùng signed token ngắn hạn; `GET /uploads/{id}` kiểm tra owner.
 23. **Global preview queue**: 1 worker Studio, render ngoài event loop, tách khỏi `EXPORT_SLOTS`; `previewsConcurrent` chỉ là per-session.
 24. **Level/nhãn**: mỗi pattern khai `level` (`topic` / `texture`) + `name_source`; chỉ `topic` được in tên. **Movement** là level trên pattern (`FormSpec` + plan + `title`), không phải `level`. Inventory 39 dòng và các quyết định tên nằm ở [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8, §12.
-24. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
-25. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
-26. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
+25. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
+26. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
+27. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
 
-27. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp; Studio click figure → velocity lane và cho sửa.
-28. **Extraction zero-diff:** bóc tách contour từ Tremolo/Galop/Cathedral/Etude1/Etude11 phải cho cùng NoteEvent + renderHash; test baseline vs contour bắt buộc, không được “gần đúng”.
+28. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp; Studio click figure → velocity lane và cho sửa.
+29. **Extraction zero-diff:** bóc tách contour từ Tremolo/Galop/Cathedral/Etude1/Etude11 phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”.
 
 ---
 
