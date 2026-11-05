@@ -1672,7 +1672,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ## 14. Tiêu chí nghiệm thu
 
-> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **sentence-level matrix**, **compiler bundle JSON**, **session/quota/upload/Gemini analyze** và UI draft. Các mục `resolve_runtime_meter`, pattern-level matrix, preview `slice_score`, crop/apply, spec owner/visibility, `preview.wav`, codegen, interpreter vẫn là **mục tiêu**.
+> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **meter runtime resolver**, **sentence + pattern + render matrices**, **compiler bundle JSON**, **registry codegen**, **session/quota/upload/Gemini analyze**, **spec owner/visibility** và UI draft. Các mục preview `slice_score`, preview job queue, crop/apply, switch `PATTERN_NAMES`, renderer-profile playability/derived golden, interpreter và Suite vẫn là **mục tiêu**.
 
 1. **Meter exact**: spec lưu đủ 6 field `MeterSpec`; so canonical tuple, không so `id`/string.
 2. **Meter sau retarget**: spec khớp `resolve_runtime_meter()` sau `_guitar_meter` + `retarget_torroba_meter`; compiler không gọi `active_meter()` ngoài `compose_meter`.
