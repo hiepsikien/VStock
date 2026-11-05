@@ -9,6 +9,7 @@ import {
   normalizePreviewResponse,
   normalizePublishResponse,
   normalizePublishedSpecResponse,
+  normalizeRollbackResponse,
   normalizeSpecsResponse,
   normalizeValidateResponse,
   resolveAudioUrl,
@@ -29,6 +30,7 @@ import {
   jsonErrorLocation,
   meterLabel,
   metersForPattern,
+  nextPublishedList,
   normalizeErrorPath,
   notesLines,
   parseJsonObject,
@@ -37,8 +39,10 @@ import {
   planLines,
   prefixErrorPaths,
   publishedAtLabel,
+  publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
+  rollbackLabel,
   sampleText,
   shortId,
   textStats,
@@ -504,5 +508,122 @@ try {
   detailThrew = true;
 }
 equal(detailThrew, true);
+
+// FastAPI can answer with a bare string `detail`; surface it with the `$` path.
+deepEqual(normalizeErrors({ detail: 'published spec not found' }), [
+  { path: '$', message: 'published spec not found' },
+]);
+
+// Rollback responses use the publish summary plus `rollbackOf`.
+deepEqual(
+  normalizeRollbackResponse({
+    ok: true,
+    id: 'new',
+    pattern: 'villa_pattern',
+    meter: '4/4',
+    version: 4,
+    rollbackOf: 'old',
+  }),
+  {
+    ok: true,
+    id: 'new',
+    pattern: 'villa_pattern',
+    meter: '4/4',
+    version: 4,
+    rollbackOf: 'old',
+    errors: [],
+  },
+);
+deepEqual(normalizeRollbackResponse({ ok: true, id: 'new', version: 4 }, 'old'), {
+  ok: true,
+  id: 'new',
+  pattern: null,
+  meter: null,
+  version: 4,
+  rollbackOf: 'old',
+  errors: [],
+});
+deepEqual(
+  normalizeRollbackResponse({ ok: true, id: 'new', rollback_of: 'old' }, 'ignored'),
+  {
+    ok: true,
+    id: 'new',
+    pattern: null,
+    meter: null,
+    version: null,
+    rollbackOf: 'old',
+    errors: [],
+  },
+);
+deepEqual(
+  normalizeRollbackResponse(
+    { errors: [{ path: 'spec', message: 'bad' }] },
+    'old',
+  ),
+  {
+    ok: false,
+    id: null,
+    pattern: null,
+    meter: null,
+    version: null,
+    rollbackOf: 'old',
+    errors: [{ path: 'spec', message: 'bad' }],
+  },
+);
+let rollbackThrew = false;
+try {
+  normalizeRollbackResponse(null);
+} catch {
+  rollbackThrew = true;
+}
+equal(rollbackThrew, true);
+
+// Lineage is optional, so ordinary rows stay unchanged.
+const rollbackRow = {
+  ...published,
+  id: 'new',
+  version: 4,
+  rollbackOf: '0123456789abcdef',
+};
+equal(publishedSpecLineage(rollbackRow), 'rollback of 0123456789…');
+equal(publishedSpecLineage(published), null);
+equal(
+  publishedSpecMeta(rollbackRow),
+  'v4 · 2026-11-05 09:41 · rollback of 0123456789…',
+);
+equal(rollbackLabel(4, rollbackRow.rollbackOf), 'v4 · rollback of 0123456789…');
+equal(rollbackLabel(null, 'abc'), 'rollback of abc');
+equal(rollbackLabel(4, ''), null);
+equal(rollbackLabel(4, undefined), null);
+deepEqual(
+  normalizeSpecsResponse({ specs: [{ ...published, rollbackOf: 'old' }] }),
+  [{ ...published, rollbackOf: 'old' }],
+);
+deepEqual(
+  normalizeSpecsResponse({ specs: [{ ...published, rollback_of: 'old' }] }),
+  [{ ...published, rollbackOf: 'old' }],
+);
+deepEqual(normalizePublishedSpecResponse({ ...rollbackRow, payload: {} }), {
+  ...rollbackRow,
+  payload: {},
+});
+
+// Refresh transitions keep rows visible while loading and after an error.
+const listState = { loading: false, items: [published], error: 'stale' };
+deepEqual(nextPublishedList(listState, { kind: 'start' }), {
+  loading: true,
+  items: [published],
+  error: null,
+});
+deepEqual(nextPublishedList(listState, { kind: 'success', items: [] }), {
+  loading: false,
+  items: [],
+  error: null,
+});
+deepEqual(nextPublishedList(listState, { kind: 'failure', message: 'down' }), {
+  loading: false,
+  items: [published],
+  error: 'down',
+});
 
 console.log('studio tests passed');

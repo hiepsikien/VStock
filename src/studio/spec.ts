@@ -458,8 +458,63 @@ export function publishedSpecTitle(spec: StudioPublishedSpec): string {
   return `${patternLabel(spec.pattern)} · ${meterLabel(spec.meter)}`;
 }
 
+/**
+ * Compact lineage for a history row, e.g. `rollback of 0123456789…`.
+ * Null for ordinary publishes, so the row stays unchanged.
+ */
+export function publishedSpecLineage(spec: StudioPublishedSpec): string | null {
+  const source = spec.rollbackOf?.trim();
+  return source ? `rollback of ${shortId(source)}` : null;
+}
+
+/** `v4 · rollback of 0123456789…`; version is omitted when the server omits it. */
+export function rollbackLabel(
+  version: number | null | undefined,
+  rollbackOf: string | null | undefined,
+): string | null {
+  const source = rollbackOf?.trim();
+  if (!source) return null;
+  const prefix =
+    typeof version === 'number' && Number.isInteger(version) && version > 0
+      ? `v${version} · `
+      : '';
+  return `${prefix}rollback of ${shortId(source)}`;
+}
+
 export function publishedSpecMeta(spec: StudioPublishedSpec): string {
-  return `v${spec.version} · ${publishedAtLabel(spec.createdAt)}`;
+  const base = `v${spec.version} · ${publishedAtLabel(spec.createdAt)}`;
+  const lineage = publishedSpecLineage(spec);
+  return lineage ? `${base} · ${lineage}` : base;
+}
+
+/** State of the published list while a refresh is in flight. */
+export type PublishedListState = {
+  loading: boolean;
+  items: StudioPublishedSpec[];
+  error: string | null;
+};
+
+export type PublishedListEvent =
+  | { kind: 'start' }
+  | { kind: 'success'; items: StudioPublishedSpec[] }
+  | { kind: 'failure'; message: string };
+
+/**
+ * Refresh transitions keep the previous rows visible while loading and after a
+ * failed reload, so a rollback/publish does not blank the history panel.
+ */
+export function nextPublishedList(
+  state: PublishedListState,
+  event: PublishedListEvent,
+): PublishedListState {
+  switch (event.kind) {
+    case 'start':
+      return { ...state, loading: true, error: null };
+    case 'success':
+      return { loading: false, items: event.items, error: null };
+    case 'failure':
+      return { loading: false, items: state.items, error: event.message };
+  }
 }
 
 /** Keep a published row compact while still exposing the full id to a11y tools. */

@@ -15,8 +15,13 @@
  *        -> { ok, errors, audioUrl, durationSec, renderHash }
  *   POST {prefix}/publish   body = one sentence spec mapping
  *        -> { ok, id, pattern, meter, version, errors }
- *   GET  {prefix}/specs     -> { ok, specs: [{ id, pattern, meter, version, status, createdAt }] }
+ *   POST {prefix}/specs/{id}/rollback
+ *        -> { ok, id, pattern, meter, version, rollbackOf, errors }
+ *   GET  {prefix}/specs     -> { ok, specs: [{ id, pattern, meter, version, status, createdAt, rollbackOf? }] }
  *   GET  {prefix}/specs/{id} -> summary + { payload }
+ *
+ * `rollbackOf` is optional on summaries (and absent for ordinary publishes):
+ * it names the published version a rollback row was copied from.
  */
 
 export type StudioError = {
@@ -67,6 +72,16 @@ export type StudioPublishResponse = {
   errors: StudioError[];
 };
 
+export type StudioRollbackResponse = {
+  ok: boolean;
+  id: string | null;
+  pattern: string | null;
+  meter: string | null;
+  version: number | null;
+  rollbackOf: string | null;
+  errors: StudioError[];
+};
+
 export type StudioPublishedSpec = {
   id: string;
   pattern: string;
@@ -74,6 +89,8 @@ export type StudioPublishedSpec = {
   version: number;
   status: string;
   createdAt: string;
+  /** Present only on rows created by a rollback; names the source version. */
+  rollbackOf?: string;
 };
 
 export type StudioPublishedSpecDetail = StudioPublishedSpec & {
@@ -151,7 +168,9 @@ export function normalizeErrors(body: unknown): StudioError[] {
     ? body.errors
     : Array.isArray(body.detail)
       ? body.detail
-      : [];
+      : typeof body.detail === 'string' && body.detail.trim()
+        ? [body.detail]
+        : [];
   return list.map((item) => ({ path: errorPath(item), message: errorMessage(item) }));
 }
 
@@ -250,13 +269,39 @@ export function normalizePublishResponse(body: unknown): StudioPublishResponse {
   };
 }
 
+/**
+ * Normalise a rollback response. `rollbackOf` should point at the version that
+ * was rolled back; when the server omits it (or uses snake_case), the caller's
+ * source id is the fallback, so lineage still renders.
+ */
+export function normalizeRollbackResponse(
+  body: unknown,
+  sourceId?: string | null,
+): StudioRollbackResponse {
+  if (!isRecord(body)) {
+    throw new Error('Studio rollback API returned a non-object response.');
+  }
+  const errors = normalizeErrors(body);
+  const id = text(body.id);
+  return {
+    ok: typeof body.ok === 'boolean' ? body.ok : Boolean(id) && !errors.length,
+    id,
+    pattern: text(body.pattern),
+    meter: text(body.meter),
+    version: positiveInteger(body.version),
+    rollbackOf:
+      text(body.rollbackOf) ?? text(body.rollback_of) ?? text(sourceId),
+    errors,
+  };
+}
+
 function normalizePublishedSpec(value: unknown): StudioPublishedSpec | null {
   if (!isRecord(value)) return null;
   const id = text(value.id);
   const pattern = text(value.pattern);
   const meter = text(value.meter);
   if (!id || !pattern || !meter) return null;
-  return {
+  const spec: StudioPublishedSpec = {
     id,
     pattern,
     meter,
@@ -264,6 +309,9 @@ function normalizePublishedSpec(value: unknown): StudioPublishedSpec | null {
     status: text(value.status) ?? '',
     createdAt: text(value.createdAt) ?? text(value.created_at) ?? '',
   };
+  const rollbackOf = text(value.rollbackOf) ?? text(value.rollback_of);
+  if (rollbackOf) spec.rollbackOf = rollbackOf;
+  return spec;
 }
 
 /** Accept the documented `{ ok, specs }` wrapper and a bare array (older proxies). */

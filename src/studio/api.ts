@@ -10,6 +10,7 @@ import {
   normalizePreviewResponse,
   normalizePublishResponse,
   normalizePublishedSpecResponse,
+  normalizeRollbackResponse,
   normalizeSpecsResponse,
   normalizeValidateResponse,
   type StudioAudioResponse,
@@ -18,6 +19,7 @@ import {
   type StudioPublishResponse,
   type StudioPublishedSpec,
   type StudioPublishedSpecDetail,
+  type StudioRollbackResponse,
   type StudioValidateResponse,
 } from './protocol';
 
@@ -30,6 +32,7 @@ export type {
   StudioPublishResponse,
   StudioPublishedSpec,
   StudioPublishedSpecDetail,
+  StudioRollbackResponse,
   StudioValidateResponse,
 } from './protocol';
 
@@ -41,6 +44,7 @@ export type {
  *   POST {prefix}/preview           body = { spec, fixture }
  *   POST {prefix}/audio             body = { spec, fixture } | { renderHash }
  *   POST {prefix}/publish           body = one sentence spec mapping
+ *   POST {prefix}/specs/{id}/rollback -> { ok, id, pattern, meter, version, rollbackOf }
  *   GET  {prefix}/specs             -> { ok, specs: [...] }
  *   GET  {prefix}/specs/{id}        -> summary + { payload }
  *
@@ -73,6 +77,11 @@ export function studioSentenceSpecUrl(id: string): string {
   return `${studioSentenceUrl('specs')}/${encodeURIComponent(id)}`;
 }
 
+/** Roll back to a published version by creating a new version from its payload. */
+export function studioSentenceRollbackUrl(id: string): string {
+  return `${studioSentenceSpecUrl(id)}/rollback`;
+}
+
 function truncate(text: string, limit = 240): string {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
@@ -98,18 +107,26 @@ async function readStudioResponse(res: Response, text: string): Promise<unknown>
   return parsed;
 }
 
-async function postStudio(
-  action: 'validate' | 'preview' | 'audio' | 'publish',
+async function postStudioUrl(
+  url: string,
   body: unknown,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  const res = await fetch(studioSentenceUrl(action), {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
     signal,
   });
   return readStudioResponse(res, await res.text());
+}
+
+async function postStudio(
+  action: 'validate' | 'preview' | 'audio' | 'publish',
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return postStudioUrl(studioSentenceUrl(action), body, signal);
 }
 
 async function getStudio(
@@ -177,6 +194,20 @@ export async function fetchPublishedSpecs(
   signal?: AbortSignal,
 ): Promise<StudioPublishedSpec[]> {
   return normalizeSpecsResponse(await getStudio(studioSentenceUrl('specs'), signal));
+}
+
+/**
+ * Roll back to `id`: the backend copies that version's payload into a new
+ * version and reports it via `rollbackOf`. The body is empty by contract.
+ */
+export async function rollbackSentenceSpec(
+  id: string,
+  signal?: AbortSignal,
+): Promise<StudioRollbackResponse> {
+  return normalizeRollbackResponse(
+    await postStudioUrl(studioSentenceRollbackUrl(id), {}, signal),
+    id,
+  );
 }
 
 /** One published spec including its authored payload. */
