@@ -46,15 +46,15 @@ function piece(partial: Partial<PieceInput> & Pick<PieceInput, 'variant' | 'span
   };
 }
 
-// The generated registry is the only source for PATTERN_NAMES. 39 rows: one
+// The generated registry is the only source for PATTERN_NAMES. 40 rows: one
 // per `PROFILES` entry plus the family-only `pedal`. `level`/`nameSource` come
 // from `pattern_registry.PATTERN_META`, so a texture is dropped without a
 // second hand-kept list.
-equal(PATTERN_REGISTRY.length, 39);
+equal(PATTERN_REGISTRY.length, 40);
 
 const topicRows = PATTERN_REGISTRY.filter((row) => row.level === 'topic');
 const textureRows = PATTERN_REGISTRY.filter((row) => row.level === 'texture');
-equal(topicRows.length, 33);
+equal(topicRows.length, 34);
 // Five texture ids; `thumb_cantabile` ships for Barrios and Villa.
 equal(textureRows.length, 6);
 
@@ -63,10 +63,10 @@ for (const row of PATTERN_REGISTRY) {
   if (!consistent) throw new Error(`level/nameSource disagree for ${row.pattern}`);
 }
 
-// 33 topic rows carry 30 distinct titles: `Etude`, `Prelude`, and `Sarabande`
-// each name a topic in two ensembles. PATTERN_NAMES is a Set, so it holds 30.
+// 34 topic rows carry 31 distinct titles: `Etude`, `Prelude`, and `Sarabande`
+// each name a topic in two ensembles. PATTERN_NAMES is a Set, so it holds 31.
 const topicTitles = new Set(topicRows.map((row) => row.title));
-equal(topicTitles.size, 30);
+equal(topicTitles.size, 31);
 equal(PATTERN_NAMES.size, topicTitles.size);
 for (const title of topicTitles) {
   if (!PATTERN_NAMES.has(title)) throw new Error(`missing topic title: ${title}`);
@@ -88,7 +88,7 @@ equal(pedal[0]?.level, 'texture');
 equal(pedal[0]?.nameSource, null);
 
 // Global repeats are allowed across ensembles (§12.3); the Set collapses them
-// for membership only. Four title families repeat across the 39 rows.
+// for membership only. Four title families repeat across the 40 rows.
 const titleCounts = new Map<string, number>();
 for (const row of PATTERN_REGISTRY) {
   titleCounts.set(row.title, (titleCounts.get(row.title) ?? 0) + 1);
@@ -98,12 +98,12 @@ const repeatedTitles = [...titleCounts]
   .map(([title]) => title)
   .sort();
 deepEqual(repeatedTitles, ['Cantabile', 'Etude', 'Prelude', 'Sarabande']);
-// 34 distinct titles over all rows, 33 over the wave-profile rows (no Pedal).
-equal(new Set(PATTERN_REGISTRY.map((row) => row.title)).size, 34);
+// 35 distinct titles over all rows, 34 over the wave-profile rows (no Pedal).
+equal(new Set(PATTERN_REGISTRY.map((row) => row.title)).size, 35);
 const printedTitles = new Set(
   PATTERN_REGISTRY.filter((row) => row.waveProfile).map((row) => row.title),
 );
-equal(printedTitles.size, 33);
+equal(printedTitles.size, 34);
 if (printedTitles.has('Pedal')) throw new Error('Pedal must not print');
 
 equal(englishDate('2026-01-20'), '20/1');
