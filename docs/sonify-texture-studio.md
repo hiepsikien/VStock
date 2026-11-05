@@ -691,11 +691,13 @@ Revision 1 trộn tất cả vào `events`. Revision 2/3 tách:
 
 | Tầng | Chứa gì | Có phải nguồn chân lý? | Dùng trong round-trip? |
 |---|---|---|---|
-| `authored` | bar, beat, duration, voice, **pitch reference**, tie, slur, accent, staccato, staff; optional `string`/`fret` | Có, cho **placement + reference** | Có, nhưng không so absolute MIDI |
-| `derived` | `resolved_midi`, velocity band, hairpin rule, humanize policy, dynamics policy | Không | Chỉ khi cùng render context |
+| `authored` | bar, beat, duration, voice, **pitch reference**, tie, slur, accent, staccato, staff; optional `string`/`fret`; optional **micro-velocity offset** | Có, cho **placement + reference + micro offset** | Có, nhưng không so absolute MIDI |
+| `derived` | `resolved_midi`, realized velocity sau wave/humanize, hairpin rule, humanize policy, dynamics policy | Không | Chỉ khi cùng render context |
 | `rendered` | `NoteEvent` sau `_resolve`, `apply_guitar_wave`, humanize | Không | Golden artifact riêng |
 
 `pitch reference` là `melody_eighth`, `chord_degree`, `scale_step` hoặc `literal_midi`. Chỉ `literal_midi` là absolute; các kind còn lại resolve từ render context. Vì vậy `resolved_midi` thuộc `derived`, không thuộc `authored`.
+
+**Micro-velocity offset** là ngoại lệ có chủ ý: nó thuộc `authored` nhưng **không phải velocity tuyệt đối**. Nó là delta optional trên level figure viết ra; realized velocity vẫn do wave/humanize quyết định. Không khai báo = offset 0.
 
 `rendered` không nằm trong `TextureSpec`. Nó là file `rendered.json` hoặc hash, sinh từ một render thật.
 
@@ -776,7 +778,7 @@ Sửa thành:
 - **Authored round-trip** so placement + reference: `bar`, `beat`, `duration_beats`, `voice`, `staff`, tie/slur/accent/staccato, và `pitch.kind` + index/degree. Không so absolute `midi` nếu pitch là `melody_eighth`/`chord_degree`/`scale_step`; nếu là `literal_midi` thì so được.
 - **Vì sao**: `melody_eighth` lấy `ctx.melody[index]` từ chính lần render đang so → so `midi` sẽ luôn pass, kể cả khi renderer đặt sai quãng. Đây là vòng tròn, không phải test.
 - **Absolute pitch** do `rendered` golden kiểm: cùng price path, volume, chord slots, liquidity, `params` hash, `SPAN_REVISION`/`RECAP_REVISION`, cùng `renderer_version`. So hash/snapshot, không so ±2.
-- Không so `velocity` tuyệt đối. Velocity do `apply_guitar_wave()` + `resolve_bar_volumes()` + liquidity + humanize quyết định; nó không thuộc spec.
+- Không so `velocity` tuyệt đối (realized). Velocity cuối do `apply_guitar_wave()` + `resolve_bar_volumes()` + liquidity + humanize quyết định. **Micro-velocity offset** thì so được, vì nó là authored data.
 - Không có “humanize seed”. `humanize()` nhận `params`, `offset_at`, `fan_hold`; tính deterministic qua `_stable_unit`, cố ý không dùng `hash()`. Vì vậy cache/so sánh dùng `params` hash + `SPAN_REVISION`.
 - `rendered` là golden artifact, không phải input của spec.
 
@@ -984,6 +986,41 @@ Quy tắc:
 - Vì vậy `melody_eighth`/`chord_degree`/`scale_step` chỉ dùng cho `runtime: "code"` hoặc interpreter có contract context tường minh; không dùng cho spec publish độc lập chưa có context.
 - Nếu cần escape hatch cho một gesture chưa biểu diễn được, dùng `literal_midi` + `runtime: "code"`, không thêm tên hàm.
 
+### 6.9. Micro-velocity contour (optional, authored)
+
+Mỗi figure/sentence có thể mang một **contour offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối và không phải derived. Không khai báo = **offset 0** cho mọi nốt (kể cả thumb).
+
+```json
+{
+  "figure": "tremolo",
+  "microVelocity": {
+    "base": 58,
+    "notes": [
+      { "slot": 0, "voice": 1, "offset": -6 },
+      { "slot": 1, "voice": 1, "offset": -3 },
+      { "slot": 2, "voice": 1, "offset": -4 },
+      { "slot": 3, "voice": 1, "offset": -6 }
+    ],
+    "thumb": [
+      { "slot": 0, "voice": 3, "offset": -4 },
+      { "slot": 1, "voice": 3, "offset": 0 },
+      { "slot": 2, "voice": 3, "offset": 4 },
+      { "slot": 3, "voice": 3, "offset": 1 }
+    ]
+  }
+}
+```
+
+Quy tắc:
+
+- `notes` là offset theo slot/beat/voice; `thumb` là lane riêng. `thumb: []` hoặc vắng = thumb offset 0.
+- `base` optional; nếu thiếu, offset là delta thuần trên level renderer viết ra.
+- Contour có thể **fixed per note** (Tremolo, Etude1 arc) hoặc **rule/step table** (Galop `_galop*_steps`, Cathedral role nudge). UI flatten contour theo fixture đang chọn, nhưng dữ liệu lưu rule gốc.
+- Thứ tự render: `figure level` → **apply micro offsets** → `apply_guitar_wave` (giữ relative bằng `center + (written - 64)`) → snap/stab/trim → humanize.
+- Không layer nào được tự đặt lại offset; chỉ được dịch/clamp. Exception phải khai rõ (ví dụ `TREMOLO_BASS_TRIM=2` sau snap).
+- **Zero-diff bắt buộc:** contour vắng mặt, hoặc contour bóc tách từ code, phải cho ra **cùng NoteEvent (bar/beat/midi/voice/velocity/flags) và cùng renderHash** như code hiện tại. Test baseline vs contour cho Tremolo, Galop, Cathedral Preludio, Etude1, Etude11.
+- Studio UI: click figure/slot → **velocity lane** (x = note/slot/beat, y = offset), nhóm voice 1–4, thumb lane riêng, empty = 0; toggle “authored offsets → sau wave/humanize” để thấy layer giảm thêm. Sửa offset và lưu vào figure/slot; không sửa velocity tuyệt đối.
+
 ---
 
 ## 7. Runtime target và ai đọc spec
@@ -1163,6 +1200,7 @@ Giới hạn:
 
 - bè bass/trung/cao khi bè ẩn
 - bè nào ăn price/volume
+- **micro-velocity offset** (Gemini có thể đọc accent/dynamic ký hiệu; người chuyển thành contour)
 - micro-timing, velocity, humanize
 - “nốt này ngân dài để nối bè”
 - quãng bè trung
@@ -1281,6 +1319,8 @@ App chưa có image picker. Cần thêm (đọc Expo SDK 58 docs trước khi co
 │ [crop rectangle] │ confidence màu    │ price  → voice 1      │
 │ zoom / pan       │ sửa nốt           │ volume → voice 2      │
 │                  │                   │ bass → voice 3        │
+│                  │                   │ click figure → lane   │
+│                  │                   │ velocity offset       │
 ├──────────────────┴───────────────────┴───────────────────────┤
 │ Validate: meter, voice order, duration, playable authored     │
 ├──────────────────────────────────────────────────────────────┤
@@ -1716,6 +1756,9 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 24. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
 25. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
 26. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
+
+27. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp; Studio click figure → velocity lane và cho sửa.
+28. **Extraction zero-diff:** bóc tách contour từ Tremolo/Galop/Cathedral/Etude1/Etude11 phải cho cùng NoteEvent + renderHash; test baseline vs contour bắt buộc, không được “gần đúng”.
 
 ---
 
