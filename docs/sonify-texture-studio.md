@@ -1795,6 +1795,13 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ---
 
+### 13.10.1. Production flags (Sprint 13)
+
+- `VSTOCK_VILLA_PRODUCTION`, `VSTOCK_BROUWER_PRODUCTION`, `VSTOCK_SUITE_MAZURKA` — default **off**, context-manager override.
+- `suite_mazurka` (Mazurka-Choro, 3/4, topic/dance) đã register metadata/title/profile/door; selection + render chỉ khi flag on.
+- Villa/Brouwer dùng candidate ABA hiện có; Barrios giữ flag riêng.
+- **Caveat:** gated paths là early-return theo mô hình Barrios period; chúng **chưa chạy** wave/dynamics/bells/transitions/scale-passage/micro-velocity tail. Đây là bản audition, không phải final production shaping. Flag off byte-identical.
+
 ### 13.11. Quy trình `v2` (chốt 2026-11)
 
 - `v2` là **nhánh tích hợp + chạy local nội bộ**, không phải nhánh chờ merge và không deploy production trong giai đoạn này.
