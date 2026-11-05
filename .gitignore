@@ -36,6 +36,9 @@ yarn-error.*
 .env*.local
 .env.local
 
+# Local scratch docs
+*.local.md
+
 # Mode files (.env.development / .env.production) MAY be committed
 # when they only contain public API URLs — no API keys.
 
