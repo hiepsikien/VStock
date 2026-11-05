@@ -48,6 +48,14 @@ VILLA_FIGURE_NAMES: dict[int, str] = {
     VILLA_ETUDE11: "villa_etude11",
 }
 
+# Default extracted contour per figure. The arpeggio and chord_melody writers
+# still own their velocities; only the two étude figures have a contour that
+# the micro-velocity writer can reproduce. A figure absent here has no default.
+FIGURE_CONTOURS: dict[int, str] = {
+    VILLA_ETUDE1: "etude1",
+    VILLA_ETUDE11: "etude11",
+}
+
 FigureNotes = tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]
 VillaFigure = Callable[[_Ctx, int, Phrase | None], FigureNotes]
 

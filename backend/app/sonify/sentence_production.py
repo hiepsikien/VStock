@@ -1,10 +1,11 @@
-"""Shared tail for the feature-gated production sentences.
+"""Shared pieces for the feature-gated production sentences.
 
 The Barrios Cathedral period proved the shape: plan one `SentenceSpec`, render
-one bar at a time through the owner's existing figure table, then voice and
-fill the result on the same grids the production renderer uses. This module
-holds the small pieces that do not depend on the owner, so the Villa, Suite,
-and Brouwer modules can stay about their own spec and their own figures.
+one bar at a time through the owner's existing figure table, then hand the raw
+voices back to the production renderer. The Villa, Suite, and Brouwer modules
+stay about their own spec and their own figures; the shared renderer runs the
+same wave/dynamics/bells/transitions/scale/micro-velocity tail for them as it
+does for the historical bar loop.
 
 Nothing here reads a flag or registers a sentence. Every caller is already
 inside a gated branch, and importing this module renders nothing.
@@ -12,14 +13,33 @@ inside a gated branch, and importing this module renders nothing.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import replace
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from app.sonify.model import NoteEvent
 
 # A planned span as `plan_sentence` returns it: `(figure, bar indexes)`.
 PlannedSpans = Iterable[tuple[int, tuple[int, ...]]]
+
+
+@dataclass(frozen=True)
+class SentenceVoices:
+    """Raw bar-written voices plus the plan that produced them.
+
+    A gated sentence returns this instead of a finished render. The shared
+    renderer then applies the default figure contours here and runs the same
+    post-wave tail as the historical per-bar path. `figures` is bar -> figure
+    id; `contours` is bar -> extracted contour id for the figures that own one
+    (today the two Villa étude figures). An empty `contours` map is the zero-diff
+    path.
+    """
+
+    lead: list[NoteEvent]
+    support: list[NoteEvent]
+    low: list[NoteEvent]
+    figures: dict[int, int]
+    contours: dict[int, str] = field(default_factory=dict)
 
 
 def bar_figures(planned: PlannedSpans | None, bars: int) -> dict[int, int] | None:
@@ -92,6 +112,74 @@ def shape_voices(
         _fill(low, bars, epb, 3),
         divisions,
     )
+
+
+def _bar_events(events: Sequence[NoteEvent], bar: int) -> list[NoteEvent]:
+    """The events of one bar, order preserved."""
+    return [event for event in events if event.bar == bar]
+
+
+def _replace_bar(
+    events: Sequence[NoteEvent], bar: int, updated: Sequence[NoteEvent]
+) -> list[NoteEvent]:
+    """Swap one bar's events for their rewritten copy, order preserved."""
+    result = list(events)
+    positions = [index for index, event in enumerate(result) if event.bar == bar]
+    if len(positions) != len(updated):
+        raise ValueError(
+            f"bar {bar} contour changed the event count "
+            f"({len(positions)} -> {len(updated)})"
+        )
+    for index, event in zip(positions, updated):
+        result[index] = event
+    return result
+
+
+def apply_default_contours(
+    ctx: Any,
+    voices: SentenceVoices,
+    *,
+    enabled: bool,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Apply extracted figure contours before the volume wave.
+
+    This mirrors the historical per-bar branches: Étude No. 1 and Étude No. 11
+    rewrite the middle voice on the 4/4 grid. Other figures either have no
+    extracted contour or are not used by the current gated plans. `enabled` is
+    the `VSTOCK_MICRO_VELOCITY_WRITERS` gate, so the flag off path returns the
+    untouched voices.
+    """
+    if not enabled or not voices.contours:
+        return voices.lead, voices.support, voices.low
+
+    from app.sonify.guitar_patterns import _etude11_hairpin_at
+    from app.sonify.micro_velocity_writer import apply_etude1, apply_etude11
+
+    lead = list(voices.lead)
+    support = list(voices.support)
+    low = list(voices.low)
+    for bar, contour in sorted(voices.contours.items()):
+        if ctx.kind != "4/4":
+            continue
+        if contour == "etude1":
+            support = _replace_bar(
+                support,
+                bar,
+                apply_etude1(_bar_events(support, bar), origin_bar=bar),
+            )
+        elif contour == "etude11":
+            lead_at = _bar_events(lead, bar)
+            support = _replace_bar(
+                support,
+                bar,
+                apply_etude11(
+                    _bar_events(support, bar),
+                    origin_bar=bar,
+                    hairpin_at=_etude11_hairpin_at(lead_at),
+                    band_at=lambda event: ctx.band(event.bar),
+                ),
+            )
+    return lead, support, low
 
 
 def mark_trace(ctx: Any) -> None:

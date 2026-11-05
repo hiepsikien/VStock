@@ -25,9 +25,10 @@ bars. Every other movement, and every flag-off render, falls back to
 Render
 ------
 `render_sentence` plans the candidate, then calls
-`guitar_villa_figures.render_villa_figure` once per bar. The result is voiced
-and filled on the same grids the production renderer uses, so callers receive
-the same `(lead, support, low, divisions)` shape as every other gated period.
+`guitar_villa_figures.render_villa_figure` once per bar. It returns the raw
+bar voices and the plan, not a finished render: the shared renderer then runs
+the same wave/dynamics/bells/transitions/scale/micro-velocity tail as the
+historical bar loop.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from typing import Any
 
 from app.sonify import sentence_specs
 from app.sonify.guitar_villa_figures import (
+    FIGURE_CONTOURS,
     VILLA_ARPEGGIO,
     VILLA_CHORD_MELODY,
     VILLA_FIGURES,
@@ -48,11 +50,11 @@ from app.sonify.production_flags import (
     villa_production_enabled,
 )
 from app.sonify.sentence_production import (
+    SentenceVoices,
     bar_figures,
     has_pedal_bars,
     mark_trace,
     phrase_at,
-    shape_voices,
 )
 from app.sonify.sentence_specs import Select, SentenceSpec, Slot, Span
 
@@ -153,9 +155,7 @@ def _plan(ctx: Any) -> dict[int, int] | None:
     return bar_figures(planned, ctx.bars)
 
 
-def render_sentence(
-    ctx: Any,
-) -> tuple[list, list, list, int] | None:
+def render_sentence(ctx: Any) -> SentenceVoices | None:
     """Render the ABA for an eligible movement, or return None to fall back."""
     figures = _plan(ctx)
     if figures is None:
@@ -173,4 +173,9 @@ def render_sentence(
         low.extend(part_low)
 
     mark_trace(ctx)
-    return shape_voices(ctx, lead, support, low)
+    contours = {
+        bar: FIGURE_CONTOURS[figure]
+        for bar, figure in figures.items()
+        if figure in FIGURE_CONTOURS
+    }
+    return SentenceVoices(lead, support, low, figures, contours)

@@ -17,8 +17,11 @@ import pytest
 import app.sonify.guitar_barrios_period as barrios
 import app.sonify.guitar_brouwer_production as brouwer
 import app.sonify.guitar_patterns as patterns
+import app.sonify.guitar_scale_passages as scale_passages
 import app.sonify.guitar_suite_mazurka as suite
 import app.sonify.guitar_villa_production as villa
+import app.sonify.guitar_wave as guitar_wave
+import app.sonify.micro_velocity_writer as micro_writer
 from app.sonify import production_flags as flags
 from app.sonify import sentence_specs as specs
 from app.sonify.form import METER_34, METER_44, FormSection, FormSpec
@@ -445,6 +448,126 @@ def test_brouwer_env_auditions_without_the_context(monkeypatch) -> None:
     finally:
         brouwer.unregister()
     assert brouwer.BROUWER_KEY not in specs.SENTENCE_SPECS
+
+
+# ---------------------------------------------------------------------------
+# full production tail
+# ---------------------------------------------------------------------------
+
+
+GATED_CASES = (
+    (villa.use_villa_aba, "villa", METER_44, 6),
+    (suite.use_suite_mazurka_aba, "villa", METER_34, 8),
+    (brouwer.use_brouwer_aba, "brouwer", METER_44, 6),
+)
+
+
+@pytest.mark.parametrize(
+    ("context", "ensemble", "meter", "bars"),
+    GATED_CASES,
+    ids=("villa", "suite_mazurka", "brouwer"),
+)
+def test_on_runs_the_shared_production_tail(
+    monkeypatch, context, ensemble, meter, bars
+) -> None:
+    """The gated sentences must hit wave, scale, hairpin restamp, and pinned check."""
+    wave_calls: list[int] = []
+    scale_calls: list[int] = []
+    hairpin_calls: list[int] = []
+    pinned_checks: list[int] = []
+
+    original_wave = guitar_wave.apply_guitar_wave
+
+    def wave_spy(ctx, lead, support, low, patterns=None, relaxed=None, scale_eighths=None):
+        wave_calls.append(ctx.bars)
+        return original_wave(ctx, lead, support, low, patterns, relaxed, scale_eighths)
+
+    original_scale = scale_passages.apply_scale_passages
+
+    def scale_spy(ctx, patterns_, lead, support, low):
+        scale_calls.append(ctx.bars)
+        return original_scale(ctx, patterns_, lead, support, low)
+
+    original_hairpin = scale_passages.restamp_passage_hairpins
+
+    def hairpin_spy(ctx, patterns_, plan, lead, written_lead):
+        hairpin_calls.append(ctx.bars)
+        return original_hairpin(ctx, patterns_, plan, lead, written_lead)
+
+    original_check = micro_writer.check_occurrences
+
+    def check_spy(events):
+        pinned_checks.append(len(events))
+        return original_check(events)
+
+    monkeypatch.setattr(guitar_wave, "apply_guitar_wave", wave_spy)
+    monkeypatch.setattr(scale_passages, "apply_scale_passages", scale_spy)
+    monkeypatch.setattr(scale_passages, "restamp_passage_hairpins", hairpin_spy)
+    monkeypatch.setattr(micro_writer, "check_occurrences", check_spy)
+    monkeypatch.setenv(micro_writer.WRITERS_FLAG, "on")
+
+    with context(True):
+        _render(ensemble, meter, bars)
+    assert wave_calls == [bars], "the volume wave must run on the gated path"
+    assert scale_calls == [bars], "scale passages must run on the gated path"
+    assert hairpin_calls == [bars], "the post-wave hairpin restamp must run"
+    assert len(pinned_checks) == 1, "the pinned check must run after the wave"
+    assert pinned_checks[0] > 0
+
+
+@pytest.mark.parametrize(
+    ("context", "ensemble", "meter", "bars"),
+    GATED_CASES,
+    ids=("villa", "suite_mazurka", "brouwer"),
+)
+def test_on_is_deterministic(context, ensemble, meter, bars) -> None:
+    with context(True):
+        first = _digest(_render(ensemble, meter, bars))
+        second = _digest(_render(ensemble, meter, bars))
+    assert first == second
+
+
+def test_villa_on_applies_default_figure_contours_when_writers_are_on(
+    monkeypatch,
+) -> None:
+    """A plan figure with an extracted contour reaches the micro-velocity writer."""
+    calls: list[int] = []
+    changed: list[bool] = []
+    original = micro_writer.apply_etude1
+
+    def spy(support, *, origin_bar):
+        calls.append(origin_bar)
+        rebuilt = original(support, origin_bar=origin_bar)
+        changed.append(list(rebuilt) != list(support))
+        return rebuilt
+
+    monkeypatch.setattr(micro_writer, "apply_etude1", spy)
+    monkeypatch.setattr(villa, "FIGURE_CONTOURS", {VILLA_ARPEGGIO: "etude1"})
+    monkeypatch.setenv(micro_writer.WRITERS_FLAG, "on")
+    with villa.use_villa_aba(True):
+        _render("villa", METER_44, 6)
+
+    # The chord_melody bars keep their writer levels; the arpeggio bars take
+    # the extracted Étude No. 1 contour.
+    assert calls == [0, 2, 3, 5]
+    assert changed == [True, True, True, True]
+
+
+def test_default_contours_stay_off_when_writers_are_off(monkeypatch) -> None:
+    monkeypatch.delenv(micro_writer.WRITERS_FLAG, raising=False)
+    calls: list[int] = []
+    original = micro_writer.apply_etude1
+
+    def spy(support, *, origin_bar):
+        calls.append(origin_bar)
+        return original(support, origin_bar=origin_bar)
+
+    monkeypatch.setattr(micro_writer, "apply_etude1", spy)
+    monkeypatch.setattr(villa, "FIGURE_CONTOURS", {VILLA_ARPEGGIO: "etude1"})
+    with villa.use_villa_aba(True):
+        _render("villa", METER_44, 6)
+
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------
