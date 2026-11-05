@@ -988,7 +988,7 @@ Quy tắc:
 
 ### 6.9. Micro-velocity contour (optional, authored)
 
-> **Trạng thái code:** **một phần**. `app/studio/micro_velocity.py` có data model + parse/validate + relative applier + pinned checker; Studio có `velocity.ts`/`VelocityLane.tsx` (realized read-only khi chưa có contour, local edit/view-only). **Chưa wire** vào figure/sentence/texture writer, API persistence hay extraction. Schema dưới đây là contract Sprint 9B.
+> **Trạng thái code:** **một phần**. `app/studio/micro_velocity.py` có data model + parse/validate + relative applier + pinned checker; `app/sonify/micro_velocity_contours.py` đã bóc tách Tremolo 4/4–3/4, Etude1, Etude11, Galop1/2 với zero-diff golden; Studio có `velocity.ts`/`VelocityLane.tsx`. **Chưa wire** vào `render_patterned_voices`; API persistence đang ở nhánh riêng. Schema dưới đây là contract Sprint 9.
 
 Mỗi figure/pattern/sentence có thể mang **offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối. Không khai báo = offset 0 cho mọi nốt, kể cả thumb. Offset 0 phải cho **NoteEvent byte-identical** với code hiện tại.
 
@@ -1086,7 +1086,7 @@ figure writer (level gốc)
 - Toggle “authored offsets → sau wave/humanize” **chỉ để xem**, không đổi dữ liệu lưu và không tạo hai render mode.
 - Sửa offset lưu vào figure/slot; không sửa velocity tuyệt đối của note thường. Preview notes cần `finger` (hoặc note-level `velocityOffset`) để match contour theo ngón; chưa có thì chỉ match entry không finger.
 
-#### Nguồn để bóc tách (hardcode hiện tại, chưa phải contour data)
+#### Nguồn để bóc tách (hardcode hiện tại)
 
 | Figure | Nguồn offset trong code |
 |---|---|
@@ -1095,6 +1095,8 @@ figure writer (level gốc)
 | Cathedral Preludio | role center + `_catedral_level` nudge, `_catedral_under(level,canto)=min(level,canto-6)`, whisper base 52/bottom-2 |
 | Etude1 | `_ETUDE1_ARC` theo sixteenth (`-2/-2/-2/0/0/+2...`), middle 52, bass sung-4 |
 | Etude11 | arch `-10/-6/-7/-10`, band nudge, `_ETUDE11_TILT`, lead hairpin/-8, bass hairpin-4 |
+
+Đã bóc tách: `TREMOLO_44`, `TREMOLO_34` (offsets), `ETUDE1` (offsets), `ETUDE11`/`GALOP1`/`GALOP2` (rules) trong `app/sonify/micro_velocity_contours.py`; zero-diff bằng `tests/micro_velocity_extract.py` + `tests/test_micro_velocity_contours.py`. **Cathedral Preludio chưa bóc tách** vì `_catedral_under(level, canto)=min(level,canto-6)` cần pitch của voice khác; cần writer integration/rule context, không bịa offset. `NEUTRAL_LEVELS` chỉ là metadata verify, không phải `base` trong contour.
 
 ---
 
