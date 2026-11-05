@@ -91,7 +91,10 @@ import {
   defaultSampleForPattern,
   describeRequestFailure,
   filterPublishedSpecs,
+  exampleLabel,
   findSample,
+  findSampleById,
+  samplesForPatternMeter,
   fixtureText as sampleFixtureText,
   fixtureTextForSpec,
   imageSizeError,
@@ -1574,6 +1577,12 @@ export function StudioRoom({ wide, onMode }: Props) {
   );
 
   const catalogPatterns = patternIds(samples);
+  const exampleChoices = samplesForPatternMeter(
+    selection.pattern,
+    selection.meter,
+    samples,
+  );
+  const selectedExample = findSampleById(selection.id, samples);
   const patternChoices = catalogPatterns.includes(selection.pattern)
     ? catalogPatterns
     : [selection.pattern, ...catalogPatterns];
@@ -1977,6 +1986,27 @@ export function StudioRoom({ wide, onMode }: Props) {
                     />
                   ))}
                 </View>
+
+                {exampleChoices.length > 1 ? (
+                  <>
+                    <Text style={styles.fieldLabel}>Example</Text>
+                    <View style={styles.chips}>
+                      {exampleChoices.map((sample) => (
+                        <Chip
+                          key={sample.id ?? sample.key}
+                          label={exampleLabel(sample)}
+                          active={
+                            selectedExample
+                              ? selectedExample.id === sample.id
+                              : selection.key === sample.key
+                          }
+                          accessibilityLabel={exampleLabel(sample)}
+                          onPress={() => applySample(sample)}
+                        />
+                      ))}
+                    </View>
+                  </>
+                ) : null}
 
                 <View style={styles.editorHeader}>
                   <View>

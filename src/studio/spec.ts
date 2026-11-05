@@ -62,7 +62,7 @@ export const PATTERNS: PatternOption[] = [
     id: 'villa_pattern',
     label: 'Villa arpeggio',
     composer: 'Villa',
-    meters: ['4/4'],
+    meters: ['3/4', '4/4'],
   },
   {
     id: 'preludio',
@@ -667,6 +667,30 @@ export function findSample(
   return samples.find(
     (sample) => sample.pattern === pattern && sample.meter === meter,
   );
+}
+
+/** Every example for one pattern/meter pair, in API order. */
+export function samplesForPatternMeter(
+  pattern: string,
+  meter: string,
+  samples: readonly StudioSample[] = SAMPLES,
+): StudioSample[] {
+  return samples.filter(
+    (sample) => sample.pattern === pattern && sample.meter === meter,
+  );
+}
+
+/** Resolve a server example by its stable id (duplicates share pattern/meter). */
+export function findSampleById(
+  id: string | undefined,
+  samples: readonly StudioSample[] = SAMPLES,
+): StudioSample | undefined {
+  return id ? samples.find((sample) => sample.id === id) : undefined;
+}
+
+/** Compact example-chip label; ids stay readable when titles collide. */
+export function exampleLabel(sample: StudioSample): string {
+  return sample.id ?? sample.title;
 }
 
 /** Pattern ids in first-seen order, so the picker follows the API ordering. */

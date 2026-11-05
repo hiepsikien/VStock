@@ -67,7 +67,10 @@ import {
   examplesStatusLabel,
   examplesToSamples,
   filterPublishedSpecs,
+  exampleLabel,
   findSample,
+  findSampleById,
+  samplesForPatternMeter,
   fixtureForSpec,
   fixtureText,
   imageSizeError,
@@ -260,6 +263,23 @@ deepEqual(villaSamples[0]?.fixture, {
 });
 deepEqual(patternIds(villaSamples), ['villa_pattern']);
 deepEqual(metersForPattern(villaSamples, 'villa_pattern'), ['4/4']);
+
+const duplicateExamples = examplesToSamples([
+  villaExample,
+  {
+    ...villaExample,
+    id: 'suite_mazurka_arpeggio_aaba',
+    pattern: 'villa_pattern',
+    meter: '3/4',
+    payload: { ...villaExample.payload, id: 'suite_mazurka_arpeggio_aaba', meter: '3/4' },
+  },
+]);
+equal(samplesForPatternMeter('villa_pattern', '4/4', duplicateExamples).length, 1);
+equal(samplesForPatternMeter('villa_pattern', '3/4', duplicateExamples).length, 1);
+equal(findSampleById('suite_mazurka_arpeggio_aaba', duplicateExamples)?.meter, '3/4');
+equal(findSampleById('missing', duplicateExamples), undefined);
+equal(exampleLabel(duplicateExamples[0]!), 'villa_arpeggio_aba');
+equal(exampleLabel({ ...duplicateExamples[0]!, id: undefined }), 'Villa arpeggio · 4/4');
 
 // Publish/list formatting is deterministic and locale-free.
 equal(publishedAtLabel('2026-11-05T09:41:02.123+00:00'), '2026-11-05 09:41');

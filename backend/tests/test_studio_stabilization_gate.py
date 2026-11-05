@@ -63,7 +63,12 @@ import pytest
 import app.sonify.guitar_barrios_period as barrios
 import app.sonify.guitar_brouwer_production as brouwer
 import app.sonify.guitar_scale_passages as scale_passages
+import app.sonify.guitar_suite_choros1 as suite_choros1
+import app.sonify.guitar_suite_gavotta as suite_gavotta
+import app.sonify.guitar_suite_gate as suite_gate
 import app.sonify.guitar_suite_mazurka as suite
+import app.sonify.guitar_suite_schottish as suite_schottish
+import app.sonify.guitar_suite_valsa as suite_valsa
 import app.sonify.guitar_villa_production as villa
 import app.sonify.guitar_wave as guitar_wave
 import app.sonify.micro_velocity_writer as micro_writer
@@ -117,6 +122,12 @@ BROUWER_ON_DIGEST = (
 BARRIOS_ON_DIGEST = (
     "fc86d04b572f1921492a7fe19d32f527174e6df7e6ec6ff46ff860f7686d5473"
 )
+
+VALSA_ON_DIGEST = "251257f146c1e01e1278c49331e834f957ee6717e88c76c272c475153c05fef9"
+GAVOTTA_OFF_DIGEST = "597bc984befaf22568a2f9050d74fdf64f5151c00ebd33a6f7e49fa3989571b5"
+GAVOTTA_ON_DIGEST = "4566225cf0c8ca043f8df99668b7deb62e8a54b1e7c312333f76a193457b52b0"
+SCHOTTISH_ON_DIGEST = "2dfa8721e53a15a65fac6614fe3a48d1beb88981fb4017666447a1d3736459f4"
+CHOROS1_ON_DIGEST = "698953a982e382253a7d6a342aa0248e705197494f7ff6adc2666ef23ca76046"
 
 @dataclasses.dataclass(frozen=True)
 class _GateCase:
@@ -200,6 +211,70 @@ GATED_CASES = (
         ),
         id="barrios",
     ),
+    pytest.param(
+        _GateCase(
+            suite_valsa.use_suite_valsa_period,
+            "villa",
+            METER_34,
+            8,
+            SUITE_OFF_DIGEST,
+            VALSA_ON_DIGEST,
+            suite_valsa.SUITE_VALSA_KEY,
+            suite_valsa.SUITE_VALSA_PERIOD,
+            1,
+            suite_valsa.SUITE_VALSA_PATTERN,
+            suite_valsa.SUITE_VALSA_METER,
+        ),
+        id="suite_valsa",
+    ),
+    pytest.param(
+        _GateCase(
+            suite_gavotta.use_suite_gavotta_baab,
+            "villa",
+            METER_44,
+            8,
+            GAVOTTA_OFF_DIGEST,
+            GAVOTTA_ON_DIGEST,
+            suite_gavotta.SUITE_GAVOTTA_KEY,
+            suite_gavotta.SUITE_GAVOTTA_BAAB,
+            1,
+            suite_gavotta.SUITE_GAVOTTA_PATTERN,
+            suite_gavotta.SUITE_GAVOTTA_METER,
+        ),
+        id="suite_gavotta",
+    ),
+    pytest.param(
+        _GateCase(
+            suite_schottish.use_suite_schottish_abab,
+            "villa",
+            METER_44,
+            8,
+            GAVOTTA_OFF_DIGEST,
+            SCHOTTISH_ON_DIGEST,
+            suite_schottish.SUITE_SCHOTTISH_KEY,
+            suite_schottish.SUITE_SCHOTTISH_ABAB,
+            1,
+            suite_schottish.SUITE_SCHOTTISH_PATTERN,
+            suite_schottish.SUITE_SCHOTTISH_METER,
+        ),
+        id="suite_schottish",
+    ),
+    pytest.param(
+        _GateCase(
+            suite_choros1.use_suite_choros1_abba,
+            "villa",
+            METER_44,
+            8,
+            GAVOTTA_OFF_DIGEST,
+            CHOROS1_ON_DIGEST,
+            suite_choros1.SUITE_CHOROS1_KEY,
+            suite_choros1.SUITE_CHOROS1_ABBA,
+            1,
+            suite_choros1.SUITE_CHOROS1_PATTERN,
+            suite_choros1.SUITE_CHOROS1_METER,
+        ),
+        id="suite_choros1",
+    ),
 )
 
 
@@ -209,6 +284,10 @@ def _isolate_environment(monkeypatch: pytest.MonkeyPatch):
     for name in (
         flags.VILLA_PRODUCTION_ENV,
         flags.SUITE_MAZURKA_ENV,
+        flags.SUITE_VALSA_ENV,
+        flags.SUITE_GAVOTTA_ENV,
+        flags.SUITE_SCHOTTISH_ENV,
+        flags.SUITE_CHOROS1_ENV,
         flags.BROUWER_PRODUCTION_ENV,
         barrios.BARRIOS_PERIOD_ENV,
         micro_writer.WRITERS_FLAG,
@@ -307,7 +386,8 @@ def _with_slot_contour(
 @contextmanager
 def _installed(monkeypatch: pytest.MonkeyPatch, module: Any, key: Any, spec):
     """Install one authored spec without letting the owner replace it."""
-    monkeypatch.setattr(module, "ensure_registered", lambda: False)
+    monkeypatch.setattr(module, "ensure_registered", lambda *args, **kwargs: False)
+    monkeypatch.setattr(suite_gate, "ensure_registered", lambda *args, **kwargs: False)
     previous = specs.SENTENCE_SPECS.get(key)
     specs.SENTENCE_SPECS[key] = (spec,)
     try:
@@ -467,6 +547,10 @@ _OWNER_BY_CONTEXT = {
     suite.use_suite_mazurka_aba: suite,
     brouwer.use_brouwer_aba: brouwer,
     barrios.use_barrios_period: barrios,
+    suite_valsa.use_suite_valsa_period: suite_valsa,
+    suite_gavotta.use_suite_gavotta_baab: suite_gavotta,
+    suite_schottish.use_suite_schottish_abab: suite_schottish,
+    suite_choros1.use_suite_choros1_abba: suite_choros1,
 }
 
 
