@@ -302,7 +302,7 @@ Hệ quả cần test:
 
 ## 4. Meter: mô hình đúng
 
-> **Trạng thái code:** `MeterSpec` 6 field + canonical key **đã có** trong `app/studio/texture_spec.py` (schema/validator). Runtime `SentenceSpec` vẫn dùng `meter` string và registry key `(pattern, meter)`; `resolve_runtime_meter()`/materializer/12-8 policy **chưa có**.
+> **Trạng thái code:** `MeterSpec` 6 field + canonical key **đã có**; `app/studio/meter_runtime.py` có `resolve_runtime_meter()` (dùng thật `_guitar_meter` + `retarget_torroba_meter`), `resolve_meter_variant()` và chain check. Runtime vẫn không đổi; `SentenceSpec` vẫn dùng `meter` string, 12/8 fail-closed trừ variant `triplet_subdivision` được duyệt. Việc sửa fallback 12/8 trong runtime vẫn là Phase 3.
 
 ### 4.1. Thực tế trong code
 
@@ -1621,7 +1621,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
-| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; sentence-level selection/render matrix; compiler bundle + registration checklist | `resolve_runtime_meter`, materializer/12-8, pattern-level `_select_body` matrix, render-context `assert_authored_playable`, codegen |
+| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; sentence-level matrix; compiler bundle; registry codegen | pattern-level `_select_body` matrix, render-context `assert_authored_playable`, switch `PATTERN_NAMES`, Phase 3 runtime 12/8 |
 | 1 | Studio room + pill, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON | crop/native picker, apply draft → editor, validation queue, spec owner/visibility, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
