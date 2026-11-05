@@ -1,9 +1,9 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: **sentence authoring MVP đã code** (JSON `SentenceSpec`, validate/preview/audio/publish/rollback, UI Studio). Toàn bộ **`TextureSpec` + Gemini + compiler + interpreter** trong thân bài vẫn là proposal revision 7, **chưa code**.
+> **Trạng thái**: **sentence authoring MVP đã code** (JSON `SentenceSpec`, validate/preview/audio/publish/rollback, UI Studio) + **Phase 0 schema core** (`MeterSpec`/`TextureSpec` validator) + **sentence-level selection/render matrices** + **compiler bundle JSON** + **upload/Gemini draft/session quota**.
 > **Phạm vi đã code**: Torroba/Sor (5 pattern, 38 spec) + candidate preview-only Villa/Barrios/Brouwer; Barrios có production path sau flag default-off. Bach exposition mới có preview prototype.
 > **Nơi chạy**: trong app Musicalize (room Studio), backend FastAPI phía sau.
-> **Chưa có auth/session/owner/quota.** Publish hiện là SQLite global; `X-Studio-Session`, `owner_id`, signed media và upload dưới đây là **đề xuất Phase 1**, không phải code hiện tại.
+> **Auth:** chưa có. `X-Studio-Session` + `owner_id` + quota upload/analyze đã có cho `/v1/musicalize/studio`; owner/visibility cho sentence specs và publish vẫn là **Phase 1 tiếp theo**.
 > **Liên quan**: [`sonify-guitar-model.md`](./sonify-guitar-model.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
 
 ---
@@ -16,6 +16,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 |---|---|
 | JSON | `backend/app/studio/specs/*.json` — 7 file / 38 spec, wrapper `{schema_version, runtime: "code", specs}` |
 | Export | `python3 -m app.studio.export` và `--check` (stale detector) |
+| Compiler | `POST /v1/studio/sentence/export` + `.../specs/{id}/export`; bundle JSON `spec/fixture/rendered/registration`, **không ghi file** từ server |
 | Loader | `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True` |
 | Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}`; dispatch theo pattern (Torroba/Sor, Villa, Barrios, Brouwer) |
 | Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix; cùng một response shape cho mọi family |
@@ -25,28 +26,32 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
 | Candidates | **Villa** `villa_arpeggio_aba`, **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
-| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline kèm lineage; examples load từ API |
+| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload ảnh (web) + Gemini draft + notes table** (crop/native chưa) |
+| Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
+| Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
+| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng, 7 pair + 3 candidate) + `render_matrix.json` (41 row, 1.796 note); pattern-level `_select_body` matrix còn thiếu |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
 | Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter.
+**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, pattern-level selection matrix, codegen/`texture_registry.py`, crop/native UI, owner/visibility cho sentence specs.
 
 ### 0.1. Đối chiếu nhanh với proposal trong thân bài
 
 | Vùng | Code hiện tại | Proposal trong doc |
 |---|---|---|
 | Sentence | `app/studio/sentence_spec.py`: `id/pattern/meter/select/span/slots`, JSON round-trip | §13 sentence pipeline — ✅ khớp |
-| `TextureSpec` | **Chưa có**; authoring object là `SentenceSpec` | §6 `authored/derived/rendered`, pitch kinds, `assert_authored_playable` — **chưa** |
-| Meter | `meter` là string, khớp registry `(pattern, meter)` | §4 `MeterSpec` 6 field, canonical key, `resolve_runtime_meter` — **chưa** |
+| `TextureSpec` | **Schema + validator** trong `app/studio/texture_spec.py`; authoring runtime vẫn là `SentenceSpec` | §6 `authored/derived/rendered`, pitch resolution, `assert_authored_playable` — **một phần** |
+| Meter | `MeterSpec` 6 field + canonical key đã có; sentence registry vẫn dùng `meter` string | §4 `resolve_runtime_meter`, materializer/12-8 policy — **chưa** |
 | Validation | Validator theo family + fixture bounds + procedure refusal | §4/§6 validator đầy đủ — **một phần** |
 | Preview | Render bounded `_Ctx` bằng realizer thật | §8.1 `slice_score` của render đầy đủ — **khác thiết kế** |
 | Audio | Synth code-only 22.05 kHz, 96 BPM, cache theo `renderHash` | §8.2 MuseScore + global queue — **chưa** |
-| Publish | SQLite `studio_sentence_specs`, version bất biến + rollback `rollbackOf` | §11 bundle export + PR — **chưa** |
-| UI | Studio pill, JSON editor, validate/preview/audio/publish/rollback, examples API | §10 upload/crop/Gemini/session — **chưa** |
+| Publish | SQLite version bất biến + rollback `rollbackOf`; compiler trả bundle JSON | §11 PR automation + `preview.wav` — **chưa** |
+| UI | Studio pill, editor, validate/preview/audio/publish/rollback, examples, upload ảnh web, Gemini draft + notes table | §10 crop/native picker, apply-draft-to-editor — **chưa** |
 | Candidates | Villa/Barrios/Brouwer preview; Barrios flag off; Bach exposition preview | §3.2 Suite 5 movement + §13 Phase 2 — **chưa** |
-| Matrix/codegen/registry | **Chưa có** | §4.5.1, §12.2, §7.2 — **chưa** |
+| Matrix/codegen/registry | Sentence-level selection/render matrix đã có; codegen và `texture_registry.py` chưa | §4.5.1 pattern-level, §12.2, §7.2 — **một phần** |
+| Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token đã có | §10.2 spec owner/visibility, preview queue — **một phần** |
 | Runtime | Code-backed; không interpreter | §1.1 Phase 2/3 — **chưa** |
 
 Đọc thân bài: mọi câu “Đề xuất/Phase/Gate” là **kế hoạch**, không phải mô tả code hiện tại. Chỉ §0, §13.1–13.5 (sentence) và §13.6 (Barrios flag) phản ánh code hôm nay.
@@ -297,7 +302,7 @@ Hệ quả cần test:
 
 ## 4. Meter: mô hình đúng
 
-> **Trạng thái code:** phần này **chưa implement**. `SentenceSpec` hiện lưu `meter` dạng string và registry key là `(pattern, meter)`; chưa có `MeterSpec` 6 field, canonical tuple hay `resolve_runtime_meter()`. Đọc §4 như thiết kế đích.
+> **Trạng thái code:** `MeterSpec` 6 field + canonical key **đã có** trong `app/studio/texture_spec.py` (schema/validator). Runtime `SentenceSpec` vẫn dùng `meter` string và registry key `(pattern, meter)`; `resolve_runtime_meter()`/materializer/12-8 policy **chưa có**.
 
 ### 4.1. Thực tế trong code
 
@@ -581,6 +586,8 @@ Nếu `unsupported: true`, phải có `reason`; selection matrix không được
 
 #### Test
 
+> **Trạng thái code:** đã có **sentence-level** matrix: `backend/tests/guitar_fixture.py`, `fixtures/sentence_selection_matrix.json` (2.016 dòng, 7 registered pair + 3 candidate), `fixtures/render_matrix.json` (41 row), và hai test drift. **Pattern-level `_select_body` matrix** trên 38 profile vẫn chưa làm. Không dùng `conftest.py`; fixture là module trực tiếp.
+
 - `backend/tests/test_texture_selection_matrix.py`
 - `backend/tests/test_texture_render_matrix.py`
 - Cả hai so fixture với output mới; drift phải review, không tự update.
@@ -674,7 +681,7 @@ Chi tiết schema/validator/inventory: [`sonify-guitar-model.md`](./sonify-guita
 
 ## 6. Spec model: authored / derived / rendered
 
-> **Trạng thái code:** **chưa có `TextureSpec`**. Authoring hiện tại là `SentenceSpec` (slot + figure/cell/procedure); chưa có `authored/derived/rendered`, pitch reference kinds hay `assert_authored_playable`. Đọc §6 như thiết kế đích.
+> **Trạng thái code:** **schema + validator** đã có trong `app/studio/texture_spec.py` (`MeterSpec`, `PitchRef`, `AuthoredEvent`, `TextureSpec`, per-voice geometry, publish gate). Chưa có compiler/resolver sang `NoteEvent`, `derived`, hay `assert_authored_playable` đầy đủ (render-context checks). Authoring runtime hiện vẫn là `SentenceSpec`.
 
 ### 6.1. Ba tầng
 
@@ -1081,7 +1088,7 @@ preview.wav / rendered.json
 
 ## 9. Gemini vision
 
-> **Trạng thái code:** **chưa implement**. Không có upload/crop, `studio_vision.py`, cache Gemini hay quota. Đọc §9 như kế hoạch Phase 1.
+> **Trạng thái code:** **backend + UI đã có một phần**. `app/studio/vision.py` (Gemini prompt/schema/cache), `POST /v1/musicalize/studio/uploads`, `POST /analyze`, quota/session. UI upload ảnh (web) + notes table. **Chưa có** crop, native picker, apply draft vào editor, validation queue.
 
 ### 9.1. Reuse client hiện có
 
@@ -1198,7 +1205,7 @@ Hiện tại:
 
 ### 10.2. Session, không phải auth
 
-> **Trạng thái code:** **chưa có** `X-Studio-Session`, `owner_id`, `visibility` hay quota. Publish/list/get hiện là global, không scope theo session. Đọc phần dưới như thiết kế Phase 1.
+> **Trạng thái code:** `X-Studio-Session` + hash `owner_id` + quota upload/analyze + signed media token **đã có** cho `/v1/musicalize/studio` (`session.py`, `quota.py`, `store.py`). `visibility` và owner check cho sentence specs/publish **chưa có**; publish/list/get vẫn global.
 
 Hiện tại backend **không có auth**; CORS `allow_origins=["*"]`. Vì vậy:
 
@@ -1294,7 +1301,7 @@ draft → reviewed → validated → previewed → exported
 
 ### 11.1. Production dùng `/data`
 
-> **Trạng thái code:** publish dùng bảng `studio_sentence_specs` trong DB chung (`app/store/db.py`, `VSTOCK_DB_PATH`). Chưa có thư mục `/data/studio/uploads|previews|exports` vì chưa có upload/preview job/export bundle.
+> **Trạng thái code:** publish dùng bảng `studio_sentence_specs` trong DB chung (`app/store/db.py`, `VSTOCK_DB_PATH`). Upload dùng `VSTOCK_STUDIO_DIR` (default `backend/var/studio`, production `/data/studio`) + `studio_blobs`/`studio_uploads`. Chưa có preview job/queue hay export bundle trên đĩa.
 
 `backend/fly.toml` mount volume `vstock_data` tại `/data`; `VSTOCK_DB_PATH=/data/vstock.db`.
 
@@ -1315,6 +1322,8 @@ Khuyến nghị: dùng chung `app/store/db.py`:
 `backend/var/` chỉ dùng local dev; không dùng production.
 
 ### 11.2. Publish không ghi repo từ server
+
+> **Trạng thái code:** compiler trả **bundle JSON** qua `POST /v1/studio/sentence/export` và `.../specs/{id}/export`; `export_bundle` (library) ghi 4 file `spec/fixture/rendered/registration`. **Chưa có** `preview.wav`, `/data/studio/exports`, hay PR automation.
 
 Trên Fly không có git working tree. Server không được ghi `backend/app/sonify/textures/`.
 
@@ -1347,10 +1356,12 @@ Test sinh ra phải **data-driven**:
 backend/app/routers/studio.py          # validate, preview, examples
 backend/app/routers/studio_publish.py  # publish, specs, specs/{id}, rollback
 backend/app/routers/studio_audio.py    # audio + WAV
-backend/app/studio/                    # sentence_spec, preview, dispatch, publish, audio, candidates
+backend/app/routers/studio_export.py   # compile/export bundle (JSON, no writes)
+backend/app/routers/studio_vision.py   # access, uploads, analyze
+backend/app/studio/                    # sentence_spec, texture_spec, preview, dispatch, compiler, publish, audio, session, quota, store, vision, candidates
 ```
 
-Prefix thực tế: `/v1/studio/sentence`. Chưa có `/v1/musicalize/studio`, upload, analyze, export bundle hay preview job.
+Sentence prefix: `/v1/studio/sentence`. Vision/session prefix: `/v1/musicalize/studio`. Vẫn chưa có preview job/queue, crop server-side hay export file trên đĩa.
 
 **Đề xuất Phase 1:**
 
@@ -1494,7 +1505,7 @@ Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc
 
 ### 12.2. Registry codegen
 
-> **Trạng thái code:** **chưa có** `scripts/gen_pattern_registry.py` / `patternRegistry.generated.ts`; `PATTERN_NAMES` vẫn sửa tay. Đọc phần dưới như kế hoạch.
+> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`), nhưng **chưa có** `scripts/gen_pattern_registry.py` / `patternRegistry.generated.ts`; `PATTERN_NAMES` vẫn sửa tay. Đọc phần dưới như kế hoạch.
 
 Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.generated.ts` và có `--check`.
 
@@ -1608,8 +1619,8 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
-| 0 | Sentence schema/JSON, loader/export, validate/preview per family, registry `(pattern, meter)`, golden `sentence_plan.json` | `TextureSpec`, `MeterSpec`, authored/derived, `assert_authored_playable`, selection/render matrix, 12/8 policy |
-| 1 | Studio room + pill, JSON editor, examples, validate/preview, audio (synth), publish/rollback | Gemini/upload/crop, session/owner/quota, export bundle, signed media |
+| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; sentence-level selection/render matrix; compiler bundle + registration checklist | `resolve_runtime_meter`, materializer/12-8, pattern-level `_select_body` matrix, render-context `assert_authored_playable`, codegen |
+| 1 | Studio room + pill, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON | crop/native picker, apply draft → editor, validation queue, spec owner/visibility, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
 
@@ -1659,7 +1670,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ## 14. Tiêu chí nghiệm thu
 
-> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Hiện mới pass phần sentence: JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off. Các mục `MeterSpec`, `TextureSpec`, preview `slice_score`, Gemini, session, matrix, codegen, interpreter vẫn là **mục tiêu**.
+> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **sentence-level matrix**, **compiler bundle JSON**, **session/quota/upload/Gemini analyze** và UI draft. Các mục `resolve_runtime_meter`, pattern-level matrix, preview `slice_score`, crop/apply, spec owner/visibility, `preview.wav`, codegen, interpreter vẫn là **mục tiêu**.
 
 1. **Meter exact**: spec lưu đủ 6 field `MeterSpec`; so canonical tuple, không so `id`/string.
 2. **Meter sau retarget**: spec khớp `resolve_runtime_meter()` sau `_guitar_meter` + `retarget_torroba_meter`; compiler không gọi `active_meter()` ngoài `compose_meter`.
