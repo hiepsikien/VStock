@@ -8,8 +8,10 @@
  *
  * Contract seam while the backend contour API is not built:
  *
- *   The API returns `microVelocity` as a slot list: `[{ slot, contour }]`.
- *   `velocitySlotContours()` keeps every slot for the Studio selector;
+ *   The API returns `microVelocity` as a slot list:
+ *   `[{ slot, start, bars, contour }]`, where `contour` stays slot-relative
+ *   and `start` is the slot's resolved preview bar origin. `velocitySlotContours()`
+ *   keeps every slot for the Studio selector;
  *   `normalizeVelocityContour()` remains the single-slot compatibility path
  *   (first slot carrying a contour). Both also accept a bare documented
  *   contour object or a plain array of offsets. A note may also carry
@@ -83,6 +85,10 @@ export type MicroVelocity = VelocityOffsetsContour | VelocityRuleContour;
 export type VelocitySlotContour = {
   /** Index into `SentenceSpec.slots`; never a preview bar. */
   slot: number;
+  /** Preview bar where the slot starts (resolved by the backend anchor). */
+  start: number;
+  /** Authored slot span in bars; 0 when the wire omitted it. */
+  bars: number;
   /** `null` when the slot has no authored contour. */
   contour: MicroVelocity | null;
 };
@@ -168,6 +174,32 @@ export type VelocityLaneExtent = {
   hasPinned: boolean;
   needsRule: boolean;
 };
+
+/** One aligned x-position in the lane grid (an absolute preview bar/beat). */
+export type VelocityLaneColumn = {
+  key: string;
+  bar: number;
+  beat: number;
+};
+
+/**
+ * Shared bar/beat positions for every lane, sorted in performance order.
+ *
+ * Lanes draw against this list so bar and beat labels line up across voices;
+ * an empty position is a spacer, never a re-flowed column.
+ */
+export function velocityLaneColumns(
+  rows: readonly VelocityLaneRow[],
+): VelocityLaneColumn[] {
+  const columns = new Map<string, VelocityLaneColumn>();
+  for (const row of rows) {
+    const key = `${row.bar}:${String(row.beat)}`;
+    if (!columns.has(key)) columns.set(key, { key, bar: row.bar, beat: row.beat });
+  }
+  return [...columns.values()].sort(
+    (left, right) => left.bar - right.bar || left.beat - right.beat,
+  );
+}
 
 export type VelocityPreviewNote = VelocityLaneNote & {
   key: string;
@@ -334,10 +366,13 @@ function normalizeContourObject(value: unknown): MicroVelocity | null {
  * Accept the API slot list, the documented contour object, a plain offsets
  * array, or null, and return every selectable slot in wire order.
  *
- * `microVelocity` is served as `[{ slot, contour }]`. A bare contour object or
- * a plain offsets array is the single-slot compatibility path (slot 0). Slot
- * entries with a `null` contour stay in the list so the selector can show that
- * the slot exists but is unauthored.
+ * `microVelocity` is served as `[{ slot, start, bars, contour }]`: `start` is
+ * the resolved preview bar origin and `bars` the authored slot span. `contour`
+ * coordinates stay slot-relative, so the lane maps them through `start`.
+ * A bare contour object or a plain offsets array is the single-slot
+ * compatibility path (slot 0, origin 0). Slot entries with a `null` contour
+ * stay in the list so the selector can show that the slot exists but is
+ * unauthored.
  */
 export function velocitySlotContours(value: unknown): VelocitySlotContour[] {
   if (Array.isArray(value)) {
@@ -354,16 +389,25 @@ export function velocitySlotContours(value: unknown): VelocitySlotContour[] {
         seen.add(slot);
         slots.push({
           slot,
+          start: nonNegativeInteger(item.start) ?? 0,
+          bars: nonNegativeInteger(item.bars) ?? 0,
           contour: item.contour == null ? null : normalizeContourObject(item.contour),
         });
       });
       return slots;
     }
     // Compatibility: a plain array of offset entries is still accepted.
-    return [{ slot: 0, contour: { kind: 'offsets', notes: normalizeOffsets(value) } }];
+    return [
+      {
+        slot: 0,
+        start: 0,
+        bars: 0,
+        contour: { kind: 'offsets', notes: normalizeOffsets(value) },
+      },
+    ];
   }
   const contour = normalizeContourObject(value);
-  return contour ? [{ slot: 0, contour }] : [];
+  return contour ? [{ slot: 0, start: 0, bars: 0, contour }] : [];
 }
 
 /**
@@ -386,8 +430,20 @@ export function normalizeVelocityContour(value: unknown): MicroVelocity | null {
 }
 
 /** Selector label; slot indexes match the JSON `slots[]` array. */
-export function velocitySlotLabel(slot: number): string {
-  return `Slot ${Math.trunc(slot)}`;
+export function velocitySlotLabel(
+  slot: number,
+  bounds?: { start?: number | null; bars?: number | null } | null,
+): string {
+  const base = `Slot ${Math.trunc(slot)}`;
+  const start = finite(bounds?.start);
+  if (start == null) return base;
+  const origin = Math.max(0, Math.trunc(start));
+  const bars = finite(bounds?.bars);
+  const span = bars == null ? 0 : Math.max(0, Math.trunc(bars));
+  // Musicians read 1-based bars; slot data stays 0-based.
+  if (span === 0) return `${base} · from bar ${origin + 1}`;
+  if (span === 1) return `${base} · bar ${origin + 1}`;
+  return `${base} · bars ${origin + 1}–${origin + span}`;
 }
 
 export function velocityContourKind(
@@ -486,11 +542,11 @@ function relativeBar(
   barSpan: number | undefined,
 ): number {
   const relative = bar - barOffset;
-  if (barSpan && barSpan > 0) {
-    const wrapped = relative % barSpan;
-    return wrapped < 0 ? wrapped + barSpan : wrapped;
-  }
-  return relative;
+  // A bar before the slot origin cannot belong to this slot, tiled or not:
+  // never wrap it forward into the slot's coordinate range.
+  if (relative < 0 || !barSpan || barSpan <= 0) return relative;
+  // A whole-tile repeat maps back onto the authored slot coordinates.
+  return relative % barSpan;
 }
 
 /**
@@ -720,6 +776,8 @@ function coordinateKey(entry: VelocityOffset): string {
  * `SentenceSpec.slots[slot].microVelocity`.
  *
  * - Entries that are not edited are preserved verbatim.
+ * - New/replaced entries use `row.contourBar`, so a slot at preview bar 4
+ *   still saves `bar: 0` (slot-relative), never the absolute preview bar.
  * - Pinned entries are read-only and are never replaced by an edit.
  * - Rule contours are code-owned; edits are ignored so a save can block
  *   explicitly instead of silently converting a rule into offsets.
@@ -738,6 +796,9 @@ export function mergeVelocityEdits(
   for (const row of rows) {
     const edited = edits[row.key];
     if (edited == null || row.pinned) continue;
+    // A preview bar before the slot origin has no slot-relative coordinate;
+    // never write a negative bar into the spec.
+    if (row.contourBar < 0) continue;
     const target = row.thumb ? thumb : notes;
     const key = noteKey(row.contourBar, row.beat, row.voice, row.finger);
     const index = target.findIndex((entry) => coordinateKey(entry) === key);

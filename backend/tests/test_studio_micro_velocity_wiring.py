@@ -59,6 +59,14 @@ def _with_contour(payload: dict | None = None, contour: dict | None = None) -> d
     return data
 
 
+def _spec_payload(filename: str, spec_id: str) -> dict:
+    data = json.loads((SPECS_DIR / filename).read_text(encoding="utf-8"))
+    for spec in data["specs"]:
+        if spec["id"] == spec_id:
+            return copy.deepcopy(spec)
+    raise AssertionError(f"{filename} has no spec {spec_id!r}")
+
+
 def _slot_spec() -> SentenceSpec:
     return parse_spec(_with_contour())
 
@@ -306,7 +314,9 @@ def test_preview_returns_slot_contours_without_changing_notes() -> None:
 
     assert plain.ok and contoured.ok
     assert plain.micro_velocity == ()
-    assert contoured.micro_velocity == ({"slot": 0, "contour": CONTOUR},)
+    assert contoured.micro_velocity == (
+        {"slot": 0, "start": 0, "bars": 9, "contour": CONTOUR},
+    )
 
     # The contour is authored data: the render itself stays identical, but the
     # hash (and therefore the audio cache key) must tell the two specs apart.
@@ -315,8 +325,40 @@ def test_preview_returns_slot_contours_without_changing_notes() -> None:
 
     assert "microVelocity" not in plain.as_response()
     assert contoured.as_response()["microVelocity"] == [
-        {"slot": 0, "contour": CONTOUR}
+        {"slot": 0, "start": 0, "bars": 9, "contour": CONTOUR}
     ]
+
+
+def test_preview_reports_a_late_slot_origin() -> None:
+    """A slot at `start=1` maps contour bar 0 to preview bar 1."""
+    payload = _spec_payload("castillo-4-4.json", "castillo_44_pair_odd")
+    payload["slots"][0]["microVelocity"] = copy.deepcopy(CONTOUR)
+
+    result = preview.preview_spec(parse_spec(payload))
+
+    assert result.ok, result.errors
+    assert result.micro_velocity == (
+        {"slot": 0, "start": 1, "bars": 2, "contour": CONTOUR},
+    )
+
+
+def test_preview_resolves_middle_and_end_slot_origins() -> None:
+    """Middle/end anchors are length-relative, so the fixture resolves them."""
+    middle = _spec_payload("fandanguillo-any.json", "fan_odd_open")
+    middle["slots"][0]["microVelocity"] = copy.deepcopy(CONTOUR)
+    middle_result = preview.preview_spec(parse_spec(middle), {"length": 4})
+    assert middle_result.ok, middle_result.errors
+    # anchor="middle", start=-1, bars=2 in a 4-bar phrase: 4//2 - 1 = 1.
+    assert middle_result.micro_velocity[0]["start"] == 1
+    assert middle_result.micro_velocity[0]["bars"] == 2
+
+    end = _spec_payload("sonatina-any.json", "son_close_l4_5")
+    end["slots"][0]["microVelocity"] = copy.deepcopy(CONTOUR)
+    end_result = preview.preview_spec(parse_spec(end), {"length": 4})
+    assert end_result.ok, end_result.errors
+    # anchor="end", bars=3 in a 4-bar phrase: 4 - 3 = 1.
+    assert end_result.micro_velocity[0]["start"] == 1
+    assert end_result.micro_velocity[0]["bars"] == 3
 
 
 def _client() -> TestClient:
@@ -340,7 +382,9 @@ def test_preview_api_adds_micro_velocity_only_when_authored() -> None:
     )
     assert contoured.status_code == 200
     body = contoured.json()
-    assert body["microVelocity"] == [{"slot": 0, "contour": CONTOUR}]
+    assert body["microVelocity"] == [
+        {"slot": 0, "start": 0, "bars": 9, "contour": CONTOUR}
+    ]
     assert body["notes"] == plain.json()["notes"]
 
 

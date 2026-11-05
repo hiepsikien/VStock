@@ -109,6 +109,7 @@ import {
   noteKey,
   pinnedLabel,
   velocityContourIsEmpty,
+  velocityLaneColumns,
   velocityLaneDiff,
   velocityLaneExtent,
   velocityLaneLabel,
@@ -1814,6 +1815,58 @@ const shifted = velocityLaneRows(
 );
 equal(shifted[0]?.offset, -6);
 
+// A slot at preview bar 2 maps contour bar 0/1 to absolute bars 2/3, and a
+// whole-tile repeat wraps back onto the slot's coordinates.
+const lateSlotNotes = [
+  { bar: 2, beat: 0, duration: 1, midi: 60, voice: 1, velocity: 70 },
+  { bar: 3, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+  { bar: 6, beat: 0, duration: 1, midi: 67, voice: 1, velocity: 70 },
+];
+const slotOriginContour: MicroVelocity = {
+  kind: 'offsets',
+  notes: [
+    { bar: 0, beat: 0, voice: 1, offset: -6 },
+    { bar: 1, beat: 0, voice: 1, offset: 3 },
+  ],
+};
+const lateSlotRows = velocityLaneRows(lateSlotNotes, slotOriginContour, {
+  barOffset: 2,
+  barSpan: 2,
+});
+equal(lateSlotRows[0]?.bar, 2);
+equal(lateSlotRows[0]?.contourBar, 0);
+equal(lateSlotRows[0]?.offset, -6);
+equal(lateSlotRows[1]?.contourBar, 1);
+equal(lateSlotRows[1]?.offset, 3);
+equal(lateSlotRows[2]?.contourBar, 0);
+equal(lateSlotRows[2]?.offset, -6);
+
+// A preview bar before the slot origin can never wrap forward into the slot.
+const beforeSlot = velocityLaneRows(
+  [{ bar: 1, beat: 0, duration: 1, midi: 59, voice: 1, velocity: 70 }],
+  slotOriginContour,
+  { barOffset: 2, barSpan: 2 },
+);
+equal(beforeSlot[0]?.contourBar, -1);
+equal(beforeSlot[0]?.offset, 0);
+equal(beforeSlot[0]?.authored, false);
+
+// The shared grid keeps every lane on the same absolute bar/beat columns.
+const gridColumns = velocityLaneColumns(
+  velocityLaneRows(
+    [
+      { bar: 0, beat: 1, duration: 1, midi: 67, voice: 1, velocity: 70 },
+      { bar: 0, beat: 0, duration: 1, midi: 60, voice: 2, velocity: 70 },
+      { bar: 1, beat: 0, duration: 1, midi: 62, voice: 1, velocity: 70 },
+    ],
+    null,
+  ),
+);
+deepEqual(
+  gridColumns.map((column) => `${column.bar}:${column.beat}`),
+  ['0:0', '0:1', '1:0'],
+);
+
 // Display-only preview copies notes; the source objects are untouched.
 const sourceNotes = [
   { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
@@ -1897,9 +1950,8 @@ equal(normalizedContour.thumb?.length, 0);
 equal(normalizeVelocityContour({ kind: 'mystery' }), null);
 equal(normalizeVelocityContour(null), null);
 
-// The API serves `microVelocity` as `[{ slot, contour }]`. Studio has no slot
-// selector yet, so the first slot carrying a contour wins. A slot wrapper must
-// never be read as an offset entry.
+// The API serves `microVelocity` as `[{ slot, start, bars, contour }]`. A slot
+// wrapper must never be read as an offset entry.
 const slotContour = normalizeVelocityContour([
   {
     slot: 0,
@@ -1938,11 +1990,15 @@ equal(plainOffsets.notes[0]?.offset, -2);
 const selectedSlots = velocitySlotContours([
   {
     slot: 0,
+    start: 0,
+    bars: 2,
     contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -3 }] },
   },
-  { slot: 2, contour: null },
+  { slot: 2, start: 3, bars: 2, contour: null },
   {
     slot: 1,
+    start: 1,
+    bars: 2,
     contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0.5, voice: 1, offset: -7 }] },
   },
 ]);
@@ -1951,6 +2007,8 @@ deepEqual(
   [0, 2, 1],
 );
 equal(selectedSlots[1]?.contour, null);
+equal(selectedSlots[1]?.start, 3);
+equal(selectedSlots[1]?.bars, 2);
 if (
   !selectedSlots[2]?.contour ||
   selectedSlots[2].contour.kind !== 'offsets'
@@ -1958,7 +2016,21 @@ if (
   throw new Error('expected slot 1 offsets');
 }
 equal(selectedSlots[2].contour.notes[0]?.offset, -7);
+equal(selectedSlots[2].start, 1);
 equal(velocitySlotLabel(2), 'Slot 2');
+equal(velocitySlotLabel(1, selectedSlots[2]), 'Slot 1 · bars 2–3');
+equal(velocitySlotLabel(3, { start: 4, bars: 1 }), 'Slot 3 · bar 5');
+equal(velocitySlotLabel(0, { start: 2, bars: 0 }), 'Slot 0 · from bar 3');
+
+// Older preview payloads omit `start`/`bars`; they stay at origin 0.
+const legacySlots = velocitySlotContours([
+  {
+    slot: 0,
+    contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -3 }] },
+  },
+]);
+equal(legacySlots[0]?.start, 0);
+equal(legacySlots[0]?.bars, 0);
 
 // The single-slot path is unchanged: a bare contour maps to slot 0.
 const singleSlot = velocitySlotContours(normalizedContour);
@@ -2007,6 +2079,37 @@ equal(mergedContour.notes[1]?.beat, 1);
 equal(mergedContour.notes[1]?.offset, 5);
 if (editContour.kind !== 'offsets') throw new Error('expected offsets');
 equal(editContour.notes[0]?.offset, -6);
+
+// Save stays slot-relative: a row at preview bar 2 still writes contour bar 0.
+const shiftedEditRows = velocityLaneRows(
+  [
+    { bar: 2, beat: 0, duration: 1, midi: 60, voice: 1, velocity: 70 },
+    { bar: 3, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+  ],
+  { kind: 'offsets', notes: [] },
+  { barOffset: 2, barSpan: 2 },
+);
+const shiftedFirst = shiftedEditRows[0];
+const shiftedSecond = shiftedEditRows[1];
+if (!shiftedFirst || !shiftedSecond) throw new Error('expected shifted rows');
+const shiftedMerge = mergeVelocityEdits({ kind: 'offsets', notes: [] }, shiftedEditRows, {
+  [shiftedFirst.key]: -5,
+  [shiftedSecond.key]: 4,
+});
+if (shiftedMerge.kind !== 'offsets') throw new Error('expected offsets');
+equal(shiftedMerge.notes[0]?.bar, 0);
+equal(shiftedMerge.notes[0]?.offset, -5);
+equal(shiftedMerge.notes[1]?.bar, 1);
+equal(shiftedMerge.notes[1]?.offset, 4);
+
+// Edits on a bar before the slot origin are dropped, never saved as negative.
+const beforeSlotEdit = mergeVelocityEdits(
+  { kind: 'offsets', notes: [] },
+  beforeSlot,
+  { [beforeSlot[0]?.key ?? '']: -5 },
+);
+if (beforeSlotEdit.kind !== 'offsets') throw new Error('expected offsets');
+equal(beforeSlotEdit.notes.length, 0);
 
 // Pinned attacks are locked: an edit can never replace their absolute layer.
 const pinnedEdge: MicroVelocity = {

@@ -51,6 +51,7 @@ import { nextJobPollDelayMs, resolveAudioUrl } from './protocol';
 import { VelocityLane, type VelocityLaneSaveInfo } from './VelocityLane';
 import {
   velocitySlotContours,
+  velocitySlotLabel,
   type MicroVelocity,
 } from './velocity';
 import { saveVelocityContourToSpec } from './velocitySpec';
@@ -2558,6 +2559,8 @@ function PreviewVelocityPanel({
     null;
   const contour = activeSlot?.contour ?? null;
   const activeSlotNumber = activeSlot?.slot ?? null;
+  const slotOrigin = activeSlot?.start ?? 0;
+  const slotBars = activeSlot?.bars ?? 0;
 
   useEffect(() => {
     setSaveState({ kind: 'idle' });
@@ -2565,6 +2568,12 @@ function PreviewVelocityPanel({
 
   if (!data.ok || notes.length === 0) return null;
 
+  const slotRange =
+    slotBars > 0
+      ? slotBars === 1
+        ? `bar ${slotOrigin + 1}`
+        : `bars ${slotOrigin + 1}–${slotOrigin + slotBars}`
+      : null;
   const status =
     contour == null
       ? slots.length > 1
@@ -2575,6 +2584,7 @@ function PreviewVelocityPanel({
         : slots.length > 1
           ? `Authored micro-velocity offsets · ${slots.length} slots`
           : 'Authored micro-velocity offsets loaded';
+  const statusText = slotRange ? `${status} · ${slotRange}` : status;
 
   const saveContour = (next: MicroVelocity, info: VelocityLaneSaveInfo) => {
     if (!activeSlot) return;
@@ -2604,7 +2614,7 @@ function PreviewVelocityPanel({
       >
         <View style={styles.velocityHeaderText}>
           <Text style={[type.section, styles.velocityTitle]}>Velocity lane</Text>
-          <Text style={styles.velocityHint}>{status}</Text>
+          <Text style={styles.velocityHint}>{statusText}</Text>
         </View>
         <Text style={styles.velocityToggleText}>{open ? 'Hide' : 'Show'}</Text>
       </Pressable>
@@ -2616,10 +2626,12 @@ function PreviewVelocityPanel({
               {slots.map((item) => (
                 <Chip
                   key={item.slot}
-                  label={`Slot ${item.slot}`}
+                  label={velocitySlotLabel(item.slot, item)}
                   active={activeSlotNumber === item.slot}
                   onPress={() => setSelectedSlot(item.slot)}
-                  accessibilityLabel={`Show slot ${item.slot} velocity contour`}
+                  accessibilityLabel={`Show slot ${item.slot} velocity contour at bar ${
+                    item.start + 1
+                  }`}
                 />
               ))}
             </View>
@@ -2629,6 +2641,8 @@ function PreviewVelocityPanel({
             contour={contour}
             editable={contour != null}
             title="Preview velocity"
+            barOffset={slotOrigin}
+            barSpan={slotBars > 0 ? slotBars : undefined}
             onSaveContour={saveContour}
           />
           {saveState.kind === 'saved' ? (
