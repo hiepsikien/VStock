@@ -1978,8 +1978,7 @@ const slotOriginContour: MicroVelocity = {
   ],
 };
 const lateSlotRows = velocityLaneRows(lateSlotNotes, slotOriginContour, {
-  barOffset: 2,
-  barSpan: 2,
+  slot: { start: 2, bars: 2, tile: 4, exact: false },
 });
 equal(lateSlotRows[0]?.bar, 2);
 equal(lateSlotRows[0]?.contourBar, 0);
@@ -1993,11 +1992,63 @@ equal(lateSlotRows[2]?.offset, -6);
 const beforeSlot = velocityLaneRows(
   [{ bar: 1, beat: 0, duration: 1, midi: 59, voice: 1, velocity: 70 }],
   slotOriginContour,
-  { barOffset: 2, barSpan: 2 },
+  { slot: { start: 2, bars: 2, tile: 4, exact: false } },
 );
 equal(beforeSlot[0]?.contourBar, -1);
 equal(beforeSlot[0]?.offset, 0);
 equal(beforeSlot[0]?.authored, false);
+
+// A non-repeating (exact) slot never wraps: bars after its last bar stay
+// outside the contour, even when they would alias under a slot-bars modulo.
+const exactSlotRows = velocityLaneRows(
+  [
+    { bar: 2, beat: 0, duration: 1, midi: 60, voice: 1, velocity: 70 },
+    { bar: 3, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+    { bar: 4, beat: 0, duration: 1, midi: 67, voice: 1, velocity: 70 },
+    { bar: 5, beat: 0, duration: 1, midi: 69, voice: 1, velocity: 70 },
+  ],
+  slotOriginContour,
+  { slot: { start: 2, bars: 2, tile: 4, exact: true } },
+);
+equal(exactSlotRows[0]?.contourBar, 0);
+equal(exactSlotRows[0]?.offset, -6);
+equal(exactSlotRows[1]?.contourBar, 1);
+equal(exactSlotRows[1]?.offset, 3);
+equal(exactSlotRows[2]?.contourBar, -1);
+equal(exactSlotRows[2]?.offset, 0);
+equal(exactSlotRows[2]?.authored, false);
+equal(exactSlotRows[3]?.contourBar, -1);
+equal(exactSlotRows[3]?.offset, 0);
+
+// A repeating tile starting at 0 wraps once per tile, inside the slot span.
+const repeatedFromZeroRows = velocityLaneRows(
+  [
+    { bar: 0, beat: 0, duration: 1, midi: 60, voice: 1, velocity: 70 },
+    { bar: 1, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+    { bar: 2, beat: 0, duration: 1, midi: 67, voice: 1, velocity: 70 },
+    { bar: 3, beat: 0, duration: 1, midi: 69, voice: 1, velocity: 70 },
+  ],
+  slotOriginContour,
+  { slot: { start: 0, bars: 2, tile: 2, exact: false } },
+);
+equal(repeatedFromZeroRows[0]?.contourBar, 0);
+equal(repeatedFromZeroRows[0]?.offset, -6);
+equal(repeatedFromZeroRows[1]?.contourBar, 1);
+equal(repeatedFromZeroRows[1]?.offset, 3);
+equal(repeatedFromZeroRows[2]?.contourBar, 0);
+equal(repeatedFromZeroRows[2]?.offset, -6);
+equal(repeatedFromZeroRows[3]?.contourBar, 1);
+equal(repeatedFromZeroRows[3]?.offset, 3);
+
+// In a repeating tile, bars between the slot end and the next occurrence stay
+// outside it rather than borrowing a contour bar.
+const gapRows = velocityLaneRows(
+  [{ bar: 3, beat: 0, duration: 1, midi: 60, voice: 1, velocity: 70 }],
+  slotOriginContour,
+  { slot: { start: 0, bars: 2, tile: 4, exact: false } },
+);
+equal(gapRows[0]?.contourBar, -1);
+equal(gapRows[0]?.offset, 0);
 
 // The shared grid keeps every lane on the same absolute bar/beat columns.
 const gridColumns = velocityLaneColumns(
@@ -2170,6 +2221,72 @@ equal(velocitySlotLabel(1, selectedSlots[2]), 'Slot 1 · bars 2–3');
 equal(velocitySlotLabel(3, { start: 4, bars: 1 }), 'Slot 3 · bar 5');
 equal(velocitySlotLabel(0, { start: 2, bars: 0 }), 'Slot 0 · from bar 3');
 
+// The wire carries tile/exact/cycle so the lane can distinguish an exact
+// slot from a repeating tile. Legacy entries default to no tile and no repeat.
+const windowedSlots = velocitySlotContours([
+  {
+    slot: 0,
+    start: 0,
+    bars: 2,
+    tile: 4,
+    exact: false,
+    cycle: false,
+    contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -3 }] },
+  },
+  {
+    slot: 1,
+    start: 3,
+    bars: 2,
+    tile: null,
+    exact: true,
+    cycle: false,
+    contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -7 }] },
+  },
+]);
+equal(windowedSlots[0]?.tile, 4);
+equal(windowedSlots[0]?.exact, false);
+equal(windowedSlots[0]?.cycle, false);
+equal(windowedSlots[1]?.tile, null);
+equal(windowedSlots[1]?.exact, true);
+
+// Multi-slot mapping uses each selected slot's own window. The same preview
+// bars map to different contour bars, and bars outside the active slot miss.
+const multiSlotNotes = [0, 1, 2, 3, 4].map((bar) => ({
+  bar,
+  beat: 0,
+  duration: 1,
+  midi: 60 + bar,
+  voice: 1,
+  velocity: 70,
+}));
+const slotZeroRows = velocityLaneRows(
+  multiSlotNotes,
+  windowedSlots[0]?.contour ?? null,
+  { slot: windowedSlots[0] },
+);
+const slotOneRows = velocityLaneRows(
+  multiSlotNotes,
+  windowedSlots[1]?.contour ?? null,
+  { slot: windowedSlots[1] },
+);
+equal(slotZeroRows[0]?.contourBar, 0);
+equal(slotZeroRows[0]?.offset, -3);
+equal(slotZeroRows[1]?.contourBar, 1);
+equal(slotZeroRows[1]?.offset, 0);
+// Bars 2–3 are the gap after slot 0 inside the tile; they stay outside.
+equal(slotZeroRows[2]?.contourBar, -1);
+equal(slotZeroRows[3]?.contourBar, -1);
+// Slot 0 repeats every 4 bars, so bar 4 is its next occurrence.
+equal(slotZeroRows[4]?.contourBar, 0);
+equal(slotZeroRows[4]?.offset, -3);
+
+equal(slotOneRows[2]?.contourBar, -1);
+equal(slotOneRows[2]?.offset, 0);
+equal(slotOneRows[3]?.contourBar, 0);
+equal(slotOneRows[3]?.offset, -7);
+equal(slotOneRows[4]?.contourBar, 1);
+equal(slotOneRows[4]?.offset, 0);
+
 // Older preview payloads omit `start`/`bars`; they stay at origin 0.
 const legacySlots = velocitySlotContours([
   {
@@ -2179,6 +2296,9 @@ const legacySlots = velocitySlotContours([
 ]);
 equal(legacySlots[0]?.start, 0);
 equal(legacySlots[0]?.bars, 0);
+equal(legacySlots[0]?.tile, null);
+equal(legacySlots[0]?.exact, false);
+equal(legacySlots[0]?.cycle, false);
 
 // The single-slot path is unchanged: a bare contour maps to slot 0.
 const singleSlot = velocitySlotContours(normalizedContour);
@@ -2235,7 +2355,7 @@ const shiftedEditRows = velocityLaneRows(
     { bar: 3, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
   ],
   { kind: 'offsets', notes: [] },
-  { barOffset: 2, barSpan: 2 },
+  { slot: { start: 2, bars: 2, tile: 4, exact: false } },
 );
 const shiftedFirst = shiftedEditRows[0];
 const shiftedSecond = shiftedEditRows[1];
@@ -2258,6 +2378,29 @@ const beforeSlotEdit = mergeVelocityEdits(
 );
 if (beforeSlotEdit.kind !== 'offsets') throw new Error('expected offsets');
 equal(beforeSlotEdit.notes.length, 0);
+
+// Edits on a bar after a non-repeating slot end are dropped too: the row has
+// no slot-relative coordinate, so Save cannot smuggle it into the contour.
+const afterEndEdit = mergeVelocityEdits(
+  { kind: 'offsets', notes: [] },
+  exactSlotRows,
+  {
+    [exactSlotRows[2]?.key ?? '']: -5,
+    [exactSlotRows[3]?.key ?? '']: 7,
+  },
+);
+if (afterEndEdit.kind !== 'offsets') throw new Error('expected offsets');
+equal(afterEndEdit.notes.length, 0);
+
+// Repeating tile edits still save slot-relative bars.
+const repeatedEdit = mergeVelocityEdits(
+  { kind: 'offsets', notes: [] },
+  repeatedFromZeroRows,
+  { [repeatedFromZeroRows[2]?.key ?? '']: -5 },
+);
+if (repeatedEdit.kind !== 'offsets') throw new Error('expected offsets');
+equal(repeatedEdit.notes[0]?.bar, 0);
+equal(repeatedEdit.notes[0]?.offset, -5);
 
 // Pinned attacks are locked: an edit can never replace their absolute layer.
 const pinnedEdge: MicroVelocity = {

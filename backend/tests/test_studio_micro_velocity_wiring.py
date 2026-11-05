@@ -315,7 +315,15 @@ def test_preview_returns_slot_contours_without_changing_notes() -> None:
     assert plain.ok and contoured.ok
     assert plain.micro_velocity == ()
     assert contoured.micro_velocity == (
-        {"slot": 0, "start": 0, "bars": 9, "contour": CONTOUR},
+        {
+            "slot": 0,
+            "start": 0,
+            "bars": 9,
+            "tile": 9,
+            "exact": False,
+            "cycle": False,
+            "contour": CONTOUR,
+        },
     )
 
     # The contour is authored data: the render itself stays identical, but the
@@ -325,7 +333,15 @@ def test_preview_returns_slot_contours_without_changing_notes() -> None:
 
     assert "microVelocity" not in plain.as_response()
     assert contoured.as_response()["microVelocity"] == [
-        {"slot": 0, "start": 0, "bars": 9, "contour": CONTOUR}
+        {
+            "slot": 0,
+            "start": 0,
+            "bars": 9,
+            "tile": 9,
+            "exact": False,
+            "cycle": False,
+            "contour": CONTOUR,
+        }
     ]
 
 
@@ -338,7 +354,15 @@ def test_preview_reports_a_late_slot_origin() -> None:
 
     assert result.ok, result.errors
     assert result.micro_velocity == (
-        {"slot": 0, "start": 1, "bars": 2, "contour": CONTOUR},
+        {
+            "slot": 0,
+            "start": 1,
+            "bars": 2,
+            "tile": None,
+            "exact": True,
+            "cycle": False,
+            "contour": CONTOUR,
+        },
     )
 
 
@@ -359,6 +383,58 @@ def test_preview_resolves_middle_and_end_slot_origins() -> None:
     # anchor="end", bars=3 in a 4-bar phrase: 4 - 3 = 1.
     assert end_result.micro_velocity[0]["start"] == 1
     assert end_result.micro_velocity[0]["bars"] == 3
+
+
+def test_preview_reports_exact_and_repeating_sentence_semantics() -> None:
+    """The lane needs the tile/exact pair to wrap only a real repeat."""
+    exact_payload = _spec_payload("castillo-4-4.json", "castillo_44_pair_odd")
+    exact_payload["slots"][0]["microVelocity"] = copy.deepcopy(CONTOUR)
+    exact = preview.preview_spec(parse_spec(exact_payload), {"length": 3})
+    assert exact.ok, exact.errors
+    assert exact.micro_velocity[0]["exact"] is True
+    assert exact.micro_velocity[0]["tile"] is None
+    assert exact.micro_velocity[0]["cycle"] is False
+
+    repeated_payload = _castillo_payload()
+    repeated_payload["slots"][0]["microVelocity"] = copy.deepcopy(CONTOUR)
+    repeated = preview.preview_spec(parse_spec(repeated_payload), {"length": 18})
+    assert repeated.ok, repeated.errors
+    assert repeated.micro_velocity[0]["exact"] is False
+    assert repeated.micro_velocity[0]["tile"] == 9
+    assert repeated.micro_velocity[0]["bars"] == 9
+    assert repeated.micro_velocity[0]["cycle"] is False
+
+
+def test_preview_reports_cycle_semantics_per_slot() -> None:
+    payload = _spec_payload("galop-any.json", "galop_cycle")
+    for slot in payload["slots"]:
+        slot["microVelocity"] = copy.deepcopy(CONTOUR)
+
+    result = preview.preview_spec(parse_spec(payload), {"run_length": 16})
+
+    assert result.ok, result.errors
+    assert [(item["slot"], item["start"], item["bars"]) for item in result.micro_velocity] == [
+        (0, 0, 4),
+        (1, 4, 4),
+    ]
+    assert all(item["exact"] is False for item in result.micro_velocity)
+    assert all(item["cycle"] is True for item in result.micro_velocity)
+    assert all(item["tile"] == 8 for item in result.micro_velocity)
+
+
+def test_preview_reports_each_slot_origin_for_multiple_slots() -> None:
+    payload = _spec_payload("castillo-4-4.json", "castillo_44_pairs_odd")
+    for slot in payload["slots"]:
+        slot["microVelocity"] = copy.deepcopy(CONTOUR)
+
+    result = preview.preview_spec(parse_spec(payload), {"length": 5})
+
+    assert result.ok, result.errors
+    assert [(item["slot"], item["start"], item["bars"]) for item in result.micro_velocity] == [
+        (0, 0, 2),
+        (1, 3, 2),
+    ]
+    assert all(item["exact"] is True for item in result.micro_velocity)
 
 
 def _client() -> TestClient:
@@ -383,7 +459,15 @@ def test_preview_api_adds_micro_velocity_only_when_authored() -> None:
     assert contoured.status_code == 200
     body = contoured.json()
     assert body["microVelocity"] == [
-        {"slot": 0, "start": 0, "bars": 9, "contour": CONTOUR}
+        {
+            "slot": 0,
+            "start": 0,
+            "bars": 9,
+            "tile": 9,
+            "exact": False,
+            "cycle": False,
+            "contour": CONTOUR,
+        }
     ]
     assert body["notes"] == plain.json()["notes"]
 
