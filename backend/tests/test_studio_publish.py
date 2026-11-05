@@ -44,10 +44,37 @@ def client(tmp_path, monkeypatch) -> TestClient:
             test_client.portal.call(store.close_db)
 
 
-def _publish(client: TestClient, mapping: dict) -> dict:
-    response = client.post(PUBLISH, json=mapping)
+def _publish(
+    client: TestClient,
+    mapping: dict,
+    *,
+    session: str | None = None,
+    visibility: str | None = None,
+) -> dict:
+    headers = {"X-Studio-Session": session} if session is not None else None
+    params = {"visibility": visibility} if visibility is not None else None
+    response = client.post(
+        PUBLISH, json=mapping, headers=headers, params=params
+    )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def _list(
+    client: TestClient,
+    *,
+    session: str | None = None,
+    **params,
+) -> list[dict]:
+    headers = {"X-Studio-Session": session} if session is not None else None
+    response = client.get(SPECS, params=params, headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()["specs"]
+
+
+def _get(client: TestClient, spec_id: str, *, session: str | None = None):
+    headers = {"X-Studio-Session": session} if session is not None else None
+    return client.get(f"{SPECS}/{spec_id}", headers=headers)
 
 
 def test_publish_persists_and_round_trips(client: TestClient) -> None:
@@ -179,8 +206,9 @@ def test_get_unknown_spec_returns_404(client: TestClient) -> None:
 # --- rollback = republish an old payload as a new version -------------------
 
 
-def _rollback(client: TestClient, spec_id: str) -> dict:
-    response = client.post(f"{SPECS}/{spec_id}/rollback")
+def _rollback(client: TestClient, spec_id: str, *, session: str | None = None) -> dict:
+    headers = {"X-Studio-Session": session} if session is not None else None
+    response = client.post(f"{SPECS}/{spec_id}/rollback", headers=headers)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -371,3 +399,183 @@ def test_init_db_adds_rollback_of_to_an_existing_table(tmp_path, monkeypatch) ->
     columns, row = asyncio.run(migrate())
     assert "rollback_of" in columns
     assert row["rollback_of"] is None
+
+
+# --- session owner + visibility ---------------------------------------------
+
+
+def test_private_specs_are_scoped_to_the_publishing_session(
+    client: TestClient,
+) -> None:
+    body = spec_to_mapping(CASTILLO_34_WALK)
+    a = _publish(client, body, session="session-a")
+    b = _publish(client, body, session="session-b")
+
+    # Versions stay global per key (the UNIQUE constraint is unchanged), but
+    # each session only lists its own row.
+    assert (a["version"], b["version"]) == (1, 2)
+    assert [item["id"] for item in _list(client, session="session-a")] == [a["id"]]
+    assert [item["id"] for item in _list(client, session="session-b")] == [b["id"]]
+    assert _list(client) == []
+
+    # The other session's private row reads as missing, not forbidden.
+    assert _get(client, a["id"], session="session-a").status_code == 200
+    assert _get(client, a["id"], session="session-b").status_code == 404
+    assert _get(client, b["id"], session="session-a").status_code == 404
+    assert client.post(
+        f"{SPECS}/{a['id']}/rollback",
+        headers={"X-Studio-Session": "session-b"},
+    ).status_code == 404
+
+    # Nothing was appended by the rejected rollback.
+    assert len(_list(client, session="session-a")) == 1
+
+
+def test_public_specs_are_visible_to_every_session_but_not_rollbackable(
+    client: TestClient,
+) -> None:
+    body = spec_to_mapping(CASTILLO_34_WALK)
+    published = _publish(client, body, session="session-a", visibility="public")
+    assert published["visibility"] == "public"
+
+    # Both another session and the anonymous namespace can read it.
+    for session in ("session-b", None):
+        listed = _list(client, session=session)
+        assert [item["id"] for item in listed] == [published["id"]]
+        assert listed[0]["visibility"] == "public"
+
+        detail = _get(client, published["id"], session=session)
+        assert detail.status_code == 200
+        assert detail.json()["payload"] == body
+
+    # Visibility is not authority: only the owner may roll a row back.
+    forbidden = client.post(
+        f"{SPECS}/{published['id']}/rollback",
+        headers={"X-Studio-Session": "session-b"},
+    )
+    assert forbidden.status_code == 404
+    assert len(_list(client, session="session-a")) == 1
+
+    rolled = _rollback(client, published["id"], session="session-a")
+    assert rolled["rollbackOf"] == published["id"]
+    # A republished public row stays public.
+    assert rolled["visibility"] == "public"
+    assert len(_list(client, session="session-b")) == 2
+
+
+def test_anonymous_legacy_rows_stay_listable_only_by_anonymous(
+    client: TestClient,
+) -> None:
+    legacy = _publish(client, spec_to_mapping(CASTILLO_34_WALK))
+    assert "visibility" not in legacy  # default-private shape is unchanged
+    assert [item["id"] for item in _list(client)] == [legacy["id"]]
+    assert _list(client, session="session-a") == []
+    assert _get(client, legacy["id"], session="session-a").status_code == 404
+
+    # Rows written before the migration also default to anonymous/private.
+    _insert_raw_spec(
+        client,
+        spec_id="old-anonymous-row",
+        pattern="castillo",
+        meter="3/4",
+        version=2,
+        payload="{}",
+    )
+    assert {item["id"] for item in _list(client)} == {
+        legacy["id"],
+        "old-anonymous-row",
+    }
+
+
+def test_list_and_detail_expose_visibility_but_not_owner_id(
+    client: TestClient,
+) -> None:
+    private = _publish(client, spec_to_mapping(CASTILLO_34_WALK), session="session-a")
+    public = _publish(
+        client,
+        spec_to_mapping(SONATINA_SPECS[0]),
+        session="session-a",
+        visibility="public",
+    )
+
+    listed = _list(client, session="session-a")
+    assert {item["id"]: item["visibility"] for item in listed} == {
+        private["id"]: "private",
+        public["id"]: "public",
+    }
+    assert all("ownerId" not in item for item in listed)
+    assert all("owner_id" not in item for item in listed)
+
+    detail = _get(client, public["id"], session="session-a").json()
+    assert detail["visibility"] == "public"
+    assert "ownerId" not in detail
+    assert "owner_id" not in detail
+
+
+def test_invalid_visibility_is_rejected_before_storing(client: TestClient) -> None:
+    response = client.post(
+        PUBLISH,
+        json=spec_to_mapping(CASTILLO_34_WALK),
+        params={"visibility": "friends"},
+    )
+    assert response.status_code == 422
+    assert _list(client) == []
+
+
+def test_init_db_adds_owner_and_visibility_to_an_existing_table(
+    tmp_path, monkeypatch
+) -> None:
+    """Old rows migrate to (`anonymous`, `private`); the unique key survives."""
+    import sqlite3
+
+    from app.store import db as store
+
+    if store._db is not None:  # pragma: no cover - defensive cleanup
+        asyncio.run(store.close_db())
+
+    legacy_path = tmp_path / "legacy-owner.db"
+    connection = sqlite3.connect(legacy_path)
+    connection.executescript(
+        """
+        CREATE TABLE studio_sentence_specs (
+            id TEXT PRIMARY KEY,
+            pattern TEXT NOT NULL,
+            meter TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'published',
+            created_at TEXT NOT NULL,
+            rollback_of TEXT,
+            UNIQUE(pattern, meter, version)
+        );
+        INSERT INTO studio_sentence_specs
+            (id, pattern, meter, version, payload, status, created_at, rollback_of)
+        VALUES ('old-row', 'castillo', '3/4', 1, '{}', 'published',
+                '2025-01-01', NULL);
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    monkeypatch.setenv("VSTOCK_DB_PATH", str(legacy_path))
+
+    async def migrate():
+        await store.init_db()
+        db = await store.get_db()
+        cursor = await db.execute("PRAGMA table_info(studio_sentence_specs)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        cursor = await db.execute(
+            """
+            SELECT owner_id, visibility
+            FROM studio_sentence_specs
+            WHERE id = 'old-row'
+            """
+        )
+        row = await cursor.fetchone()
+        await store.close_db()
+        return columns, row
+
+    columns, row = asyncio.run(migrate())
+    assert {"rollback_of", "owner_id", "visibility"} <= columns
+    assert row["owner_id"] == "anonymous"
+    assert row["visibility"] == "private"

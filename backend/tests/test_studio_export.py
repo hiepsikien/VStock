@@ -404,6 +404,33 @@ def test_export_unknown_published_spec_returns_404(client: TestClient) -> None:
     assert client.post(f"{SPECS}/missing/export").status_code == 404
 
 
+def test_export_published_spec_is_scoped_to_the_session(client: TestClient) -> None:
+    publish_url = "/v1/studio/sentence/publish"
+    body = spec_to_mapping(CASTILLO_34_WALK)
+    owner = {"X-Studio-Session": "session-a"}
+    stranger = {"X-Studio-Session": "session-b"}
+
+    private = client.post(publish_url, json=body, headers=owner).json()
+    assert private["ok"] is True
+    assert (
+        client.post(f"{SPECS}/{private['id']}/export", headers=owner).status_code
+        == 200
+    )
+    assert (
+        client.post(f"{SPECS}/{private['id']}/export", headers=stranger).status_code
+        == 404
+    )
+
+    public = client.post(
+        publish_url, json=body, headers=owner, params={"visibility": "public"}
+    ).json()
+    assert public["visibility"] == "public"
+    assert (
+        client.post(f"{SPECS}/{public['id']}/export", headers=stranger).status_code
+        == 200
+    )
+
+
 def test_export_published_row_that_fails_family_validation(client: TestClient) -> None:
     bad = spec_to_mapping(CASTILLO_34_WALK)
     bad["pattern"] = "not_a_family"

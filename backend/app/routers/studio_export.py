@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from app.sonify.sentence_specs import SentenceSpec
 from app.store.db import get_db
 from app.studio import compiler, publish
+from app.studio import session as studio_session
 from app.studio.sentence_spec import parse_spec
 
 router = APIRouter(prefix="/v1/studio", tags=["studio-export"])
@@ -96,10 +97,11 @@ def export_sentence(body: ExportRequest) -> ExportResponse:
 )
 async def export_published_sentence(
     spec_id: str,
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> ExportResponse:
-    """Compile a published spec by id; 404 when the row does not exist."""
-    record = await publish.get_spec(db, spec_id)
+    """Compile a published spec by id; 404 when the row is not visible."""
+    record = await publish.get_spec(db, spec_id, owner_id=owner_id)
     if record is None:
         raise HTTPException(status_code=404, detail="published spec not found")
 

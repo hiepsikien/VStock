@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS studio_sentence_specs (
     status TEXT NOT NULL DEFAULT 'published',
     created_at TEXT NOT NULL,
     rollback_of TEXT,
+    owner_id TEXT NOT NULL DEFAULT 'anonymous',
+    visibility TEXT NOT NULL DEFAULT 'private',
     UNIQUE(pattern, meter, version)
 );
 
@@ -158,7 +160,13 @@ _FUNDAMENTALS_EXTRA_COLUMNS = (
 
 # Nullable lineage column: old rows read as "not a rollback" and new writes stay
 # additive, so `ALTER TABLE ... ADD COLUMN` is enough on an existing database.
-_STUDIO_SENTENCE_SPEC_EXTRA_COLUMNS = (("rollback_of", "TEXT"),)
+# Owner/visibility are also additive: defaults keep pre-scoping rows readable and
+# private to the `anonymous` namespace (a missing session header).
+_STUDIO_SENTENCE_SPEC_EXTRA_COLUMNS = (
+    ("rollback_of", "TEXT"),
+    ("owner_id", "TEXT NOT NULL DEFAULT 'anonymous'"),
+    ("visibility", "TEXT NOT NULL DEFAULT 'private'"),
+)
 
 # A Phase-1 database may already have a partial `studio_uploads` table (id,
 # owner, blob, created_at) from an earlier draft. Filename/MIME are additive

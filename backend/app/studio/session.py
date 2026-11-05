@@ -69,6 +69,18 @@ def require_owner(
     return owner_id
 
 
+# Namespace used by clients/tests that predate the session header. Sentence
+# publish keeps accepting them so old rows stay readable.
+ANONYMOUS_OWNER = "anonymous"
+
+
+def owner_or_anonymous(
+    x_studio_session: str | None = Header(default=None, alias=SESSION_HEADER),
+) -> str:
+    """FastAPI dependency: resolve the owner, falling back to `anonymous`."""
+    return owner_id_for(x_studio_session) or ANONYMOUS_OWNER
+
+
 @dataclass(frozen=True)
 class StudioQuota:
     uploads_per_day: int = 20
