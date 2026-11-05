@@ -50,7 +50,7 @@ Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycl
 | Publish | SQLite version bất biến + rollback `rollbackOf`; compiler trả bundle JSON | §11 PR automation + `preview.wav` — **chưa** |
 | UI | Studio pill, editor, validate/preview/audio/publish/rollback, examples, upload ảnh web, Gemini draft + notes table | §10 crop/native picker, apply-draft-to-editor — **chưa** |
 | Candidates | Villa/Barrios/Brouwer preview; Barrios flag off; Bach exposition preview | §3.2 Suite 5 movement + §13 Phase 2 — **chưa** |
-| Matrix/codegen/registry | Sentence-level selection/render matrix đã có; codegen và `texture_registry.py` chưa | §4.5.1 pattern-level, §12.2, §7.2 — **một phần** |
+| Matrix/codegen/registry | Sentence-level selection/render matrix + registry codegen đã có; `texture_registry.py` chưa | §4.5.1 pattern-level, §12.2 switch `PATTERN_NAMES`, §7.2 — **một phần** |
 | Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token đã có | §10.2 spec owner/visibility, preview queue — **một phần** |
 | Runtime | Code-backed; không interpreter | §1.1 Phase 2/3 — **chưa** |
 
@@ -1507,7 +1507,7 @@ Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc
 
 ### 12.2. Registry codegen
 
-> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`), nhưng **chưa có** `scripts/gen_pattern_registry.py` / `patternRegistry.generated.ts`; `PATTERN_NAMES` vẫn sửa tay. Đọc phần dưới như kế hoạch.
+> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`); codegen **đã có** `scripts/gen_pattern_registry.py` + `src/sonify/patternRegistry.generated.ts` (39 row, `--check` + pytest gate). `PATTERN_NAMES` vẫn sửa tay và **chưa** chuyển sang generated file — đó là bước tiếp theo.
 
 Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.generated.ts` và có `--check`.
 
