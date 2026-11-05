@@ -1,0 +1,383 @@
+{
+  "id": "chord_melody_phase2",
+  "composer": "villa",
+  "kind": "pattern",
+  "level": "topic",
+  "parent": null,
+  "runtime": "interpreter",
+  "status": "reviewed",
+  "source": {
+    "piece": "Texture interpreter prove-out — chord_melody",
+    "bars": [
+      1,
+      1
+    ],
+    "notation": "fixture",
+    "render_context": {
+      "pattern": "chord_melody",
+      "meter": "4/4",
+      "ensemble": "villa",
+      "bpm": 96,
+      "digest": "sha256:7bcef3fa1469bacc86c15958e689dc17667e90c8b402eedfdcfa1f59fa243208"
+    }
+  },
+  "meter_variants": [
+    {
+      "meter": {
+        "id": "4/4",
+        "beats": 4,
+        "beat_type": 4,
+        "eighths_per_bar": 8,
+        "strong_eighths": [
+          0,
+          4
+        ],
+        "subbar_breaks": [
+          4
+        ],
+        "extra_weights": []
+      },
+      "materializer": "chord_melody_phase2",
+      "transform": "none",
+      "unsupported": false,
+      "reason": null,
+      "sentences": []
+    }
+  ],
+  "authored": {
+    "events": [
+      {
+        "bar": 0,
+        "beat": 0.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 0
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 0.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 1
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 1.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 2
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 1.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 3
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 4
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 5
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 3.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 6
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 3.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 7
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 0.0,
+        "duration_beats": 1.0,
+        "voice": 2,
+        "pitch": {
+          "kind": "chord_degree",
+          "degree": 2
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 1.0,
+        "duration_beats": 1.0,
+        "voice": 2,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 51
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.0,
+        "duration_beats": 1.0,
+        "voice": 2,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 51
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 3.0,
+        "duration_beats": 1.0,
+        "voice": 2,
+        "pitch": {
+          "kind": "chord_degree",
+          "degree": 2
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 0.0,
+        "duration_beats": 1.0,
+        "voice": 3,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 48
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 1.0,
+        "duration_beats": 1.0,
+        "voice": 3,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 48
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.0,
+        "duration_beats": 1.0,
+        "voice": 3,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 48
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 3.0,
+        "duration_beats": 1.0,
+        "voice": 3,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 48
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      }
+    ]
+  },
+  "derived": {
+    "resolved_midi": "from_render_context",
+    "velocity": "host_resolver",
+    "hairpin": "phrase",
+    "humanize": "params"
+  },
+  "routing": {
+    "price": {
+      "voice": 1,
+      "source": "melody"
+    },
+    "bass": {
+      "voice": 3,
+      "mode": "chord_root"
+    },
+    "density": {
+      "voice": 2,
+      "mode": "block_grid"
+    }
+  },
+  "traits": {
+    "family": "arpeggio",
+    "kinetic": false,
+    "narrow_rows": [
+      6,
+      24,
+      80
+    ],
+    "scale_host": false,
+    "plucked": false,
+    "loud_down": true,
+    "has_door": false,
+    "pedal_door": false,
+    "sentence_registry": "none"
+  },
+  "provenance": {
+    "model": "hand-authored",
+    "prompt_version": "interpreter-phase2",
+    "schema_version": "texture-spec-1",
+    "renderer_version": "chord-melody-interpreter-1",
+    "confidence": 1.0,
+    "reviewed_by": "human",
+    "notes": "Phase 2 interpreter prove-out for chord_melody. The sung line uses melody_eighth. Inner and bass tones use literal_midi because the code writer folds chord tones into the bass/mid registers and moves the inner voice with the melody; a fixed chord_degree cannot reproduce that. Velocity is host-derived, not authored."
+  }
+}
