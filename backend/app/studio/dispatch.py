@@ -27,7 +27,9 @@ shared spelling.
 
 Nothing here registers a spec or touches the global `SENTENCE_SPECS`. The
 family modules keep owning their validation and rendering; this module only
-chooses the owner and normalizes the answer.
+chooses the owner and normalizes the answer. `resolve_fixture` exposes the same
+per-family fixture resolution, so the compiler can write the resolved preview
+input into an export bundle without a second copy of the defaults.
 """
 
 from __future__ import annotations
@@ -126,3 +128,28 @@ def preview_sentence(
     else:
         result = brouwer_preview.preview_brouwer_sentence(spec, fixture)
     return _normalize(result)
+
+
+_RESOLVERS = {
+    TORROBA_SOR: preview._resolve_fixture,
+    VILLA: villa_preview._resolve_fixture,
+    BARRIOS: barrios_preview._resolve_fixture,
+    BROUWER: brouwer_preview._resolve_fixture,
+}
+
+
+def resolve_fixture(
+    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """The bounded fixture `preview_sentence` would render for one spec.
+
+    The previews already apply family defaults (length, bars, profile, matrix
+    axes); the compiler needs the resolved values to write `fixture.json`, so
+    this exposes the same pure resolution step. It raises `ValueError` (or the
+    family's `SpecParseError`) on a bad fixture; callers that already previewed
+    successfully will not see one.
+    """
+    family = family_for(getattr(spec, "pattern", None))
+    if family is None:
+        raise ValueError(f"unknown pattern {getattr(spec, 'pattern', None)!r}")
+    return _RESOLVERS[family](spec, fixture)
