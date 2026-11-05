@@ -25,17 +25,17 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
-| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** `suite_mazurka_arpeggio_aaba` (3/4), `suite_valsa_arpeggio_period` (3/4), `suite_gavotta_arpeggio_baab` (4/4), `suite_schottish_arpeggio_abab` (4/4 fold), `suite_choros1_arpeggio_abba` (4/4 provisional), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
+| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** 5 movement (`suite_mazurka` 3/4, `suite_valsa` 3/4, `suite_gavotta` 4/4, `suite_schottish` 4/4 fold, `suite_choros1` 4/4 provisional), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview qua endpoint chung. Suite/Villa/Brouwer/Barrios có production path sau flag default off |
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + crop web + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (native picker chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
-| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (44 row) + `render_matrix.json` (46 row); pattern-level matrix có 1 `expected_empty` có lý do |
+| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (44 row) + `render_matrix.json` (46 row); pattern-level matrix có `expected_empty` có lý do |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
-| Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
+| Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; interpreter chỉ là proof 2 bar `chord_melody` sau flag default off |
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, `texture_registry.py`, native picker/crop, preview queue. TextureSpec draft đã apply/validate offline nhưng chưa render/register/publish.
+**Chưa làm:** Bach exposition production, multi-pattern/arbitrary-length interpreter, native picker/crop, durable preview/export, renderer-profile/derived golden, UI rule flatten, slot texture override source, final local stabilization. Suite/Villa/Brouwer/Barrios production đã có flag off; TextureSpec draft apply/validate offline, chưa render/register/publish.
 
 ### 0.1. Đối chiếu nhanh với proposal trong thân bài
 
@@ -263,7 +263,7 @@ Năm movement, nhưng trong engine chúng là **pattern thuộc palette Villa**,
 | Gavotta-Choro | `METER_44` — pickup/bar 0 **chưa chắc** | `suite_gavotta` | Gavotta-Choro |
 | Choros No. 1 | `METER_44` tạm — 2/4 vs 4/4 **chưa chốt** | `suite_choros1` | Choros No. 1 |
 
-Audit data-only: `backend/app/studio/villa_suite_audit.py` + `tests/test_villa_suite_audit.py`. Đề xuất movement đầu: **Mazurka-Choro 3/4**; candidate preview `suite_mazurka_arpeggio_aaba` và `suite_valsa_arpeggio_period` đã có; pattern registration chỉ mới cho Mazurka.
+Audit vẫn là `backend/app/studio/villa_suite_audit.py` + `tests/test_villa_suite_audit.py`. Cả 5 movement có candidate preview; Mazurka/Valsa/Gavotta/Schottish/Choros1 đã register production metadata/title/profile/door nhưng selection/render chỉ khi flag tương ứng on (default off).
 
 Quy tắc tên:
 
@@ -648,7 +648,7 @@ Ví dụ:
 
 ### 5.2. Villa chưa có sentence registry
 
-> **Trạng thái code:** `villa_pattern` vẫn là bar-level. Đã có **candidate preview-only** `villa_arpeggio_aba` (4/4) và **Suite audit data-only** trong `app/studio/villa_suite_audit.py` (đề xuất Mazurka-Choro 3/4). Chưa register, chưa có `suite_*` production pattern, chưa có candidate JSON/sentence registry.
+> **Trạng thái code:** `villa_pattern` vẫn là bar-level. `villa_arpeggio_aba` có production path sau `VSTOCK_VILLA_PRODUCTION`. Cả 5 Suite movement có candidate preview + production gate default off; chưa có sentence registry production mặc định.
 
 Trong code hiện tại:
 
@@ -1648,7 +1648,7 @@ Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.gen
 
 ### 12.3. Title coverage, không phải uniqueness toàn cục
 
-`PATTERN_NAMES` là set toàn cục theo title, derive từ registry `level === 'topic'`: **35 title** distinct từ 38 topic row. Toàn bộ registry có 44 row / 34 title (gồm `Pedal`); 38 wave-profile row cho 33 title. **Không test uniqueness toàn cục** — 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
+`PATTERN_NAMES` là set toàn cục theo title, derive từ registry `level === 'topic'`: **35 title** distinct từ 38 topic row. Toàn bộ registry có 44 row / 39 title (gồm `Pedal`); 43 wave-profile row cho 38 title. **Không test uniqueness toàn cục** — 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
 
 ```python
 from collections import defaultdict
@@ -1811,13 +1811,13 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - Chạy `v2` local nội bộ (backend + `npm run web`) một thời gian, thu feedback, sửa lỗi trực tiếp trên `v2`.
 - Chỉ mở **một** PR `main ← v2` khi người phụ trách xác nhận `v2` ổn định; PR #163 đã đóng để tránh merge nhầm.
 - Tiêu chí ổn định tối thiểu: full backend + frontend tests xanh, không lỗi P0/P1 trong thời gian chạy local nội bộ, không regression ngoài Studio.
-- **E2E gate:** `backend/tests/test_studio_e2e.py` (11 test) phủ example→validate→preview→audio→publish→rollback→list/get, upload/analyze/signed media, job queue, owner/visibility; socket guard chặn network. Chạy focused trước, rồi `tests/test_studio_*.py`, rồi full backend.
+- **E2E gate:** `backend/tests/test_studio_e2e.py` (13 test) phủ example→validate→preview→audio→publish→rollback→list/get, upload/analyze/signed media, job queue, owner/visibility; socket guard chặn network. Thêm `test_studio_stabilization_gate.py` (19 test) pin flag off/on digest, shared tail, slot/texture override, interpreter dispatch. Chạy focused trước, rồi `tests/test_studio_*.py`, rồi full backend.
 
 ---
 
 ## 14. Tiêu chí nghiệm thu
 
-> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **meter runtime resolver**, **sentence + pattern + render matrices**, **compiler bundle JSON**, **registry codegen + derived `PATTERN_NAMES`**, **session/quota/upload/Gemini analyze**, **spec owner/visibility** và UI draft. Các mục preview `slice_score`, durable preview queue/media, native crop, renderer-profile playability/derived golden, interpreter và Suite vẫn là **mục tiêu**.
+> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass sentence authoring, schema/validator, meter resolver, matrices, compiler, codegen, session/upload/analyze, owner/visibility, full production tail + slot override (flags off), Suite palette, two-bar interpreter dispatch, E2E/stabilization gates. Các mục Bach production, multi-pattern interpreter, native crop, durable queue/export, renderer-profile/derived golden, UI rule flatten và local stability vẫn là **mục tiêu**.
 
 1. **Meter exact**: spec lưu đủ 6 field `MeterSpec`; so canonical tuple, không so `id`/string.
 2. **Meter sau retarget**: spec khớp `resolve_runtime_meter()` sau `_guitar_meter` + `retarget_torroba_meter`; compiler không gọi `active_meter()` ngoài `compose_meter`.
