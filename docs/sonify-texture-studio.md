@@ -22,7 +22,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 3 candidate) để UI không copy JSON tay |
 | Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |\n| Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
-| Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; preview báo “not implemented”, chưa render |
+| Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`, nhưng `bach_exposition` đã có **preview-only** renderer |
 | Candidates | **Villa** `villa_arpeggio_aba`, **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline kèm lineage; examples load từ API |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
@@ -30,7 +30,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition, Phase 2 interpreter.
+**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter.
 
 ---
 
