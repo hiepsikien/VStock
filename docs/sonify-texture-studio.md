@@ -3,7 +3,7 @@
 > **Trạng thái**: **sentence authoring MVP đã code** (JSON `SentenceSpec`, validate/preview/audio/publish/rollback, UI Studio) + **Phase 0 schema core** (`MeterSpec`/`TextureSpec` validator) + **sentence-level selection/render matrices** + **compiler bundle JSON** + **upload/Gemini draft/session quota**.
 > **Phạm vi đã code**: Torroba/Sor (5 pattern, 38 spec) + candidate preview-only Villa/Barrios/Brouwer; Barrios có production path sau flag default-off. Bach exposition mới có preview prototype.
 > **Nơi chạy**: trong app Musicalize (room Studio), backend FastAPI phía sau.
-> **Auth:** chưa có. `X-Studio-Session` + `owner_id` + quota upload/analyze đã có cho `/v1/musicalize/studio`; owner/visibility cho sentence specs và publish vẫn là **Phase 1 tiếp theo**.
+> **Auth:** chưa có. `X-Studio-Session` + `owner_id` + quota upload/analyze đã có; sentence specs cũng đã có `owner_id` + `visibility private/public` (publish/list/get/rollback/export scoped, private foreign id → 404). Đây vẫn là namespace, không phải auth.
 > **Liên quan**: [`sonify-guitar-model.md`](./sonify-guitar-model.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
 
 ---
@@ -35,7 +35,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, pattern-level selection matrix, codegen/`texture_registry.py`, crop/native UI, owner/visibility cho sentence specs.
+**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, pattern-level selection matrix, switch `PATTERN_NAMES` sang generated file, `texture_registry.py`, crop/native UI, preview queue.
 
 ### 0.1. Đối chiếu nhanh với proposal trong thân bài
 
@@ -51,7 +51,7 @@ Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycl
 | UI | Studio pill, editor, validate/preview/audio/publish/rollback, examples, upload ảnh web, Gemini draft + notes table | §10 crop/native picker, apply-draft-to-editor — **chưa** |
 | Candidates | Villa/Barrios/Brouwer preview; Barrios flag off; Bach exposition preview | §3.2 Suite 5 movement + §13 Phase 2 — **chưa** |
 | Matrix/codegen/registry | Sentence-level selection/render matrix + registry codegen đã có; `texture_registry.py` chưa | §4.5.1 pattern-level, §12.2 switch `PATTERN_NAMES`, §7.2 — **một phần** |
-| Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token đã có | §10.2 spec owner/visibility, preview queue — **một phần** |
+| Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token, spec `owner_id`/`visibility` + scoped publish/list/get/rollback/export | preview queue — **một phần** |
 | Runtime | Code-backed; không interpreter | §1.1 Phase 2/3 — **chưa** |
 
 Đọc thân bài: mọi câu “Đề xuất/Phase/Gate” là **kế hoạch**, không phải mô tả code hiện tại. Chỉ §0, §13.1–13.5 (sentence) và §13.6 (Barrios flag) phản ánh code hôm nay.
@@ -1205,7 +1205,7 @@ Hiện tại:
 
 ### 10.2. Session, không phải auth
 
-> **Trạng thái code:** `X-Studio-Session` + hash `owner_id` + quota upload/analyze + signed media token **đã có** cho `/v1/musicalize/studio` (`session.py`, `quota.py`, `store.py`). `visibility` và owner check cho sentence specs/publish **chưa có**; publish/list/get vẫn global.
+> **Trạng thái code:** `X-Studio-Session` + hash `owner_id` + quota upload/analyze + signed media token **đã có**; sentence specs cũng đã có `owner_id` + `visibility private/public` trong `studio_sentence_specs`, và publish/list/get/rollback/export scope theo session. Thiếu `X-Studio-Session` → namespace `anonymous` để tương thích cũ. Không trả `ownerId` ra response.
 
 Hiện tại backend **không có auth**; CORS `allow_origins=["*"]`. Vì vậy:
 
@@ -1424,7 +1424,7 @@ Token ký theo `owner_id + resource_id + expiry`, TTL 5–15 phút, revoke khi s
 
 ### 11.4. DDL tối thiểu
 
-**Hiện tại:** bảng publish thật là `studio_sentence_specs(id, pattern, meter, version, payload, status, created_at, rollback_of)` với `UNIQUE(pattern, meter, version)`; không có upload/blob/owner. Phần DDL dưới đây là **đề xuất Phase 1**.
+**Hiện tại:** bảng publish thật là `studio_sentence_specs(id, pattern, meter, version, payload, status, created_at, rollback_of, owner_id, visibility)` với `UNIQUE(pattern, meter, version)`; `owner_id` default `anonymous`, `visibility` default `private`, version vẫn global theo `(pattern, meter)`. Upload/blob dùng bảng riêng `studio_blobs`/`studio_uploads`/`studio_quota`. Phần DDL dưới đây là **đề xuất Phase 1**.
 
 ```sql
 CREATE TABLE IF NOT EXISTS studio_blobs (
@@ -1622,7 +1622,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
 | 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence-level matrix; compiler bundle; registry codegen | pattern-level `_select_body` matrix, renderer-profile playability, switch `PATTERN_NAMES`, Phase 3 runtime 12/8 |
-| 1 | Studio room + pill, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON | crop/native picker, apply draft → editor, validation queue, spec owner/visibility, `preview.wav`/export files, PR automation |
+| 1 | Studio room, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON, spec owner/visibility | crop/native picker, apply draft → editor, validation queue, preview queue, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
 
