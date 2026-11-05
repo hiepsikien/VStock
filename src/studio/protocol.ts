@@ -358,3 +358,303 @@ export function resolveAudioUrl(baseUrl: string, value: unknown): string | null 
   const path = raw.startsWith('/') ? raw : `/${raw}`;
   return base ? `${base}${path}` : path;
 }
+
+/* ------------------------------------------------------------------------- *
+ * Phase 1 front half: access, upload, analyze.
+ *
+ * Contract (parallel backend workstream, docs §10.2.1 / §11.3):
+ *
+ *   GET  {prefix}/access   -> { enabled, reason, seats?, quota }
+ *   POST {prefix}/uploads  multipart `file` -> { ok, id, sha256, filename,
+ *                            mime, url, token, width?, height? }
+ *   POST {prefix}/analyze  { uploadId, crop?, metadata? }
+ *                          -> { ok, measures, notes, warnings, cached,
+ *                               partial?, skippedChecks? }
+ *
+ * Media URLs may be relative; callers resolve them against the API base.
+ * ------------------------------------------------------------------------- */
+
+export type StudioQuota = {
+  uploadsPerDay: number;
+  analysesPerDay: number;
+  specsPerDay: number;
+  maxImageMb: number;
+  previewsConcurrent: number;
+};
+
+export type StudioAccess = {
+  ok: boolean;
+  enabled: boolean;
+  /** `open_beta` | `entitled` | `disabled`; unknown values pass through. */
+  reason: string;
+  seats: number | null;
+  quota: StudioQuota;
+  errors: StudioError[];
+};
+
+export type StudioUpload = {
+  ok: boolean;
+  id: string | null;
+  sha256: string | null;
+  filename: string | null;
+  mime: string | null;
+  url: string | null;
+  token: string | null;
+  width: number | null;
+  height: number | null;
+  errors: StudioError[];
+};
+
+export type StudioAnalysisMeasure = {
+  index: number | null;
+  meter: string | null;
+  key: string | null;
+};
+
+/** One draft note; names mirror the Gemini contract in docs §9.2. */
+export type StudioAnalysisNote = {
+  measure: number | null;
+  bar: number | null;
+  beat: number | null;
+  durationBeats: number | null;
+  voiceHint: string | null;
+  writtenPitch: string | null;
+  soundingPitch: string | null;
+  string: number | null;
+  fret: number | null;
+  confidence: number | null;
+  conflict: boolean;
+  review: string | null;
+  tie: string | null;
+  articulation: string[];
+};
+
+export type StudioAnalyzeDraft = {
+  ok: boolean;
+  measures: StudioAnalysisMeasure[];
+  notes: StudioAnalysisNote[];
+  warnings: string[];
+  cached: boolean;
+  partial: boolean;
+  /** Checks skipped because the draft has no render context (`pitch`, …). */
+  skippedChecks: string[];
+  errors: StudioError[];
+};
+
+const EMPTY_QUOTA: StudioQuota = {
+  uploadsPerDay: 0,
+  analysesPerDay: 0,
+  specsPerDay: 0,
+  maxImageMb: 0,
+  previewsConcurrent: 0,
+};
+
+function optionalInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** Accept 0..1, and defensively divide a 0..100 percentage. */
+function confidenceValue(value: unknown): number | null {
+  const number = finiteNumber(value);
+  if (number == null || number < 0) return null;
+  if (number <= 1) return number;
+  if (number <= 100) return number / 100;
+  return null;
+}
+
+function booleanFlag(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1;
+}
+
+/** `reason` is a free string so a new backend value still renders. */
+export function normalizeAccessResponse(body: unknown): StudioAccess {
+  if (!isRecord(body)) {
+    throw new Error('Studio access API returned a non-object response.');
+  }
+  const errors = normalizeErrors(body);
+  const quotaRaw = isRecord(body.quota) ? body.quota : {};
+  const reason = text(body.reason) ?? 'unknown';
+  const enabled =
+    typeof body.enabled === 'boolean'
+      ? body.enabled
+      : body.ok === false || errors.length > 0
+        ? false
+        : reason !== 'disabled' && reason !== 'unknown';
+  return {
+    ok: typeof body.ok === 'boolean' ? body.ok : enabled,
+    enabled,
+    reason,
+    seats: optionalInteger(body.seats),
+    quota: {
+      uploadsPerDay: nonNegativeNumber(quotaRaw.uploadsPerDay ?? quotaRaw.uploads_per_day),
+      analysesPerDay: nonNegativeNumber(
+        quotaRaw.analysesPerDay ?? quotaRaw.analyses_per_day,
+      ),
+      specsPerDay: nonNegativeNumber(quotaRaw.specsPerDay ?? quotaRaw.specs_per_day),
+      maxImageMb: nonNegativeNumber(quotaRaw.maxImageMb ?? quotaRaw.max_image_mb),
+      previewsConcurrent: nonNegativeNumber(
+        quotaRaw.previewsConcurrent ?? quotaRaw.previews_concurrent,
+      ),
+    },
+    errors,
+  };
+}
+
+/** Empty quota for the loading/failure states so the UI has one shape. */
+export function emptyStudioQuota(): StudioQuota {
+  return { ...EMPTY_QUOTA };
+}
+
+export function normalizeUploadResponse(body: unknown): StudioUpload {
+  if (!isRecord(body)) {
+    throw new Error('Studio upload API returned a non-object response.');
+  }
+  const errors = normalizeErrors(body);
+  const id = text(body.id) ?? text(body.uploadId) ?? text(body.upload_id);
+  return {
+    ok: typeof body.ok === 'boolean' ? body.ok : Boolean(id) && errors.length === 0,
+    id,
+    sha256: text(body.sha256) ?? text(body.sha),
+    filename: text(body.filename) ?? text(body.name),
+    mime: text(body.mime) ?? text(body.mimeType) ?? text(body.mime_type),
+    url: text(body.url),
+    token: text(body.token),
+    width: optionalInteger(body.width),
+    height: optionalInteger(body.height),
+    errors,
+  };
+}
+
+function measureValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeMeasure(value: unknown): StudioAnalysisMeasure | null {
+  if (!isRecord(value)) return null;
+  const index = optionalInteger(value.index);
+  const meter = text(value.meter);
+  const key = text(value.key);
+  if (index == null && !meter && !key) return null;
+  return { index, meter, key };
+}
+
+function articulationList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => text(item)).filter((item): item is string => item !== null);
+}
+
+function normalizeNote(value: unknown): StudioAnalysisNote | null {
+  if (!isRecord(value)) return null;
+  const measure = measureValue(value.measure);
+  const bar = measureValue(value.bar);
+  const writtenPitch = text(value.writtenPitch) ?? text(value.written_pitch);
+  const soundingPitch = text(value.soundingPitch) ?? text(value.sounding_pitch);
+  if (measure == null && bar == null && !writtenPitch && !soundingPitch) {
+    return null;
+  }
+  return {
+    measure,
+    bar,
+    beat: measureValue(value.beat),
+    durationBeats:
+      finiteNumber(value.durationBeats) ?? finiteNumber(value.duration_beats),
+    voiceHint: text(value.voiceHint) ?? text(value.voice_hint) ?? text(value.voice),
+    writtenPitch,
+    soundingPitch,
+    string: optionalInteger(value.string),
+    fret: optionalInteger(value.fret),
+    confidence: confidenceValue(value.confidence),
+    conflict: booleanFlag(value.conflict),
+    review: text(value.review),
+    tie: text(value.tie),
+    articulation: articulationList(value.articulation),
+  };
+}
+
+function warningList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    const single = text(value);
+    return single ? [single] : [];
+  }
+  return value
+    .map((item) => (isRecord(item) ? text(item.message) ?? text(item.msg) : text(item)))
+    .filter((item): item is string => item !== null);
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => text(item)).filter((item): item is string => item !== null);
+}
+
+export function normalizeAnalyzeResponse(body: unknown): StudioAnalyzeDraft {
+  if (!isRecord(body)) {
+    throw new Error('Studio analyze API returned a non-object response.');
+  }
+  const errors = normalizeErrors(body);
+  const measures = Array.isArray(body.measures)
+    ? body.measures
+        .map(normalizeMeasure)
+        .filter((item): item is StudioAnalysisMeasure => item !== null)
+    : [];
+  const notes = Array.isArray(body.notes)
+    ? body.notes
+        .map(normalizeNote)
+        .filter((item): item is StudioAnalysisNote => item !== null)
+    : [];
+  return {
+    ok: typeof body.ok === 'boolean' ? body.ok : errors.length === 0,
+    measures,
+    notes,
+    warnings: warningList(body.warnings),
+    cached: booleanFlag(body.cached),
+    partial: booleanFlag(body.partial),
+    skippedChecks: stringList(body.skippedChecks ?? body.skipped_checks),
+    errors,
+  };
+}
+
+/** Body for `POST /analyze`; metadata/crop are omitted when empty. */
+export function buildAnalyzeBody(
+  uploadId: string,
+  metadata?: Record<string, unknown>,
+  crop?: Record<string, unknown>,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { uploadId };
+  if (crop && Object.keys(crop).length) body.crop = crop;
+  if (metadata && Object.keys(metadata).length) body.metadata = metadata;
+  return body;
+}
+
+/** `Retry-After` is seconds in this API; ignore HTTP-date values. */
+export function parseRetryAfter(value: string | null | undefined): number | null {
+  if (typeof value !== 'string') return null;
+  const seconds = Number(value.trim());
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds) : null;
+}
+
+/**
+ * Friendly copy for a Studio session/quota rejection, or null for unrelated
+ * statuses (which keep the generic `Studio API <status>` error).
+ */
+export function studioSessionError(
+  status: number,
+  retryAfterSec?: number | null,
+): string | null {
+  if (status === 401 || status === 403 || status === 428) {
+    return 'Studio session was rejected. Reload the page to start a new session.';
+  }
+  if (status === 429) {
+    const retry =
+      typeof retryAfterSec === 'number' && retryAfterSec > 0
+        ? ` Try again in ${retryAfterSec}s.`
+        : ' Try again later.';
+    return `Studio quota reached.${retry}`;
+  }
+  return null;
+}

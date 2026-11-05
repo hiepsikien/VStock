@@ -1,7 +1,11 @@
 import type {
+  StudioAccess,
+  StudioAnalysisNote,
+  StudioAnalyzeDraft,
   StudioError,
   StudioExample,
   StudioPublishedSpec,
+  StudioUpload,
 } from './protocol';
 
 /**
@@ -829,5 +833,191 @@ export function notesLines(notes: unknown, limit = 24): string[] {
   }
   if (typeof value === 'string') return value.split('\n');
   return valueLines(value, limit);
+}
+
+/* ------------------------------------------------------------------------- *
+ * Phase 1 front half: access, upload, Gemini draft.
+ * ------------------------------------------------------------------------- */
+
+export type ConfidenceBand = 'high' | 'medium' | 'low' | 'unknown';
+
+/** Confidence colour buckets used by the notes table. */
+export function confidenceBand(value: number | null | undefined): ConfidenceBand {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'unknown';
+  if (value >= 0.85) return 'high';
+  if (value >= 0.6) return 'medium';
+  return 'low';
+}
+
+/** `0.91` -> `91%`; missing -> `—`. */
+export function confidenceLabel(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '—';
+  return `${Math.round(Math.min(1, value) * 100)}%`;
+}
+
+export function accessReasonLabel(reason: string): string {
+  switch (reason) {
+    case 'open_beta':
+      return 'Open beta';
+    case 'entitled':
+      return 'Entitled';
+    case 'disabled':
+      return 'Disabled';
+    case 'unknown':
+      return 'Unknown';
+    default:
+      return reason || 'Unknown';
+  }
+}
+
+/** One-line header indicator; quota is omitted when the server sends zeroes. */
+export function accessSummary(access: StudioAccess): string {
+  if (!access.enabled) {
+    return `Studio disabled · ${accessReasonLabel(access.reason)}`;
+  }
+  const parts = [accessReasonLabel(access.reason)];
+  if (access.quota.uploadsPerDay > 0) {
+    parts.push(`${access.quota.uploadsPerDay} uploads/day`);
+  }
+  if (access.quota.maxImageMb > 0) {
+    parts.push(`max ${access.quota.maxImageMb} MB`);
+  }
+  return parts.join(' · ');
+}
+
+/** `912` -> `912 B`, `2048` -> `2 KB`, `1.4 MB`. */
+export function byteSizeLabel(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Client-side guard before a multipart upload; null when the file fits. */
+export function imageSizeError(bytes: number, maxImageMb: number): string | null {
+  if (!Number.isFinite(maxImageMb) || maxImageMb <= 0) return null;
+  const limit = maxImageMb * 1024 * 1024;
+  if (!Number.isFinite(bytes) || bytes <= 0) return null;
+  if (bytes <= limit) return null;
+  return `Ảnh ${byteSizeLabel(bytes)} vượt giới hạn ${maxImageMb} MB.`;
+}
+
+/** `score.png · 900×420 · sha 1a2b3c4d5e…` */
+export function uploadMetaLabel(upload: StudioUpload): string {
+  const parts: string[] = [];
+  const name = upload.filename ?? upload.id;
+  if (name) parts.push(name);
+  if (upload.width != null && upload.height != null) {
+    parts.push(`${upload.width}×${upload.height}`);
+  }
+  if (upload.sha256) parts.push(`sha ${shortId(upload.sha256, 10)}`);
+  return parts.join(' · ');
+}
+
+export function noteBarLabel(note: StudioAnalysisNote): string {
+  const value = note.bar ?? note.measure;
+  return value == null ? '—' : String(value);
+}
+
+export function noteBeatLabel(note: StudioAnalysisNote): string {
+  if (note.beat == null || !Number.isFinite(note.beat)) return '—';
+  return Number.isInteger(note.beat) ? String(note.beat) : note.beat.toFixed(2);
+}
+
+export function noteVoiceLabel(note: StudioAnalysisNote): string {
+  return note.voiceHint ?? '—';
+}
+
+/** Written pitch with the sounding pitch when they differ (guitar octave). */
+export function notePitchLabel(note: StudioAnalysisNote): string {
+  const written = note.writtenPitch;
+  const sounding = note.soundingPitch;
+  if (written && sounding && written !== sounding) return `${written} (${sounding})`;
+  return written ?? sounding ?? '—';
+}
+
+/** `s1f5`; empty when the draft has no tab position. */
+export function notePositionLabel(note: StudioAnalysisNote): string {
+  if (note.string == null || note.fret == null) return '';
+  return `s${note.string}f${note.fret}`;
+}
+
+export type DraftNoteRow = {
+  index: number;
+  bar: string;
+  beat: string;
+  voice: string;
+  pitch: string;
+  position: string;
+  confidence: string;
+  band: ConfidenceBand;
+  conflict: boolean;
+  review: string;
+};
+
+/** Rows for the compact draft table; capped so one huge page stays usable. */
+export function draftNoteRows(
+  notes: readonly StudioAnalysisNote[],
+  limit = 40,
+): DraftNoteRow[] {
+  return notes.slice(0, limit).map((note, index) => ({
+    index,
+    bar: noteBarLabel(note),
+    beat: noteBeatLabel(note),
+    voice: noteVoiceLabel(note),
+    pitch: notePitchLabel(note),
+    position: notePositionLabel(note),
+    confidence: confidenceLabel(note.confidence),
+    band: confidenceBand(note.confidence),
+    conflict: note.conflict,
+    review: note.review ?? '—',
+  }));
+}
+
+/** `m1 · 3/4 · A minor` rows for the draft header; capped like the note table. */
+export function measureLines(
+  measures: StudioAnalyzeDraft['measures'],
+  limit = 12,
+): string[] {
+  const lines = measures.slice(0, limit).map((measure, index) => {
+    const label =
+      measure.index != null ? `m${measure.index}` : `m${index + 1}`;
+    return [label, measure.meter, measure.key].filter(Boolean).join(' · ');
+  });
+  if (measures.length <= limit) return lines;
+  return [...lines, `… ${measures.length - limit} more measures`];
+}
+
+/**
+ * The draft is a TextureSpec note list, not a SentenceSpec, so it is copied as
+ * JSON instead of replacing the editor contents.
+ */
+export function draftJson(draft: StudioAnalyzeDraft): string {
+  const notes = draft.notes.map((note) => {
+    const row: Record<string, unknown> = {};
+    const put = (key: string, value: unknown) => {
+      if (value !== null && value !== undefined && value !== '') row[key] = value;
+    };
+    put('measure', note.measure);
+    put('bar', note.bar);
+    put('beat', note.beat);
+    put('duration_beats', note.durationBeats);
+    put('voice_hint', note.voiceHint);
+    put('written_pitch', note.writtenPitch);
+    put('sounding_pitch', note.soundingPitch);
+    put('string', note.string);
+    put('fret', note.fret);
+    put('confidence', note.confidence);
+    if (note.conflict) row.conflict = true;
+    put('review', note.review);
+    put('tie', note.tie);
+    if (note.articulation.length) row.articulation = note.articulation;
+    return row;
+  });
+  return JSON.stringify(
+    { measures: draft.measures, notes, warnings: draft.warnings },
+    null,
+    2,
+  );
 }
 
