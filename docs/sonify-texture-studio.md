@@ -988,7 +988,7 @@ Quy tắc:
 
 ### 6.9. Micro-velocity contour (optional, authored)
 
-> **Trạng thái code:** **một phần**. Studio đã có pure lane model + `VelocityLane` panel (`src/studio/velocity.ts`, `VelocityLane.tsx`), realized-velocity read-only khi chưa có contour, local edit/view-only toggle. Backend `microVelocity`/`velocityOffset` parsing/API **chưa implement**; schema dưới đây vẫn là đích Sprint 9B. Hiện chỉ có offset hardcode trong renderer.
+> **Trạng thái code:** **một phần**. `app/studio/micro_velocity.py` có data model + parse/validate + relative applier + pinned checker; Studio có `velocity.ts`/`VelocityLane.tsx` (realized read-only khi chưa có contour, local edit/view-only). **Chưa wire** vào figure/sentence/texture writer, API persistence hay extraction. Schema dưới đây là contract Sprint 9B.
 
 Mỗi figure/pattern/sentence có thể mang **offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối. Không khai báo = offset 0 cho mọi nốt, kể cả thumb. Offset 0 phải cho **NoteEvent byte-identical** với code hiện tại.
 
@@ -1010,7 +1010,7 @@ Mỗi entry dùng toạ độ **tương đối trong figure/slot**, không phả
 ```json
 {
   "bar": 0,
-  "eighth": 0,
+  "beat": 0.0,
   "voice": 1,
   "finger": "a",
   "offset": -6
@@ -1018,9 +1018,9 @@ Mỗi entry dùng toạ độ **tương đối trong figure/slot**, không phả
 ```
 
 - `bar`: 0-based, tương đối từ đầu figure/slot (Galop 8 bar dùng 0..7).
-- `eighth`: 0-based trong bar.
+- `beat`: 0-based **quarter-note beat** trong bar; `0.25/0.5/0.75` là sixteenth, `1/3` là triplet.
 - `voice`: 1–4; UI bắt buộc lane 1–3, lane 4 chỉ hiện khi figure thực sự dùng voice 4.
-- `finger`: optional `p | a | m | i`; dùng cho tremolo/fingerstyle. Vắng `finger` thì offset áp theo `(bar, eighth, voice)`, không phân biệt ngón.
+- `finger`: optional `p | a | m | i`; dùng cho tremolo/fingerstyle. Vắng `finger` thì offset áp theo `(bar, beat, voice)`, không phân biệt ngón.
 - `offset`: delta trên level figure viết ra; **không** phải velocity tuyệt đối.
 - `pinned: true` + `velocity`: attack do layer absolute kiểm soát (snap/stab/fan/tremolo trim) thì lưu velocity cuối, không lưu offset.
 
@@ -1030,11 +1030,13 @@ Mỗi entry dùng toạ độ **tương đối trong figure/slot**, không phả
 {
   "kind": "offsets",
   "notes": [
-    { "bar": 0, "eighth": 0, "voice": 1, "finger": "a", "offset": -6 },
-    { "bar": 0, "eighth": 1, "voice": 1, "finger": "m", "offset": -3 }
+    { "bar": 0, "beat": 0.0, "voice": 1, "finger": "a", "offset": -6 },
+    { "bar": 0, "beat": 0.25, "voice": 1, "finger": "m", "offset": -3 },
+    { "bar": 0, "beat": 0.5, "voice": 1, "finger": "i", "offset": -4 },
+    { "bar": 0, "beat": 0.75, "voice": 1, "finger": "a", "offset": -6 }
   ],
   "thumb": [
-    { "bar": 0, "eighth": 0, "voice": 3, "finger": "p", "offset": -4 }
+    { "bar": 0, "beat": 0.0, "voice": 3, "finger": "p", "offset": -4 }
   ]
 }
 ```
@@ -1079,7 +1081,7 @@ figure writer (level gốc)
 
 #### UI
 
-- Click figure/slot → **velocity lane**: x = bar/eighth/note, y = offset; nhóm voice 1–4; thumb lane riêng.
+- Click figure/slot → **velocity lane**: x = bar/beat/note, y = offset; nhóm voice 1–4; thumb lane riêng.
 - Empty = 0; pinned attack hiện nhãn layer (snap/stab/fan/trim) và velocity tuyệt đối, không cho kéo offset.
 - Toggle “authored offsets → sau wave/humanize” **chỉ để xem**, không đổi dữ liệu lưu và không tạo hai render mode.
 - Sửa offset lưu vào figure/slot; không sửa velocity tuyệt đối của note thường. Preview notes cần `finger` (hoặc note-level `velocityOffset`) để match contour theo ngón; chưa có thì chỉ match entry không finger.
