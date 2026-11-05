@@ -35,7 +35,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, switch `PATTERN_NAMES` sang generated file, `texture_registry.py`, crop/native UI, preview queue.
+**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, `texture_registry.py`, crop/native UI, preview queue.
 
 ### 0.1. Đối chiếu nhanh với proposal trong thân bài
 
@@ -50,7 +50,7 @@ Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycl
 | Publish | SQLite version bất biến + rollback `rollbackOf`; compiler trả bundle JSON | §11 PR automation + `preview.wav` — **chưa** |
 | UI | Studio pill, editor, validate/preview/audio/publish/rollback, examples, upload ảnh web, Gemini draft + notes table | §10 crop/native picker, apply-draft-to-editor — **chưa** |
 | Candidates | Villa/Barrios/Brouwer preview; Barrios flag off; Bach exposition preview | §3.2 Suite 5 movement + §13 Phase 2 — **chưa** |
-| Matrix/codegen/registry | Sentence + pattern + render matrix + registry codegen đã có; `texture_registry.py` chưa | §12.2 switch `PATTERN_NAMES`, §7.2 — **một phần** |
+| Matrix/codegen/registry | Sentence + pattern + render matrix; registry codegen + `PATTERN_NAMES` derived; `texture_registry.py` chưa | §7.2 — **một phần** |
 | Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token, spec `owner_id`/`visibility` + scoped publish/list/get/rollback/export | preview queue — **một phần** |
 | Runtime | Code-backed; không interpreter | §1.1 Phase 2/3 — **chưa** |
 
@@ -1507,7 +1507,7 @@ Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc
 
 ### 12.2. Registry codegen
 
-> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`); codegen **đã có** `scripts/gen_pattern_registry.py` + `src/sonify/patternRegistry.generated.ts` (39 row, `--check` + pytest gate). `PATTERN_NAMES` vẫn sửa tay và **chưa** chuyển sang generated file — đó là bước tiếp theo.
+> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`); codegen **đã có** `scripts/gen_pattern_registry.py` + `src/sonify/patternRegistry.generated.ts` (39 row, `level`/`nameSource`, `--check` + pytest gate). `PATTERN_NAMES` **đã derive** từ registry, chỉ `level === 'topic'`; `Pedal` và texture names không vào set.
 
 Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.generated.ts` và có `--check`.
 
@@ -1523,7 +1523,7 @@ Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.gen
 
 ### 12.3. Title coverage, không phải uniqueness toàn cục
 
-`PATTERN_NAMES` là set toàn cục theo title. **Không test uniqueness toàn cục** — hiện có 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
+`PATTERN_NAMES` là set toàn cục theo title, derive từ registry `level === 'topic'`: **30 title** distinct từ 33 topic row. Toàn bộ registry có 39 row / 34 title (gồm `Pedal`); 38 wave-profile row cho 33 title. **Không test uniqueness toàn cục** — 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
 
 ```python
 from collections import defaultdict
@@ -1621,7 +1621,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
-| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen | renderer-profile playability, switch `PATTERN_NAMES`, Phase 3 runtime 12/8 |
+| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen + derived `PATTERN_NAMES` | renderer-profile playability, Phase 3 runtime 12/8 |
 | 1 | Studio room, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON, spec owner/visibility | crop/native picker, apply draft → editor, validation queue, preview queue, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
@@ -1683,7 +1683,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ## 14. Tiêu chí nghiệm thu
 
-> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **meter runtime resolver**, **sentence + pattern + render matrices**, **compiler bundle JSON**, **registry codegen**, **session/quota/upload/Gemini analyze**, **spec owner/visibility** và UI draft. Các mục preview `slice_score`, preview job queue, crop/apply, switch `PATTERN_NAMES`, renderer-profile playability/derived golden, interpreter và Suite vẫn là **mục tiêu**.
+> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **meter runtime resolver**, **sentence + pattern + render matrices**, **compiler bundle JSON**, **registry codegen + derived `PATTERN_NAMES`**, **session/quota/upload/Gemini analyze**, **spec owner/visibility** và UI draft. Các mục preview `slice_score`, preview job queue, crop/apply, renderer-profile playability/derived golden, interpreter và Suite vẫn là **mục tiêu**.
 
 1. **Meter exact**: spec lưu đủ 6 field `MeterSpec`; so canonical tuple, không so `id`/string.
 2. **Meter sau retarget**: spec khớp `resolve_runtime_meter()` sau `_guitar_meter` + `retarget_torroba_meter`; compiler không gọi `active_meter()` ngoài `compose_meter`.
