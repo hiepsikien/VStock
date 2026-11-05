@@ -30,6 +30,11 @@ from app.sonify.sentence_specs import (
     Span,
     _validate,
 )
+from app.studio.micro_velocity import (
+    MicroVelocity,
+    micro_velocity_to_mapping,
+    parse_micro_velocity,
+)
 
 SCHEMA_VERSION = 1
 RUNTIME = "code"
@@ -40,7 +45,9 @@ _SELECT_KEYS = frozenset(
     {"length_min", "length_max", "n_parity", "n_mod", "closes", "rise_min"}
 )
 _SPAN_KEYS = frozenset({"tile", "remainder", "truncate_to_length", "cycle", "exact"})
-_SLOT_KEYS = frozenset({"start", "bars", "figure", "cell", "procedure", "anchor"})
+_SLOT_KEYS = frozenset(
+    {"start", "bars", "figure", "cell", "procedure", "anchor", "microVelocity"}
+)
 _SLOT_REQUIRED = frozenset({"start", "bars", "anchor"})
 _N_MOD_KEYS = frozenset({"mod", "value"})
 
@@ -88,6 +95,8 @@ def _slot_to_mapping(slot: Slot) -> dict[str, Any]:
         mapping["cell"] = slot.cell
     if slot.procedure is not None:
         mapping["procedure"] = slot.procedure
+    if slot.micro_velocity is not None:
+        mapping["microVelocity"] = micro_velocity_to_mapping(slot.micro_velocity)
     mapping["anchor"] = slot.anchor
     return mapping
 
@@ -254,6 +263,11 @@ def _parse_slot(data: dict[str, Any], path: str) -> Slot:
         raise ValueError(
             f"{path}: a slot needs exactly one of figure, cell, or procedure"
         )
+    micro_velocity: MicroVelocity | None = None
+    if data.get("microVelocity") is not None:
+        micro_velocity = parse_micro_velocity(
+            data["microVelocity"], path=f"{path}.microVelocity"
+        )
     return Slot(
         start=start,
         bars=bars,
@@ -261,6 +275,7 @@ def _parse_slot(data: dict[str, Any], path: str) -> Slot:
         cell=cell,
         procedure=procedure,
         anchor=anchor,
+        micro_velocity=micro_velocity,
     )
 
 

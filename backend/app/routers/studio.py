@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 from app.studio import dispatch, examples
 from app.studio.sentence_spec import parse_payload, parse_spec
@@ -50,6 +50,16 @@ class PreviewResponse(BaseModel):
     notes: list[dict[str, Any]] = Field(default_factory=list)
     renderHash: str | None = None
     matrix: list[dict[str, Any]] = Field(default_factory=list)
+    # Authored slot contours keyed by slot index. Omitted from the JSON when
+    # the spec has none, so existing response bodies are unchanged.
+    microVelocity: list[dict[str, Any]] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_micro_velocity(self, handler: Any) -> dict[str, Any]:
+        data = handler(self)
+        if isinstance(data, dict) and data.get("microVelocity") is None:
+            data.pop("microVelocity", None)
+        return data
 
 
 class ExampleOut(BaseModel):

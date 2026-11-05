@@ -35,6 +35,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.studio.micro_velocity import MicroVelocity
 
 # Owner modules call register() at import. plan_sentence() imports them lazily
 # so a caller that only imports this module still gets a plan.
@@ -83,6 +87,11 @@ class Slot:
     own (galop); `procedure` is an id the owner/renderer resolves through
     `procedure_specs.PROCEDURES`. `plan_sentence` only emits figure spans;
     `plan_run` only emits cells; neither emits a procedure span.
+
+    `micro_velocity` is an optional authored velocity contour for this slot.
+    It is data only: the planner and the runtime renderer ignore it, and the
+    preview returns it unchanged so the Studio can show it. Coordinates are
+    relative to the slot; `bars` bounds the contour's bar index.
     """
 
     start: int
@@ -91,6 +100,7 @@ class Slot:
     cell: str | None = None
     procedure: str | None = None
     anchor: str = "start"
+    micro_velocity: MicroVelocity | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +145,26 @@ class SentenceSpec:
 
 
 SENTENCE_SPECS: dict[tuple[str, str], tuple[SentenceSpec, ...]] = {}
+
+
+def quarter_beats(meter: str) -> float | None:
+    """Quarter-note beats in one bar of a ``"n/d"`` meter label.
+
+    Returns ``None`` for the ``"*"`` (meter-any) label, so callers can skip
+    beat bounds they cannot know. This is the same unit as
+    ``MeterSpec.quarter_beats`` and the micro-velocity ``beat`` coordinate.
+    """
+    if not isinstance(meter, str) or "/" not in meter:
+        return None
+    numerator, _, denominator = meter.partition("/")
+    try:
+        beats = int(numerator)
+        beat_type = int(denominator)
+    except ValueError:
+        return None
+    if beats < 1 or beat_type < 1:
+        return None
+    return beats * 4 / beat_type
 
 
 def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
@@ -183,7 +213,28 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         raise ValueError(f"{spec.id}: a cycle cannot select on n, closes, or rise")
     if not spec.slots:
         raise ValueError(f"{spec.id}: at least one slot is required")
-    for slot in spec.slots:
+    beats_per_bar = quarter_beats(spec.meter)
+    for index, slot in enumerate(spec.slots):
+        if slot.micro_velocity is not None:
+            from app.studio.micro_velocity import validate_micro_velocity
+
+            slot_bars = (
+                slot.bars
+                if isinstance(slot.bars, int)
+                and not isinstance(slot.bars, bool)
+                and slot.bars >= 1
+                else None
+            )
+            micro_errors = validate_micro_velocity(
+                slot.micro_velocity,
+                bars=slot_bars,
+                beats_per_bar=beats_per_bar,
+                path=f"slots[{index}].microVelocity",
+            )
+            if micro_errors:
+                # The record already carries the authored slot path; the spec
+                # id prefix matches every other `_validate` failure.
+                raise ValueError(f"{spec.id}: {micro_errors[0]}")
         if slot.anchor not in _ANCHORS:
             raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
         if (
