@@ -156,6 +156,8 @@ Ghi chú: motif **contour** đã được mô hình hoá cho fuga (`(offset, len
 
 Toàn bộ code chỉ có **một** procedure executable: `imitation` ở `bach_fuga`.
 
+**Preview-only (chưa vào production):** `backend/app/sonify/bach_exposition.py` có bảng `EXPOSITIONS` (không phải `PROCEDURES`) với `BACH_EXPOSITION`: soprano subject → bass answer → alto subject, 6 bar 4/4. `backend/app/studio/bach_exposition_preview.py` render prototype bằng subject contour cố định + `_compose_fuga_bass` thật, harmony C/G cố định. Nó **không** register vào `SENTENCE_SPECS`, **không** chạm `guitar_bach.py`, và **không** thể tới `render_guitar_score`.
+
 ---
 
 ## 5. Sáu chỗ hay nhầm, đã chốt
@@ -426,7 +428,7 @@ Quan hệ với các khái niệm khác:
 
 - `Phrase` (`model.py`): phrase giai điệu do price tạo. Một `Phrase` có thể được **chia** thành 1..N sentence span.
 - `Texture`: cách điền một ô. Sentence chỉ **chọn** texture/figure, không điền ô.
-- `Procedure`: phép biến đổi sinh voice khác. Một slot có thể trỏ tới procedure thay vì texture (dùng cho exposition của fugue sau này).
+- `Procedure`: phép biến đổi sinh voice khác. Một slot có thể trỏ tới procedure thay vì texture. `Slot.procedure` đã có trong schema; `bach_exposition` là procedure đầu tiên có **preview renderer** (`app/studio/bach_exposition_preview.py`), nhưng `plan_sentence`/`plan_run` vẫn không sinh span cho procedure và production chỉ thực thi `bach_imitation`.
 - `Plan`: chọn pattern cho từng phrase/region. Sentence là chuyện **bên trong** một pattern đã được chọn.
 
 ### 13.2. Schema
@@ -453,7 +455,7 @@ Quan hệ với các khái niệm khác:
 | `Select.length = [min, max]` | `Select.length_min`, `length_max` |
 | `Select.n_parity` / `n_mod` / `closes` / `rise_min` | đã có đủ |
 | `Span.tile` / `remainder` / `truncate_to_length` / `cycle` / `exact` | đã có đủ |
-| `Slot.realizer {kind, figure\|cell}` | `Slot.figure: int` (figure id qua `_FIGURES`) hoặc `Slot.cell: str` (owner tự resolve, galop); `kind: procedure` chưa có |
+| `Slot.realizer {kind, figure\|cell\|procedure}` | `Slot.figure: int` (figure id qua `_FIGURES`), `Slot.cell: str` (owner tự resolve, galop), hoặc `Slot.procedure: str` (preview-only hiện có `bach_exposition`) |
 | `previous_figure` trong contract | **không** truyền vào planner; rotation nằm ở `select_torroba_spans` |
 | `None` vs `[]` | `None` = chưa có data cho cặp pattern/meter; `[]` = có data nhưng length/select không khớp |
 
@@ -563,7 +565,9 @@ plan_run(pattern, meter, run_length)
 7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
 8. `sentence.meter` thuộc `pattern.meter_variants`; realizer tồn tại; plan golden.
 9. Cycle spec không được select trên `n`/`closes`/`rise` (run không có phrase turn), slot của nó phải `start`-anchored và **chỉ dùng `cell`**; span không phải cycle **chỉ dùng `figure`**.
-10. Mỗi slot cần đúng một realizer: `figure` hoặc `cell`. `register(valid_figures=…)`/`register(valid_cells=…)` buộc id phải tồn tại, nên typo không đăng ký được.
+10. Mỗi slot cần đúng một realizer: `figure`, `cell`, hoặc `procedure` (Studio UI cũng pre-flight đúng một trong ba). `register(valid_figures=…)`/`register(valid_cells=…)` buộc id phải tồn tại, nên typo không đăng ký được. `procedure` không làm register fail; preview báo "procedure preview not implemented" trừ khi có owner preview renderer.
+
+11. **Bach exposition prototype:** entry plan 2–4 entry, mỗi entry đúng `subject_bars`, liên tiếp không chồng, role xen kẽ subject/answer, answer chỉ ở bass, `imitation.lag == subject_bars`, tổng ≤ 16 bar; `countersubject=true` bị từ chối (chưa có engine). Candidate sentence phải khớp `pattern`/`meter`/`span.tile`/slot coverage với named exposition.
 
 Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycle và `unsupported_lengths` vẫn là việc của test, chưa phải validator runtime.
 
@@ -629,7 +633,7 @@ Status theo composer:
 |---|---|---|---|
 | **Torroba** | 4 family (castillo 3/4 + 4/4, sonatina, fandanguillo, danza 3/4 + 6/8) | **xong** (Phase 0/1) | bảng trên là toàn bộ archetype; `fandanguillo` cần `rise` + anchor `middle`; `sonatina` cần `n % 3`; danza 4/4 cố ý `None` |
 | **Sor/Classic** | cycle 8 ô trong galop | **xong** | cycle 8 ô + `plan_run` theo run; `_galop_body_index` vẫn là oracle |
-| **Bach** | không | **authoring** + `procedure` | exposition = sentence của entry |
+| **Bach** | không (exposition preview-only) | **authoring** + `procedure` | `BACH_EXPOSITION` (soprano subject → bass answer → alto subject, 6 bar) chỉ preview trong `app/studio/bach_exposition_preview.py`; chưa register, production notes không đổi |
 | **Barrios** | có — **feature flag, default off** | **authoring**; cần figure variants | `barrios_cathedral_period` (`preludio → tremolo → preludio`) register lazily chỉ khi `VSTOCK_BARRIOS_PERIOD` bật; áp cho movement 12 bar 4/4 không pedal, path cũ là fallback |
 | **Villa** | không (candidate preview-only) | **authoring**; pilot texture trước | `villa_arpeggio_aba` chỉ là pilot trong `app/studio/candidates/`; chưa register, preview/validate/audio/publish qua endpoint chung |
 | **Brouwer** | không (candidate preview-only) | **authoring**; ưu tiên thấp | `brouwer_etude_noviembre_aba` chỉ là pilot trong `app/studio/candidates/`; chưa register, preview qua endpoint chung |
@@ -676,6 +680,7 @@ Phase 0/1 cho pilot **Torroba + Sor**:
 - **API:** `POST /v1/studio/sentence/validate` (một spec hoặc wrapper `{specs}`), `POST /v1/studio/sentence/preview` (`{spec, fixture}` → plan/row/notes/renderHash/matrix), dispatch theo `pattern` (Torroba/Sor, Villa, Barrios, Brouwer); `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit; `POST /v1/studio/sentence/publish` + `GET .../specs` (SQLite, version theo `(pattern, meter)`); và `POST /v1/studio/sentence/audio` + `GET .../audio/{key}.wav` (WAV synth code-only, cache theo `renderHash`).
 - **Sandbox:** preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên bản copy `SENTENCE_SPECS`; `plan_sentence`/`plan_run` nhận `registry=` nên không mutate global registry. `fixture.length` cap 64 bar; render cap 16 bar.
 - **Runtime:** vẫn code-backed. `runtime` bắt buộc `"code"`; figure/cell renderer vẫn là code; **không** procedure/interpreter.
+- **Procedure candidate:** `GET /sentence/examples` bỏ qua spec có slot `procedure` (generic preview không có renderer); `bach_exposition` được đọc trực tiếp bởi owner preview module.
 
 Preview fixture: `pattern`, `meter`, `length` (hoặc `run_length` cho cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix selection mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
