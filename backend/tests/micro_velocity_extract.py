@@ -12,11 +12,12 @@ writers, so this harness proves the extraction in two steps:
    digests to `fixtures/micro_velocity_golden.json`.
 
 Step 1 is not a subtract-and-add trick: the neutral level is a declared
-writer constant (58 for Tremolo, 52 for Étude No. 1, 44 for Étude No. 11) and
-the offsets are the data under test. Galop's rule flattener computes its
-offsets from the bar's written peak, and Étude No. 11's from the written
-hairpin, so both must reproduce the hardcoded contour function from the same
-neutral input.
+writer constant (58 for Tremolo, 52 for Étude No. 1, 44 for Étude No. 11, and
+the 50/40 inner role centres for Cathedral Preludio) and the offsets are the
+data under test. Galop flattens from the bar's written peak, Étude No. 11 from
+the written hairpin, and Cathedral Preludio from the covering canto plus the
+phrase raw level; each must reproduce the hardcoded contour function from the
+same neutral input.
 
 Nothing here changes production code: the wrappers exist only inside the
 `patched_contours()` context.
@@ -35,6 +36,7 @@ from unittest.mock import patch
 from app.sonify import guitar_patterns, guitar_sor
 from app.sonify.form import active_meter
 from app.sonify.micro_velocity_contours import (
+    CATHEDRAL_PRELUDIO,
     ETUDE1,
     ETUDE11,
     GALOP1,
@@ -44,6 +46,7 @@ from app.sonify.micro_velocity_contours import (
     TREMOLO_44,
     UNEXTRACTED_REASONS,
     apply_flattened_rule,
+    covering_canto,
 )
 from app.sonify.model import NoteEvent
 from app.studio.micro_velocity import MicroVelocity, apply_relative_offsets
@@ -62,6 +65,7 @@ EXTRACTED_FIXTURES: tuple[str, ...] = (
     "etude11",
     "galop_1",
     "galop_2",
+    "catedral_preludio",
 )
 
 
@@ -146,7 +150,14 @@ def verify_fixture(fixture_id: str) -> Verification:
     """
     recipe = _recipe(fixture_id)
     figure = str(recipe["figure"])
-    if figure not in {"tremolo", "etude1", "etude11", "galop1", "galop2"}:
+    if figure not in {
+        "tremolo",
+        "etude1",
+        "etude11",
+        "galop1",
+        "galop2",
+        "catedral_preludio",
+    }:
         raise KeyError(f"{fixture_id}: no extracted contour for figure {figure!r}")
     expected = _expected()[fixture_id]
     with patched_contours(figure):
@@ -191,6 +202,7 @@ _ORIGINAL_ETUDE1 = guitar_patterns._render_etude1_bar
 _ORIGINAL_ETUDE11 = guitar_patterns._render_etude11_bar
 _ORIGINAL_GALOP1 = guitar_sor._contour_galop1
 _ORIGINAL_GALOP2 = guitar_sor._contour_galop2
+_ORIGINAL_CATEDRAL = guitar_patterns._render_catedral_preludio_bar
 
 
 @contextmanager
@@ -220,6 +232,14 @@ def patched_contours(figure: str) -> Iterator[None]:
                     guitar_sor,
                     "_contour_galop2",
                     _galop_contour(_ORIGINAL_GALOP2, GALOP2),
+                )
+            )
+        elif figure == "catedral_preludio":
+            stack.enter_context(
+                patch.object(
+                    guitar_patterns,
+                    "_render_catedral_preludio_bar",
+                    _catedral_contour(_ORIGINAL_CATEDRAL),
                 )
             )
         else:
@@ -319,6 +339,52 @@ def _galop_contour(original, contour: MicroVelocity):
             (rebuilt_lead, rebuilt_low),
         )
         return rebuilt_lead, rebuilt_low
+
+    return wrapper
+
+
+def _catedral_contour(original):
+    """Rebuild the Preludio inner voices from role centres plus the rule.
+
+    The canto is read from the writer's own lead events and the phrase level
+    from the writer's plan, so the rule never stores a bar plan. Inner events
+    are neutralised to their role centres first; the contour then supplies the
+    phrase swell, the cell nudge and the cross-voice clamp.
+    """
+
+    def wrapper(ctx, bar: int, patterns, apex, phrase):
+        lead, support = original(ctx, bar, patterns, apex, phrase)
+        centres = NEUTRAL_LEVELS["catedral_preludio"]
+        if not isinstance(centres, Mapping):
+            raise TypeError("catedral_preludio needs per-voice neutral levels")
+        neutral = [
+            replace(event, velocity=centres[event.voice])
+            if event.midi is not None
+            and event.velocity is not None
+            and event.voice in centres
+            else event
+            for event in support
+        ]
+        epb = ctx.epb
+
+        def raw_at(event: NoteEvent) -> int | None:
+            attack = event.bar * epb + int(math.floor(event.beat * 2 + 1e-9))
+            return guitar_patterns._note_velocity(attack, 1, apex, phrase)
+
+        def canto_at(event: NoteEvent) -> int | None:
+            return covering_canto(lead, event.bar, event.beat)
+
+        rebuilt = apply_flattened_rule(
+            neutral,
+            CATHEDRAL_PRELUDIO,
+            origin_bar=bar,
+            base_at=lambda event: centres.get(event.voice),
+            raw_at=raw_at,
+            canto_at=canto_at,
+            beats_per_bar=ctx.epb / 2,
+        )
+        _assert_same("catedral_preludio", (support,), (rebuilt,))
+        return lead, rebuilt
 
     return wrapper
 
