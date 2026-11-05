@@ -27,7 +27,9 @@ Render
 `render_sentence` plans the candidate, then calls
 `guitar_brouwer_figures.render_brouwer_figure` once per bar. The figure pen
 carries the canto already sung, so the Sarabande writer keeps its existing
-contract even though the ABA itself never asks for it.
+contract even though the ABA itself never asks for it. It returns the raw bar
+voices and the plan; the shared renderer runs the same post-wave tail as the
+historical bar loop.
 """
 
 from __future__ import annotations
@@ -50,11 +52,11 @@ from app.sonify.production_flags import (
     use_brouwer_production,
 )
 from app.sonify.sentence_production import (
+    SentenceVoices,
     bar_figures,
     has_pedal_bars,
     mark_trace,
     phrase_at,
-    shape_voices,
 )
 from app.sonify.sentence_specs import Select, SentenceSpec, Slot, Span
 
@@ -149,9 +151,7 @@ def _plan(ctx: Any) -> dict[int, int] | None:
     return bar_figures(planned, ctx.bars)
 
 
-def render_sentence(
-    ctx: Any,
-) -> tuple[list, list, list, int] | None:
+def render_sentence(ctx: Any) -> SentenceVoices | None:
     """Render the ABA for an eligible movement, or return None to fall back."""
     figures = _plan(ctx)
     if figures is None:
@@ -178,4 +178,4 @@ def render_sentence(
         low.extend(part_low)
 
     mark_trace(ctx)
-    return shape_voices(ctx, lead, support, low)
+    return SentenceVoices(lead, support, low, figures)

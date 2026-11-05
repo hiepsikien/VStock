@@ -3469,51 +3469,11 @@ def render_patterned_voices(
             period = render_period(ctx)
             if period is not None:
                 return period
-    # Feature-gated Villa sentence and Suite Mazurka. Both are off by default,
-    # so the existing bar loop below is byte-identical. Each gate returns only
-    # for a whole movement its module can cover; every other case falls through.
-    if ctx.ensemble == "villa":
-        from app.sonify.production_flags import (
-            suite_mazurka_enabled,
-            villa_production_enabled,
-        )
-
-        if suite_mazurka_enabled():
-            from app.sonify.guitar_suite_mazurka import (
-                render_sentence as render_mazurka,
-            )
-
-            mazurka = render_mazurka(ctx)
-            if mazurka is not None:
-                return mazurka
-        if villa_production_enabled():
-            from app.sonify.guitar_villa_production import (
-                render_sentence as render_villa_aba,
-            )
-
-            villa_aba = render_villa_aba(ctx)
-            if villa_aba is not None:
-                return villa_aba
-    # Feature-gated Brouwer A-B-A. Off by default; on, it replaces the same
-    # whole-movement dispatch the etude writer uses today.
-    if ctx.ensemble == "brouwer":
-        from app.sonify.production_flags import brouwer_production_enabled
-
-        if brouwer_production_enabled():
-            from app.sonify.guitar_brouwer_production import (
-                render_sentence as render_brouwer_aba,
-            )
-
-            brouwer_aba = render_brouwer_aba(ctx)
-            if brouwer_aba is not None:
-                return brouwer_aba
     from app.sonify.micro_velocity_writer import (
         apply_etude1,
         apply_etude11,
         apply_tremolo,
         begin_occurrences,
-        check_occurrences,
-        reset_occurrences,
         writers_enabled,
     )
 
@@ -3521,6 +3481,20 @@ def render_patterned_voices(
     micro_velocity_token = begin_occurrences() if micro_velocity_writers else None
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
+    # Feature-gated Villa sentence, Suite Mazurka, and Brouwer A-B-A. Off by
+    # default, so the existing bar loop below is byte-identical. Each gate
+    # returns raw bar voices only for a whole movement it can cover; the shared
+    # tail below then shapes them exactly like the historical bar loop.
+    sentence = _gated_sentence(ctx)
+    if sentence is not None:
+        return _render_sentence_tail(
+            ctx,
+            patterns,
+            sentence,
+            levels=levels,
+            micro_velocity_writers=micro_velocity_writers,
+            micro_velocity_token=micro_velocity_token,
+        )
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
@@ -3846,12 +3820,124 @@ def render_patterned_voices(
             low.extend(part_low)
         else:
             lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
+    return _finish_voices(
+        ctx,
+        patterns,
+        lead,
+        support,
+        low,
+        levels=levels,
+        micro_velocity_writers=micro_velocity_writers,
+        micro_velocity_token=micro_velocity_token,
+        original_melody=original_melody,
+        lowered_eighths=lowered_eighths,
+        figure_at=figure_at,
+    )
+
+
+def _gated_sentence(ctx: _Ctx):
+    """Plan a gated sentence for this movement, or None to keep the bar loop.
+
+    Each module answers only a whole movement it can cover. The result is raw
+    bar voices plus the figure plan, never a finished render.
+    """
+    if ctx.ensemble == "villa":
+        from app.sonify.production_flags import (
+            suite_mazurka_enabled,
+            villa_production_enabled,
+        )
+
+        if suite_mazurka_enabled():
+            from app.sonify.guitar_suite_mazurka import (
+                render_sentence as render_mazurka,
+            )
+
+            sentence = render_mazurka(ctx)
+            if sentence is not None:
+                return sentence
+        if villa_production_enabled():
+            from app.sonify.guitar_villa_production import (
+                render_sentence as render_villa_aba,
+            )
+
+            return render_villa_aba(ctx)
+        return None
+    if ctx.ensemble == "brouwer":
+        from app.sonify.production_flags import brouwer_production_enabled
+
+        if brouwer_production_enabled():
+            from app.sonify.guitar_brouwer_production import (
+                render_sentence as render_brouwer_aba,
+            )
+
+            return render_brouwer_aba(ctx)
+    return None
+
+
+def _render_sentence_tail(
+    ctx: _Ctx,
+    patterns: list[str],
+    sentence,
+    *,
+    levels: dict[int, int],
+    micro_velocity_writers: bool,
+    micro_velocity_token,
+):
+    """Shape bar-written sentence voices through the production tail."""
+    from app.sonify.sentence_production import apply_default_contours
+
+    lead, support, low = apply_default_contours(
+        ctx, sentence, enabled=micro_velocity_writers
+    )
+    return _finish_voices(
+        ctx,
+        patterns,
+        lead,
+        support,
+        low,
+        levels=levels,
+        micro_velocity_writers=micro_velocity_writers,
+        micro_velocity_token=micro_velocity_token,
+        original_melody=list(ctx.melody),
+    )
+
+
+def _finish_voices(
+    ctx: _Ctx,
+    patterns: list[str],
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    *,
+    levels: dict[int, int],
+    micro_velocity_writers: bool,
+    micro_velocity_token,
+    original_melody: list[int] | None = None,
+    lowered_eighths: set[int] | None = None,
+    figure_at: dict | None = None,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
+    """The shared post-wave tail: bells, transitions, scale, wave, pinned, fill.
+
+    The historical bar loop and the feature-gated sentences both end here, so a
+    gated movement cannot drift from production shaping.
+    """
+    musical_bars = ctx.bars
+    epb = ctx.epb
+    phrases = ctx.phrases
+    from app.sonify.micro_velocity_writer import check_occurrences, reset_occurrences
+
+    original_melody = (
+        list(ctx.melody) if original_melody is None else original_melody
+    )
+    lowered_eighths = set() if lowered_eighths is None else lowered_eighths
+    figure_at = {} if figure_at is None else figure_at
     # Preludio bass rings for two bars, counted from each contiguous region.
     low.extend(_preludio_bass(ctx, patterns))
     ringing = {
         bar
         for bar in range(musical_bars)
-        if _bar_pattern(ctx, bar, patterns) in {"villa_pattern", "brouwer_etude"}
+        if _bar_pattern(ctx, bar, patterns)
+        in {"villa_pattern", "suite_mazurka", "brouwer_etude"}
     }
     if ringing:
         support = _apply_campanella(ctx, support, lead, ringing, low)

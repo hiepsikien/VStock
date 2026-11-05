@@ -1053,7 +1053,7 @@ def _is_target(
         return voice == "lead" and event.accent
     if pattern == "vals":
         return voice == "lead" and event.accent and eighth == 4
-    if pattern == "villa_pattern":
+    if pattern in {"villa_pattern", "suite_mazurka"}:
         return voice == "lead" and (eighth in {0, 3, 6} or apex)
     if pattern == "etude1":
         slot = int(round(beat * 4))
@@ -1156,7 +1156,7 @@ def _collect_units(
                 if offsets[quarter] != max(offsets):
                     continue
             ceiling = _snap_ceiling(profile, wave.alpha_price, pattern)
-            if pattern == "villa_pattern" and int(round(event.beat * 2)) in {0, 3, 6}:
+            if pattern in {"villa_pattern", "suite_mazurka"} and int(round(event.beat * 2)) in {0, 3, 6}:
                 existing = tresillo.get(event.bar)
                 if existing is None:
                     tresillo[event.bar] = _Unit(score, pattern, event.bar, _phrase_key(phrase), voice, [index], ceiling)
