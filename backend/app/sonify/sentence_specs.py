@@ -14,10 +14,13 @@ bar-level figure renderers stay in `guitar_torroba.py`; the galop cells stay in
 callers fall back to the code path during the migration. An empty list means the
 registry covers the pair but the length/selection does not match.
 
-A slot holds either a `figure` (an id the owner renders through its figure
-table) or a `cell` (an id the owner resolves itself, like the galop cells). Only
-figures are planned by `plan_sentence`; `plan_run()` plans cells for a run-based
-`cycle` archetype, which has no phrase turn to select on.
+A slot holds exactly one realizer: a `figure` (an id the owner renders through
+its figure table), a `cell` (an id the owner resolves itself, like the galop
+cells), or a `procedure` (an id the owner/renderer resolves through
+`procedure_specs.PROCEDURES`). Only figures are planned by `plan_sentence`;
+`plan_run()` plans cells for a run-based `cycle` archetype, which has no phrase
+turn to select on. Neither planner emits a span for a procedure slot: a
+procedure describes how a later renderer realizes a span, it does not fill one.
 
 `previous_figure` is not an input here: `select_torroba_spans` rotates `n` when
 the first figure repeats, which is a plan-level post-pass.
@@ -55,15 +58,18 @@ class Slot:
     `start=-1`). It also requires an exact span, and `start` is an offset from
     the middle, so it may be negative.
 
-    Exactly one of `figure` and `cell` is set. `figure` resolves through the
-    owner's `_FIGURES`; `cell` is an id the owner resolves on its own (galop).
-    `plan_sentence` only emits figure spans; `plan_run` only emits cells.
+    Exactly one of `figure`, `cell`, and `procedure` is set. `figure` resolves
+    through the owner's `_FIGURES`; `cell` is an id the owner resolves on its
+    own (galop); `procedure` is an id the owner/renderer resolves through
+    `procedure_specs.PROCEDURES`. `plan_sentence` only emits figure spans;
+    `plan_run` only emits cells; neither emits a procedure span.
     """
 
     start: int
     bars: int
     figure: int | None = None
     cell: str | None = None
+    procedure: str | None = None
     anchor: str = "start"
 
 
@@ -160,12 +166,24 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
     for slot in spec.slots:
         if slot.anchor not in _ANCHORS:
             raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
-        if (slot.figure is None) == (slot.cell is None):
-            raise ValueError(f"{spec.id}: a slot needs exactly one of figure or cell")
+        if (
+            sum(
+                realizer is not None
+                for realizer in (slot.figure, slot.cell, slot.procedure)
+            )
+            != 1
+        ):
+            raise ValueError(
+                f"{spec.id}: a slot needs exactly one of figure, cell, or procedure"
+            )
         if slot.cell is not None and (
             not isinstance(slot.cell, str) or not slot.cell
         ):
             raise ValueError(f"{spec.id}: a cell id must be a non-empty string")
+        if slot.procedure is not None and (
+            not isinstance(slot.procedure, str) or not slot.procedure
+        ):
+            raise ValueError(f"{spec.id}: a procedure id must be a non-empty string")
         if span.cycle and slot.cell is None:
             raise ValueError(f"{spec.id}: a cycle slot needs a cell realizer")
         if not span.cycle and slot.cell is not None:
@@ -250,6 +268,7 @@ def register(
     replace: bool = False,
     valid_figures: Collection[int] | None = None,
     valid_cells: Collection[str] | None = None,
+    valid_procedures: Collection[str] | None = None,
 ) -> None:
     """Add archetypes for one pattern/meter pair.
 
@@ -257,7 +276,8 @@ def register(
     no-op, so `importlib.reload` keeps working; a different value raises unless
     `replace=True`. When `valid_figures` is given, every slot figure must exist
     in it (the owner passes its `_FIGURES` keys); `valid_cells` does the same
-    for a cell realizer, so an owner's typo cannot register.
+    for a cell realizer and `valid_procedures` for a procedure id, so an
+    owner's typo cannot register.
     """
     key = (pattern, meter)
     ordered = tuple(
@@ -286,6 +306,17 @@ def register(
         } - set(valid_cells)
         if missing_cells:
             raise ValueError(f"{key}: cells {sorted(missing_cells)} are not registered")
+    if valid_procedures is not None:
+        missing_procedures = {
+            slot.procedure
+            for spec in ordered
+            for slot in spec.slots
+            if slot.procedure is not None
+        } - set(valid_procedures)
+        if missing_procedures:
+            raise ValueError(
+                f"{key}: procedures {sorted(missing_procedures)} are not registered"
+            )
 
     existing = SENTENCE_SPECS.get(key)
     if existing is not None:
@@ -391,7 +422,11 @@ def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
 def _slots(
     spec: SentenceSpec, offset: int, chunk: int, total: int
 ) -> list[tuple[int, tuple[int, ...]]]:
-    """Figure spans only. A cell slot is planned by `plan_run` instead."""
+    """Figure spans only.
+
+    A cell slot is planned by `plan_run` instead, and a procedure slot is
+    resolved by the owner/renderer, so neither is emitted here.
+    """
     spans: list[tuple[int, tuple[int, ...]]] = []
     for slot in spec.slots:
         if slot.figure is None:

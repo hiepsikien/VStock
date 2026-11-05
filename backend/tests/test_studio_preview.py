@@ -105,7 +105,10 @@ def test_validate_rejects_a_missing_realizer() -> None:
         slots=(replace(CASTILLO_34_WALK.slots[0], figure=None),),
     )
     errors = validate_spec(spec)
-    assert any("exactly one of figure or cell" in error.message for error in errors)
+    assert any(
+        "exactly one of figure, cell, or procedure" in error.message
+        for error in errors
+    )
 
 
 def test_preview_returns_a_plan_notes_and_a_hash() -> None:

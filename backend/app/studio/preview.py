@@ -44,6 +44,10 @@ pitch for the galop cell, matching the deterministic parity-test bodies. The
 render is one phrase of `length` bars, but notes are only collected for the
 first `bars` bars (at most 16): no full-span audio, no MuseScore export.
 
+A `procedure` slot validates against `procedure_specs.PROCEDURES`, but a
+procedure has no span plan and no preview renderer: `preview_spec` returns
+`ok: false` with a `slots[i].procedure` error instead of inventing notes.
+
 Notes come from the same per-bar realizers `render_guitar_score` dispatches to
 (`render_torroba_figure` / `_render_torroba_bar` / `_render_galop_bar`). The
 movement planner is deliberately **not** run: it chooses a pattern from mood
@@ -153,11 +157,16 @@ def _load_owners() -> None:
         importlib.import_module(name)
 
 
-def _valid_realizers() -> tuple[frozenset[int], frozenset[str]]:
+def _valid_realizers() -> tuple[frozenset[int], frozenset[str], frozenset[str]]:
     from app.sonify.guitar_sor import GALOP_CELL_1, GALOP_CELL_2
     from app.sonify.guitar_torroba import _FIGURES
+    from app.sonify.procedure_specs import PROCEDURES
 
-    return frozenset(_FIGURES), frozenset({GALOP_CELL_1, GALOP_CELL_2})
+    return (
+        frozenset(_FIGURES),
+        frozenset({GALOP_CELL_1, GALOP_CELL_2}),
+        frozenset(PROCEDURES),
+    )
 
 
 def _known_patterns() -> set[str]:
@@ -196,7 +205,10 @@ def _error_path(message: str) -> str:
         return "select.length"
     if any(word in text for word in ("tile", "remainder", "truncate", "cycle", "span")):
         return "span"
-    if any(word in text for word in ("slot", "anchor", "overlap", "figure", "cell")):
+    if any(
+        word in text
+        for word in ("slot", "anchor", "overlap", "figure", "cell", "procedure")
+    ):
         return "slots"
     if "duplicate ids" in text:
         return "id"
@@ -246,7 +258,7 @@ def validate_spec(spec: SentenceSpec) -> list[Error]:
             )
         )
 
-    figures, cells = _valid_realizers()
+    figures, cells, procedures = _valid_realizers()
     span_ok = isinstance(spec.span, sentence_specs.Span)
     tile = spec.span.tile if span_ok else None
     slots_ok = isinstance(spec.slots, tuple) and all(
@@ -256,8 +268,13 @@ def validate_spec(spec: SentenceSpec) -> list[Error]:
         errors.append(Error("slots", "slots must be a tuple of slot objects"))
     for index, slot in enumerate(spec.slots if slots_ok else ()):
         path = f"slots[{index}]"
-        if (slot.figure is None) == (slot.cell is None):
-            errors.append(Error(path, "a slot needs exactly one of figure or cell"))
+        if sum(
+            realizer is not None
+            for realizer in (slot.figure, slot.cell, slot.procedure)
+        ) != 1:
+            errors.append(
+                Error(path, "a slot needs exactly one of figure, cell, or procedure")
+            )
         if slot.figure is not None and slot.figure not in figures:
             errors.append(
                 Error(f"{path}.figure", f"figure {slot.figure!r} is not in _FIGURES")
@@ -265,6 +282,16 @@ def validate_spec(spec: SentenceSpec) -> list[Error]:
         if slot.cell is not None and slot.cell not in cells:
             errors.append(
                 Error(f"{path}.cell", f"cell {slot.cell!r} is not a registered galop cell")
+            )
+        if slot.procedure is not None and (
+            not isinstance(slot.procedure, str)
+            or slot.procedure not in procedures
+        ):
+            errors.append(
+                Error(
+                    f"{path}.procedure",
+                    f"procedure {slot.procedure!r} is not registered",
+                )
             )
         if slot.anchor not in {"start", "middle", "end"}:
             errors.append(Error(f"{path}.anchor", f"unknown slot anchor {slot.anchor!r}"))
@@ -728,6 +755,17 @@ def _matrix(
 # public entry point
 
 
+def _procedure_slot(spec: SentenceSpec) -> Error | None:
+    """A procedure realizer has no renderer yet, so there is nothing to preview."""
+    for index, slot in enumerate(spec.slots):
+        if slot.procedure is not None:
+            return Error(
+                f"slots[{index}].procedure",
+                f"procedure {slot.procedure!r} preview not implemented",
+            )
+    return None
+
+
 def preview_spec(
     spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
 ) -> PreviewResult:
@@ -735,6 +773,10 @@ def preview_spec(
     errors = validate_spec(spec)
     if errors:
         return PreviewResult(ok=False, errors=tuple(errors))
+
+    blocked = _procedure_slot(spec)
+    if blocked is not None:
+        return PreviewResult(ok=False, errors=(blocked,))
 
     try:
         resolved = _resolve_fixture(spec, fixture)

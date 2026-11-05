@@ -40,7 +40,7 @@ _SELECT_KEYS = frozenset(
     {"length_min", "length_max", "n_parity", "n_mod", "closes", "rise_min"}
 )
 _SPAN_KEYS = frozenset({"tile", "remainder", "truncate_to_length", "cycle", "exact"})
-_SLOT_KEYS = frozenset({"start", "bars", "figure", "cell", "anchor"})
+_SLOT_KEYS = frozenset({"start", "bars", "figure", "cell", "procedure", "anchor"})
 _SLOT_REQUIRED = frozenset({"start", "bars", "anchor"})
 _N_MOD_KEYS = frozenset({"mod", "value"})
 
@@ -86,6 +86,8 @@ def _slot_to_mapping(slot: Slot) -> dict[str, Any]:
         mapping["figure"] = slot.figure
     if slot.cell is not None:
         mapping["cell"] = slot.cell
+    if slot.procedure is not None:
+        mapping["procedure"] = slot.procedure
     mapping["anchor"] = slot.anchor
     return mapping
 
@@ -239,13 +241,27 @@ def _parse_slot(data: dict[str, Any], path: str) -> Slot:
 
     figure = data.get("figure")
     cell = data.get("cell")
+    procedure = data.get("procedure")
     if figure is not None:
         figure = _integer(figure, f"{path}.figure")
     if cell is not None:
         cell = _non_empty_str(cell, f"{path}.cell")
-    if (figure is None) == (cell is None):
-        raise ValueError(f"{path}: a slot needs exactly one of figure or cell")
-    return Slot(start=start, bars=bars, figure=figure, cell=cell, anchor=anchor)
+    if procedure is not None:
+        procedure = _non_empty_str(procedure, f"{path}.procedure")
+    if sum(
+        realizer is not None for realizer in (figure, cell, procedure)
+    ) != 1:
+        raise ValueError(
+            f"{path}: a slot needs exactly one of figure, cell, or procedure"
+        )
+    return Slot(
+        start=start,
+        bars=bars,
+        figure=figure,
+        cell=cell,
+        procedure=procedure,
+        anchor=anchor,
+    )
 
 
 def _check_keys(data: Mapping[str, Any], allowed: frozenset[str], path: str) -> None:
