@@ -32,6 +32,28 @@ class SpecErrorOut(BaseModel):
     message: str
 
 
+def _parse_error(exc: Exception) -> SpecErrorOut:
+    """Keep the authored path when the parser/model already carries one."""
+    path = getattr(exc, "path", None)
+    message = getattr(exc, "message", None)
+    if isinstance(path, str) and path:
+        return SpecErrorOut(path=path, message=str(message or exc))
+    text = str(exc)
+    # `parse_spec`/`_validate` may prefix the spec id before the authored path
+    # (e.g. "castillo: slots[0].microVelocity.notes[0].bar: ..."). Find the
+    # first path-shaped segment instead of splitting only at the first colon.
+    for marker in ("spec.", "specs[", "slots[", "microVelocity."):
+        index = text.find(marker)
+        if index >= 0:
+            path, separator, message = text[index:].partition(": ")
+            if separator and path:
+                return SpecErrorOut(path=path, message=message)
+    head, separator, tail = text.partition(": ")
+    if separator and (head == "spec" or head.startswith("spec.") or head.startswith("specs[")):
+        return SpecErrorOut(path=head, message=tail)
+    return SpecErrorOut(path="spec", message=text)
+
+
 class ValidateResponse(BaseModel):
     ok: bool
     errors: list[SpecErrorOut] = Field(default_factory=list)
@@ -82,9 +104,7 @@ def validate_sentence(body: dict[str, Any]) -> ValidateResponse:
         try:
             specs = parse_payload(body)
         except _PARSE_ERRORS as exc:
-            return ValidateResponse(
-                ok=False, errors=[SpecErrorOut(path="spec", message=str(exc))]
-            )
+            return ValidateResponse(ok=False, errors=[_parse_error(exc)])
         errors: list[SpecErrorOut] = []
         for index, spec in enumerate(specs):
             for error in dispatch.validate(spec):
@@ -99,9 +119,7 @@ def validate_sentence(body: dict[str, Any]) -> ValidateResponse:
     try:
         spec = parse_spec(body)
     except _PARSE_ERRORS as exc:
-        return ValidateResponse(
-            ok=False, errors=[SpecErrorOut(path="spec", message=str(exc))]
-        )
+        return ValidateResponse(ok=False, errors=[_parse_error(exc)])
     errors = [
         SpecErrorOut(path=error.path, message=error.message)
         for error in dispatch.validate(spec)
@@ -115,9 +133,7 @@ def preview_sentence(body: PreviewRequest) -> PreviewResponse:
     try:
         spec = parse_spec(body.spec)
     except _PARSE_ERRORS as exc:
-        return PreviewResponse(
-            ok=False, errors=[SpecErrorOut(path="spec", message=str(exc))]
-        )
+        return PreviewResponse(ok=False, errors=[_parse_error(exc)])
     result = dispatch.preview_sentence(spec, body.fixture)
     return PreviewResponse(**result.as_response())
 

@@ -344,6 +344,36 @@ def test_preview_api_adds_micro_velocity_only_when_authored() -> None:
     assert body["notes"] == plain.json()["notes"]
 
 
+def test_validate_api_preserves_the_contour_path() -> None:
+    client = _client()
+    payload = _with_contour()
+    payload["slots"][0]["microVelocity"]["notes"][0]["bar"] = 9
+    response = client.post("/v1/studio/sentence/validate", json=payload)
+    assert response.status_code == 200
+    paths = [error["path"] for error in response.json()["errors"]]
+    assert "slots[0].microVelocity.notes[0].bar" in paths
+
+
+def test_texture_contour_uses_the_single_variant_bounds() -> None:
+    mapping = _texture_mapping()
+    mapping["microVelocity"] = {
+        "kind": "offsets",
+        "notes": [{"bar": 0, "beat": 4.0, "voice": 1, "offset": -1}],
+        "thumb": [],
+    }
+    errors = validate_texture_spec(parse_texture_spec(mapping))
+    assert [error.path for error in errors] == ["microVelocity.notes[0].beat"]
+
+    mapping["microVelocity"]["notes"][0] = {
+        "bar": 2,
+        "beat": 0.0,
+        "voice": 1,
+        "offset": -1,
+    }
+    errors = validate_texture_spec(parse_texture_spec(mapping))
+    assert [error.path for error in errors] == ["microVelocity.notes[0].bar"]
+
+
 def test_texture_spec_helper_defaults_keep_old_mappings() -> None:
     """The optional contour must not change an authored spec that omits it."""
     spec = TextureSpec(

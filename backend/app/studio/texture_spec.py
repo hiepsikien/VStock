@@ -1189,8 +1189,27 @@ def validate_texture_spec(
             errors.append(TextureError(name, "must be a mapping or null"))
 
     if spec.micro_velocity is not None:
+        # The authored contour is relative to the pattern/sentence; bound it
+        # with the explicit meter when supplied, or with a single declared
+        # variant. Multiple variants stay unbounded because choosing one would
+        # report false failures for the others.
+        micro_meter = meter
+        if micro_meter is None and len(spec.meter_variants) == 1:
+            variant = spec.meter_variants[0]
+            if isinstance(variant, MeterVariant):
+                micro_meter = variant.meter
+        micro_bars = (
+            max((event.bar for event in spec.authored), default=-1) + 1
+            if spec.authored
+            else None
+        )
         for error in validate_micro_velocity(
-            spec.micro_velocity, path="microVelocity"
+            spec.micro_velocity,
+            bars=micro_bars,
+            beats_per_bar=(
+                micro_meter.quarter_beats if micro_meter is not None else None
+            ),
+            path="microVelocity",
         ):
             errors.append(TextureError(error.path, error.message))
 
