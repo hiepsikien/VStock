@@ -1198,11 +1198,20 @@ def validate_texture_spec(
             variant = spec.meter_variants[0]
             if isinstance(variant, MeterVariant):
                 micro_meter = variant.meter
-        micro_bars = (
+        authored_bars = (
             max((event.bar for event in spec.authored), default=-1) + 1
             if spec.authored
-            else None
+            else 0
         )
+        contour_bars = max(
+            (
+                entry.bar
+                for entry in (*spec.micro_velocity.notes, *spec.micro_velocity.thumb)
+                if isinstance(entry.bar, int)
+            ),
+            default=-1,
+        ) + 1
+        micro_bars = max(authored_bars, contour_bars) or None
         for error in validate_micro_velocity(
             spec.micro_velocity,
             bars=micro_bars,

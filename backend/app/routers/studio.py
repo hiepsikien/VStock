@@ -41,13 +41,24 @@ def _parse_error(exc: Exception) -> SpecErrorOut:
     text = str(exc)
     # `parse_spec`/`_validate` may prefix the spec id before the authored path
     # (e.g. "castillo: slots[0].microVelocity.notes[0].bar: ..."). Find the
-    # first path-shaped segment instead of splitting only at the first colon.
+    # earliest path-shaped marker that starts at the message or after a
+    # separator, so a user-supplied id containing "spec." is not mistaken for
+    # the path.
+    candidates: list[tuple[int, str]] = []
     for marker in ("spec.", "specs[", "slots[", "microVelocity."):
-        index = text.find(marker)
-        if index >= 0:
-            path, separator, message = text[index:].partition(": ")
-            if separator and path:
-                return SpecErrorOut(path=path, message=message)
+        start = 0
+        while True:
+            index = text.find(marker, start)
+            if index < 0:
+                break
+            if index == 0 or text[index - 2 : index] in {": ", "  "}:
+                candidates.append((index, marker))
+            start = index + 1
+    if candidates:
+        index, _marker = min(candidates)
+        path, separator, message = text[index:].partition(": ")
+        if separator and path:
+            return SpecErrorOut(path=path, message=message)
     head, separator, tail = text.partition(": ")
     if separator and (head == "spec" or head.startswith("spec.") or head.startswith("specs[")):
         return SpecErrorOut(path=head, message=tail)

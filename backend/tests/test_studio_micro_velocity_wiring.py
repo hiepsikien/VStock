@@ -27,7 +27,6 @@ from app.studio.micro_velocity import (
 )
 from app.studio.sentence_spec import parse_spec, spec_to_mapping
 from app.studio.texture_spec import (
-    AuthoredEvent,
     MeterSpec,
     MeterVariant,
     TextureSpec,
@@ -354,6 +353,18 @@ def test_validate_api_preserves_the_contour_path() -> None:
     assert "slots[0].microVelocity.notes[0].bar" in paths
 
 
+def test_parse_error_ignores_a_spec_id_that_looks_like_a_path() -> None:
+    from app.routers.studio import _parse_error
+
+    error = _parse_error(
+        ValueError(
+            "my.spec.song: slots[0].microVelocity.notes[0].bar: outside"
+        )
+    )
+    assert error.path == "slots[0].microVelocity.notes[0].bar"
+    assert error.message == "outside"
+
+
 def test_texture_contour_uses_the_single_variant_bounds() -> None:
     mapping = _texture_mapping()
     mapping["microVelocity"] = {
@@ -364,14 +375,15 @@ def test_texture_contour_uses_the_single_variant_bounds() -> None:
     errors = validate_texture_spec(parse_texture_spec(mapping))
     assert [error.path for error in errors] == ["microVelocity.notes[0].beat"]
 
+    # A trailing bar with no authored note is allowed; the contour's own
+    # extent is part of the bound, so a rest-only bar is not rejected.
     mapping["microVelocity"]["notes"][0] = {
         "bar": 2,
         "beat": 0.0,
         "voice": 1,
         "offset": -1,
     }
-    errors = validate_texture_spec(parse_texture_spec(mapping))
-    assert [error.path for error in errors] == ["microVelocity.notes[0].bar"]
+    assert validate_texture_spec(parse_texture_spec(mapping)) == ()
 
 
 def test_texture_spec_helper_defaults_keep_old_mappings() -> None:
