@@ -38,6 +38,7 @@ from app.sonify.micro_velocity_contours import (
     TREMOLO_44,
     TREMOLO_CONTOURS,
     UNEXTRACTED_REASONS,
+    _etude11_slot,
     flatten_rule,
 )
 from app.sonify.model import NoteEvent
@@ -208,6 +209,12 @@ def test_rules_declare_params_and_versions() -> None:
 
 def test_neutral_levels_are_declared_for_every_extracted_family() -> None:
     assert NEUTRAL_LEVELS == {"tremolo": 58, "etude1": 52, "etude11": 44}
+
+
+def test_etude11_slot_skips_off_sextuplet_attacks() -> None:
+    assert _etude11_slot(1 / 6) == 1
+    assert _etude11_slot(0.25) is None
+    assert _etude11_slot(1.5) == 3
 
 
 def test_flatten_rule_refuses_an_unknown_rule() -> None:

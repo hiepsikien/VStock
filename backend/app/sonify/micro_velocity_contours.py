@@ -286,7 +286,10 @@ def flatten_rule(
             if hairpin is None:
                 continue
             band = band_at(event) if band_at is not None else None
-            target = _etude11_target(hairpin, _etude11_slot(event.beat), band, params)
+            slot = _etude11_slot(event.beat)
+            if slot is None:
+                continue
+            target = _etude11_target(hairpin, slot, band, params)
         else:
             raise ValueError(f"unsupported rule id {rule_id!r}")
 
@@ -307,7 +310,11 @@ def flatten_rule(
 def _galop_steps(
     rule_id: str, beat: float, duration: float, params: Mapping[str, Any]
 ) -> int:
-    """Steps under the written peak, mirroring the writer's step table."""
+    """Steps under the written peak, mirroring the writer's step table.
+
+    Mirror of `guitar_sor._galop1_steps` / `_galop2_steps`. Bump the contour
+    `ruleVersion` whenever the writer's step table changes.
+    """
     if rule_id == "galop1":
         peak_quarter = int(params.get("peakQuarter", 3))
         quarter = min(max(int(math.floor(beat + 1e-9)), 0), peak_quarter)
@@ -336,10 +343,18 @@ def _galop_steps(
     return inner + cell
 
 
-def _etude11_slot(beat: float) -> int:
-    """Sextuplet slot 1, 2, 4 or 5 from the event's beat inside its quarter."""
+def _etude11_slot(beat: float) -> int | None:
+    """Sextuplet slot 1, 2, 4 or 5, or None for an off-sextuplet attack.
+
+    Mirror of the writer's `_etude11_middle_vel` slot assumption. Bump the
+    contour `ruleVersion` whenever the writer's arch/nudge/tilt changes.
+    """
     quarter = int(math.floor(beat + 1e-9))
-    return int(round((beat - quarter) * 6))
+    raw = (beat - quarter) * 6
+    slot = int(round(raw))
+    if abs(raw - slot) > 1e-6:
+        return None
+    return slot
 
 
 def _etude11_target(

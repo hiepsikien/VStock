@@ -1053,6 +1053,7 @@ Mỗi entry dùng toạ độ **tương đối trong figure/slot**, không phả
 
 - `thumb: []` hoặc vắng = thumb offset 0.
 - `kind: "rule"` lưu rule/step table gốc; UI flatten thành per-note cho fixture đang chọn, nhưng dữ liệu lưu vẫn là rule. Mỗi `ruleId` phải khai `params` tối thiểu (ví dụ `galop1: {step, floor, peakQuarter}`) để flatten không phụ thuộc default ẩn.
+- `ruleVersion` phải bump khi writer mirror đổi (`_galop*_steps`, `_etude11_middle_vel`). `flatten_rule(base_at=...)` khi wire vào writer phải truyền **neutral level**, không dùng default `event.velocity` (chỉ dùng cho extraction harness).
 - Không có `base` áp vào velocity. Nếu UI cần mốc hiển thị, dùng level figure viết ra làm reference; không lưu/không cộng `base`.
 
 #### Thứ tự render và exception
@@ -1835,7 +1836,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 27. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
 
 28. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp **trừ attack `pinned`** do absolute writer (snap/stab/fan/trim); Studio click figure → velocity lane và cho sửa.
-29. **Extraction zero-diff:** bóc tách contour từ Tremolo/Galop/Cathedral/Etude1/Etude11 phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”.
+29. **Extraction zero-diff:** Tremolo 4/4–3/4, Galop 1/2, Etude1, Etude11 phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”. **Cathedral Preludio được defer** đến writer integration/rule context (`_catedral_under` cần pitch voice khác) — không bịa offset để pass gate.
 
 ---
 
