@@ -10,6 +10,7 @@ import { palette, TOUCH_TARGET } from '../musicalize/palette';
 import { type } from '../musicalize/type';
 import {
   mergeVelocityEdits,
+  velocityLaneColumns,
   velocityLaneExtent,
   velocityLaneLabel,
   velocityLaneRows,
@@ -29,8 +30,8 @@ import {
  */
 
 const TRACK_HEIGHT = 48;
-const BAR_WIDTH = 16;
-const LANE_LABEL_WIDTH = 46;
+const BAR_WIDTH = 18;
+const LANE_LABEL_WIDTH = 56;
 const MAX_EDIT_OFFSET = 24;
 
 const laneColors: Record<VelocityLaneId, string> = {
@@ -196,6 +197,7 @@ export function VelocityLane({
   const hasAuthored = rows.some((row) => row.authored && !row.pinned);
   const canAfterLayers = hasAuthored && contour != null;
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
+  const selectedInSlot = selected != null && selected.contourBar >= 0;
   const editCount = Object.keys(edits).length;
   const ruleNeedsFlatten =
     contour?.kind === 'rule' && allRows.some((row) => row.needsRule);
@@ -226,10 +228,32 @@ export function VelocityLane({
     .map((lane) => ({ lane, rows: rows.filter((row) => row.lane === lane) }))
     .filter((group) => group.rows.length > 0);
 
+  // One shared bar/beat grid keeps voice rows and the ruler aligned: a gap in
+  // one lane is a spacer in every lane, never a re-flowed column.
+  const columns = useMemo(() => velocityLaneColumns(rows), [rows]);
+  const grid = useMemo(() => {
+    const cells = new Map<string, VelocityLaneRow[]>();
+    for (const row of rows) {
+      const key = `${row.lane}|${row.bar}:${String(row.beat)}`;
+      const bucket = cells.get(key);
+      if (bucket) bucket.push(row);
+      else cells.set(key, [row]);
+    }
+    return cells;
+  }, [rows]);
+
   const pinnedRows = rows.filter((row) => row.pinned);
+  const pinnedLayers = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of pinnedRows) {
+      const name = row.pinnedLayer ?? 'pinned';
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts.entries()];
+  }, [pinnedRows]);
 
   const adjustSelected = (delta: number) => {
-    if (!selected || selected.pinned || !canEdit) return;
+    if (!selected || selected.pinned || !canEdit || selected.contourBar < 0) return;
     setEdits((current) => {
       const base = current[selected.key] ?? selected.offset;
       const next = clampOffset(base + delta);
@@ -343,9 +367,8 @@ export function VelocityLane({
       {contour == null ? (
         <View style={styles.noteBox}>
           <Text style={styles.noteText}>
-            No authored <Text style={styles.mono}>microVelocity</Text> returned by the
-            preview. These bars are the realized velocities; offsets are not loaded
-            yet, so the lane is read-only.
+            No authored <Text style={styles.mono}>microVelocity</Text> · realized
+            velocities shown read-only.
           </Text>
         </View>
       ) : null}
@@ -364,17 +387,46 @@ export function VelocityLane({
         <View style={styles.emptyBox}>
           <Text style={styles.emptyText}>
             {allRows.length === 0
-              ? 'No preview notes to draw. Run a successful preview first.'
-              : 'No notes match this voice or thumb filter.'}
+              ? 'No preview notes · run a preview first'
+              : 'No notes match this filter'}
           </Text>
         </View>
       ) : (
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.laneStack}>
+              <View style={styles.rulerRow}>
+                <View style={styles.laneLabelCell}>
+                  <Text style={styles.rulerLabel}>bar</Text>
+                </View>
+                <View style={styles.rulerBars}>
+                  {columns.map((column) => (
+                    <View key={column.key} style={styles.rulerCell}>
+                      <Text
+                        style={[
+                          styles.rulerText,
+                          column.beat === 0 ? styles.rulerBarText : styles.rulerBeatText,
+                        ]}
+                      >
+                        {column.beat === 0
+                          ? String(column.bar + 1)
+                          : Number.isInteger(column.beat)
+                            ? String(column.beat)
+                            : '·'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
               {laneRows.map((group) => (
                 <View key={group.lane} style={styles.laneRow}>
                   <View style={styles.laneLabelCell}>
+                    <View
+                      style={[
+                        styles.legendSwatch,
+                        { backgroundColor: laneColors[group.lane] },
+                      ]}
+                    />
                     <Text style={[styles.laneLabel, { color: laneColors[group.lane] }]}>
                       {laneNames[group.lane]}
                     </Text>
@@ -382,65 +434,71 @@ export function VelocityLane({
                   </View>
                   <View style={styles.bars}>
                     <View style={styles.baseline} />
-                    {group.rows.map((row, index) => {
-                      const previous = group.rows[index - 1];
-                      const gap =
-                        previous == null
-                          ? 0
-                          : row.bar !== previous.bar
-                            ? 10
-                            : row.beat !== previous.beat
-                              ? 2
-                              : 0;
-                      const offset = effectiveOffset(row);
-                      const shown = displayVelocity(row);
-                      const offsetFill = offsetHeight(offset, extent.maxAbsOffset);
-                      const color = row.pinned
-                        ? palette.playhead
-                        : laneColors[row.lane];
+                    {columns.map((column) => {
+                      const cellRows =
+                        grid.get(`${group.lane}|${column.key}`) ?? [];
+                      if (cellRows.length === 0) {
+                        return <View key={column.key} style={styles.emptyCell} />;
+                      }
+                      const trackWidth = Math.max(
+                        3,
+                        Math.floor((BAR_WIDTH - 4) / cellRows.length) - 1,
+                      );
                       return (
-                        <React.Fragment key={row.key}>
-                          {gap > 0 ? <View style={{ width: gap }} /> : null}
-                          <Pressable
-                            onPress={() => setSelectedKey(row.key)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${velocityLaneLabel(row)} · ${
-                              row.pinned ? pinnedLabel(row) : `offset ${offset}`
-                            }`}
-                            accessibilityState={{ selected: selectedKey === row.key }}
-                            style={({ pressed }) => [
-                              styles.barSlot,
-                              selectedKey === row.key && styles.barSlotSelected,
-                              pressed && styles.pressed,
-                            ]}
-                          >
-                            <View style={styles.barTrack}>
-                              <View
-                                style={[
-                                  styles.velocityFill,
-                                  {
-                                    height: velocityHeight(shown),
-                                    backgroundColor: color,
-                                    opacity: showAfterLayers && canAfterLayers ? 0.42 : 0.24,
-                                  },
+                        <View key={column.key} style={styles.cell}>
+                          {cellRows.map((row) => {
+                            const offset = effectiveOffset(row);
+                            const shown = displayVelocity(row);
+                            const offsetFill = offsetHeight(offset, extent.maxAbsOffset);
+                            const color = row.pinned
+                              ? palette.playhead
+                              : laneColors[row.lane];
+                            return (
+                              <Pressable
+                                key={row.key}
+                                onPress={() => setSelectedKey(row.key)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${velocityLaneLabel(row)} · ${
+                                  row.pinned ? pinnedLabel(row) : `offset ${offset}`
+                                }${row.contourBar < 0 ? ' · before slot' : ''}`}
+                                accessibilityState={{ selected: selectedKey === row.key }}
+                                style={({ pressed }) => [
+                                  styles.barSlot,
+                                  { width: trackWidth },
+                                  selectedKey === row.key && styles.barSlotSelected,
+                                  pressed && styles.pressed,
                                 ]}
-                              />
-                              {offsetFill > 0 ? (
-                                <View
-                                  style={[
-                                    styles.offsetFill,
-                                    offset > 0
-                                      ? { bottom: TRACK_HEIGHT / 2, height: offsetFill }
-                                      : { top: TRACK_HEIGHT / 2, height: offsetFill },
-                                    { backgroundColor: color },
-                                  ]}
-                                />
-                              ) : null}
-                              {row.pinned ? <View style={styles.pinDot} /> : null}
-                            </View>
-                            {row.pinned ? <Text style={styles.pinText}>P</Text> : null}
-                          </Pressable>
-                        </React.Fragment>
+                              >
+                                <View style={[styles.barTrack, { width: trackWidth }]}>
+                                  <View
+                                    style={[
+                                      styles.velocityFill,
+                                      {
+                                        height: velocityHeight(shown),
+                                        backgroundColor: color,
+                                        opacity:
+                                          showAfterLayers && canAfterLayers ? 0.42 : 0.24,
+                                      },
+                                    ]}
+                                  />
+                                  {offsetFill > 0 ? (
+                                    <View
+                                      style={[
+                                        styles.offsetFill,
+                                        offset > 0
+                                          ? { bottom: TRACK_HEIGHT / 2, height: offsetFill }
+                                          : { top: TRACK_HEIGHT / 2, height: offsetFill },
+                                        { backgroundColor: color },
+                                      ]}
+                                    />
+                                  ) : null}
+                                  {row.pinned ? <View style={styles.pinDot} /> : null}
+                                </View>
+                                {row.pinned ? <Text style={styles.pinText}>P</Text> : null}
+                              </Pressable>
+                            );
+                          })}
+                        </View>
                       );
                     })}
                   </View>
@@ -452,17 +510,49 @@ export function VelocityLane({
           <View style={styles.legend}>
             <Text style={styles.legendText}>
               {extent.barCount
-                ? `bars ${extent.barStart + 1}–${extent.barEnd + 1} · ${
-                    extent.maxAbsOffset
-                  } max |offset|`
+                ? `bars ${extent.barStart + 1}–${extent.barEnd + 1}`
                 : 'no bars'}
             </Text>
+            <Text style={styles.legendText}>
+              {extent.maxAbsOffset} max |offset|
+            </Text>
+            <Text style={styles.legendText}>empty = 0</Text>
             {pinnedRows.length ? (
               <Text style={styles.legendText}>
-                {pinnedRows.length} pinned attack{pinnedRows.length === 1 ? '' : 's'}
+                {pinnedRows.length} pinned
               </Text>
             ) : null}
-            <Text style={styles.legendText}>empty = 0</Text>
+            {pinnedLayers.length ? (
+              <Text style={styles.legendText}>
+                layers: {pinnedLayers
+                  .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+                  .join(' · ')}
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.laneLegend}>
+            {laneRows.map((group) => (
+              <View key={group.lane} style={styles.legendItem}>
+                <View
+                  style={[
+                    styles.legendSwatch,
+                    { backgroundColor: laneColors[group.lane] },
+                  ]}
+                />
+                <Text style={styles.legendItemText}>{laneNames[group.lane]}</Text>
+              </View>
+            ))}
+            {pinnedRows.length ? (
+              <View style={styles.legendItem}>
+                <View style={[styles.legendSwatch, styles.pinnedSwatch]} />
+                <Text style={styles.legendItemText}>pinned (absolute)</Text>
+              </View>
+            ) : null}
+            <Text style={styles.legendText}>
+              bold bar numbers on downbeats · other columns are beats · keys stay
+              slot-relative
+            </Text>
           </View>
 
           {pinnedRows.length ? (
@@ -495,8 +585,8 @@ export function VelocityLane({
         <View style={styles.detail}>
           <Text style={styles.detailTitle}>{velocityLaneLabel(selected)}</Text>
           <Text style={styles.detailKey}>
-            key {noteKey(selected.bar, selected.beat, selected.voice, selected.finger)} ·
-            midi {selected.note.midi ?? '—'}
+            key {noteKey(selected.contourBar, selected.beat, selected.voice, selected.finger)} ·
+            slot bar {selected.contourBar + 1} · midi {selected.note.midi ?? '—'}
           </Text>
           <Text style={styles.detailLine}>
             {selected.pinned
@@ -513,7 +603,7 @@ export function VelocityLane({
                 ? ` → ${afterLayersVelocity(selected) ?? '—'} after layer`
                 : ''}
           </Text>
-          {editMode && canEdit && !selected.pinned ? (
+          {editMode && canEdit && !selected.pinned && selectedInSlot ? (
             <View style={styles.editRow}>
               <Text style={styles.editLabel}>local</Text>
               <StepButton label="-4" onPress={() => adjustSelected(-4)} />
@@ -536,11 +626,17 @@ export function VelocityLane({
               not expose an offset.
             </Text>
           ) : null}
+          {editMode && canEdit && !selected.pinned && !selectedInSlot ? (
+            <Text style={styles.detailWarn}>
+              This bar is before the slot origin, so it has no slot-relative key
+              and cannot be saved into the contour.
+            </Text>
+          ) : null}
         </View>
       ) : (
         <Text style={styles.detailHint}>
-          Click a bar to reveal its note key and offset. Bars are voice-colored;
-          pinned bars carry P and their absolute layer label.
+          Click a bar to reveal its note key and offset. Bar labels are absolute
+          preview bars; keys stay relative to the selected slot.
         </Text>
       )}
 
@@ -708,17 +804,16 @@ const styles = StyleSheet.create({
     color: palette.text,
   },
   emptyBox: {
-    padding: 12,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: palette.hairline,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 5,
     backgroundColor: palette.surface,
   },
   emptyText: {
     color: palette.textFaint,
     fontFamily: type.sans.fontFamily,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 14,
   },
   laneStack: {
     gap: 2,
@@ -729,10 +824,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  rulerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 1,
+  },
+  rulerLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 8,
+    lineHeight: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  rulerCell: {
+    width: BAR_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  rulerBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  rulerText: {
+    fontFamily: type.mono.fontFamily,
+    fontSize: 8,
+    lineHeight: 10,
+  },
+  rulerBarText: {
+    color: palette.textMuted,
+    fontWeight: '700',
+  },
+  rulerBeatText: {
+    color: palette.textFaint,
+    fontSize: 7,
+  },
   laneLabelCell: {
     width: LANE_LABEL_WIDTH,
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: 3,
   },
   laneLabel: {
@@ -748,11 +880,30 @@ const styles = StyleSheet.create({
     fontSize: 8,
     lineHeight: 10,
   },
+  legendSwatch: {
+    width: 6,
+    height: 6,
+    borderRadius: 1,
+  },
+  pinnedSwatch: {
+    backgroundColor: palette.playhead,
+  },
   bars: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     minHeight: TRACK_HEIGHT + 10,
     position: 'relative',
+  },
+  cell: {
+    width: BAR_WIDTH,
+    height: TRACK_HEIGHT + 10,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  emptyCell: {
+    width: BAR_WIDTH,
+    height: TRACK_HEIGHT + 10,
   },
   baseline: {
     position: 'absolute',
@@ -763,7 +914,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.hairline,
   },
   barSlot: {
-    width: BAR_WIDTH,
     height: TRACK_HEIGHT + 10,
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -774,7 +924,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(244, 241, 234, 0.08)',
   },
   barTrack: {
-    width: BAR_WIDTH - 5,
     height: TRACK_HEIGHT,
     borderRadius: 2,
     backgroundColor: palette.track,
@@ -798,7 +947,8 @@ const styles = StyleSheet.create({
   pinDot: {
     position: 'absolute',
     top: 2,
-    left: (BAR_WIDTH - 5) / 2 - 2,
+    left: '50%',
+    marginLeft: -2,
     width: 4,
     height: 4,
     borderRadius: 1,
@@ -816,6 +966,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  laneLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendItemText: {
+    color: palette.textMuted,
+    fontFamily: type.section.fontFamily,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   legendText: {
     color: palette.textFaint,

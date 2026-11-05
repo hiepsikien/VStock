@@ -123,9 +123,10 @@ class PreviewResult:
     notes: tuple[dict[str, Any], ...] = ()
     render_hash: str | None = None
     matrix: tuple[dict[str, Any], ...] = ()
-    # Authored slot contours, keyed by slot index. Empty means "no contour",
-    # and `as_response` then omits the key entirely so existing preview JSON
-    # stays byte-identical.
+    # Authored slot contours, keyed by slot index, with the slot's resolved
+    # preview bar origin and authored span. Empty means "no contour", and
+    # `as_response` then omits the key entirely so existing preview JSON stays
+    # byte-identical.
     micro_velocity: tuple[dict[str, Any], ...] = ()
 
     def as_response(self) -> dict[str, Any]:
@@ -812,7 +813,26 @@ def _procedure_slot(spec: SentenceSpec) -> Error | None:
     return None
 
 
-def _slot_contours(spec: SentenceSpec) -> tuple[dict[str, Any], ...]:
+def _slot_origin(slot: sentence_specs.Slot, length: int) -> int:
+    """Resolve a slot's preview bar origin from its anchor.
+
+    `start`-anchored slots are authored as tile offsets. `middle` and `end`
+    anchors are length-relative, so the origin only exists once the fixture
+    length is known. The lane needs this origin to line contour bars up with
+    absolute preview bars.
+    """
+    if slot.anchor == "end":
+        base = length - slot.bars
+    elif slot.anchor == "middle":
+        base = length // 2 + slot.start
+    else:
+        base = slot.start
+    return max(0, base)
+
+
+def _slot_contours(
+    spec: SentenceSpec, length: int
+) -> tuple[dict[str, Any], ...]:
     """Return each authored slot contour keyed by slot index.
 
     A slot can repeat inside a tile, but its contour is authored *relative to
@@ -820,10 +840,16 @@ def _slot_contours(spec: SentenceSpec) -> tuple[dict[str, Any], ...]:
     contour are omitted; the preview never aggregates contours across slots.
     Entries use the canonical coordinate order so the same contour hashes the
     same regardless of how it was authored.
+
+    `start`/`bars` describe the slot's origin and span in preview bars. The
+    contour itself stays slot-relative (`bar: 0` is the slot's first bar), so a
+    save writes relative bars, never absolute preview bars.
     """
     return tuple(
         {
             "slot": index,
+            "start": _slot_origin(slot, length),
+            "bars": int(slot.bars),
             "contour": canonical_micro_velocity_mapping(slot.micro_velocity),
         }
         for index, slot in enumerate(spec.slots)
@@ -861,7 +887,7 @@ def preview_spec(
             events, row = _figure_notes(spec, resolved)
 
     notes = _notes(events)
-    contours = _slot_contours(spec)
+    contours = _slot_contours(spec, int(resolved["length"]))
     render_hash = _render_hash(plan, row, notes, contours)
     matrix = _matrix(spec, resolved, render_hash)
     return PreviewResult(
