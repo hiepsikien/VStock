@@ -1803,6 +1803,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - Chạy `v2` local nội bộ (backend + `npm run web`) một thời gian, thu feedback, sửa lỗi trực tiếp trên `v2`.
 - Chỉ mở **một** PR `main ← v2` khi người phụ trách xác nhận `v2` ổn định; PR #163 đã đóng để tránh merge nhầm.
 - Tiêu chí ổn định tối thiểu: full backend + frontend tests xanh, không lỗi P0/P1 trong thời gian chạy local nội bộ, không regression ngoài Studio.
+- **E2E gate:** `backend/tests/test_studio_e2e.py` (11 test) phủ example→validate→preview→audio→publish→rollback→list/get, upload/analyze/signed media, job queue, owner/visibility; socket guard chặn network. Chạy focused trước, rồi `tests/test_studio_*.py`, rồi full backend.
 
 ---
 
