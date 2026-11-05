@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import type { PointerEvent as RNPointerEvent } from 'react-native';
@@ -46,8 +47,14 @@ import {
   type StudioPublishedSpec,
   type StudioUpload,
   type StudioValidateResponse,
+  type StudioVisibility,
 } from './api';
-import { nextJobPollDelayMs, resolveAudioUrl } from './protocol';
+import {
+  DEFAULT_STUDIO_VISIBILITY,
+  nextJobPollDelayMs,
+  normalizeVisibility,
+  resolveAudioUrl,
+} from './protocol';
 import { VelocityLane, type VelocityLaneSaveInfo } from './VelocityLane';
 import {
   velocitySlotContours,
@@ -60,11 +67,14 @@ import {
   DEFAULT_SAMPLE,
   SAMPLES,
   accessReasonLabel,
-  accessSummary,
+  accessStatusLabel,
+  audioStatusLabel,
   byteSizeLabel,
+  copyValue,
   draftJson,
   draftNoteRows,
   draftToTextureSpec,
+  examplesStatusLabel,
   examplesToSamples,
   checkSpecText,
   containRect,
@@ -74,11 +84,11 @@ import {
   cropSizeLabel,
   defaultSampleForPattern,
   describeRequestFailure,
-  durationLabel,
   findSample,
   fixtureText as sampleFixtureText,
   fixtureTextForSpec,
   imageSizeError,
+  jobStatusLabel,
   measureLines,
   meterLabel,
   metersForPattern,
@@ -94,9 +104,12 @@ import {
   planLines,
   prefixErrorPaths,
   publishedAtLabel,
+  publishedCountLabel,
   publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
+  publishedVisibility,
+  publishSuccessLabel,
   resizeCropRect,
   rollbackLabel,
   sampleText,
@@ -106,6 +119,8 @@ import {
   textureDraftSummary,
   uploadMetaLabel,
   valueLines,
+  visibilityHint,
+  visibilityLabel,
   type CropBounds,
   type CropHandle,
   type CropPoint,
@@ -113,6 +128,7 @@ import {
   type CropSelection,
   type DisplayRect,
   type PublishedListState,
+  type StatusLine,
   type StudioSample,
   type TextureSpecDraft,
 } from './spec';
@@ -179,13 +195,14 @@ type AudioState =
 
 type PublishState =
   | { kind: 'idle' }
-  | { kind: 'running' }
+  | { kind: 'running'; visibility: StudioVisibility }
   | {
       kind: 'ok';
       id: string;
       pattern: string;
       meter: string;
       version: number;
+      visibility: StudioVisibility;
     }
   | { kind: 'failure'; message: string; errors: StudioError[] };
 
@@ -197,6 +214,7 @@ type RollbackState =
       id: string;
       version: number | null;
       rollbackOf: string;
+      visibility: StudioVisibility;
     }
   | { kind: 'failure'; id: string; message: string; errors: StudioError[] };
 
@@ -335,6 +353,10 @@ function selectionForSample(sample: StudioSample): Selection {
 
 export function StudioRoom({ wide, onMode }: Props) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  // Below the two-column breakpoint the cards stack; tighten spacing and
+  // controls so the editor, result, and history stay reachable on a phone.
+  const compact = width < 720;
   const [samples, setSamples] = useState<readonly StudioSample[]>(SAMPLES);
   const [catalog, setCatalog] = useState<CatalogState>({
     loading: true,
@@ -353,6 +375,10 @@ export function StudioRoom({ wide, onMode }: Props) {
   const [queuedJob, setQueuedJob] = useState<QueuedJobState>({ kind: 'idle' });
   const [audio, setAudio] = useState<AudioState>({ kind: 'idle' });
   const [publishState, setPublishState] = useState<PublishState>({ kind: 'idle' });
+  const [publishVisibility, setPublishVisibility] = useState<StudioVisibility>(
+    DEFAULT_STUDIO_VISIBILITY,
+  );
+  const [showEndpoints, setShowEndpoints] = useState(false);
   const [published, setPublished] = useState<PublishedListState>({
     loading: true,
     items: [],
@@ -519,23 +545,27 @@ export function StudioRoom({ wide, onMode }: Props) {
 
   // Capability gate + quota. The editor keeps working if this fails; only the
   // upload/analyze panel depends on `enabled`.
-  useEffect(() => {
+  const loadAccess = useCallback(async () => {
+    accessController.current?.abort();
     const controller = new AbortController();
     accessController.current = controller;
-    void (async () => {
-      try {
-        const next = await fetchStudioAccess(controller.signal);
-        if (controller.signal.aborted) return;
-        setAccess({ kind: 'ready', access: next });
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setAccess({ kind: 'error', message: describeRequestFailure(error) });
-      } finally {
-        if (accessController.current === controller) accessController.current = null;
-      }
-    })();
-    return () => controller.abort();
+    setAccess({ kind: 'loading' });
+    try {
+      const next = await fetchStudioAccess(controller.signal);
+      if (controller.signal.aborted) return;
+      setAccess({ kind: 'ready', access: next });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setAccess({ kind: 'error', message: describeRequestFailure(error) });
+    } finally {
+      if (accessController.current === controller) accessController.current = null;
+    }
   }, []);
+
+  useEffect(() => {
+    void loadAccess();
+    return () => accessController.current?.abort();
+  }, [loadAccess]);
 
   // One session id per install/browser. The panel shows a short form so a
   // support report can name the namespace without leaking the full token.
@@ -1372,9 +1402,13 @@ export function StudioRoom({ wide, onMode }: Props) {
     publishController.current?.abort();
     const controller = new AbortController();
     publishController.current = controller;
-    setPublishState({ kind: 'running' });
+    setPublishState({ kind: 'running', visibility: publishVisibility });
     try {
-      const data = await publishSentenceSpec(checked.spec, controller.signal);
+      const data = await publishSentenceSpec(
+        checked.spec,
+        publishVisibility,
+        controller.signal,
+      );
       if (controller.signal.aborted) return;
       if (!data.ok || !data.id) {
         setPublishState({
@@ -1390,6 +1424,7 @@ export function StudioRoom({ wide, onMode }: Props) {
         pattern: data.pattern ?? String(checked.spec.pattern ?? ''),
         meter: data.meter ?? String(checked.spec.meter ?? ''),
         version: data.version ?? 0,
+        visibility: normalizeVisibility(data.visibility),
       });
       void loadPublished();
     } catch (error) {
@@ -1402,7 +1437,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     } finally {
       if (publishController.current === controller) publishController.current = null;
     }
-  }, [loadPublished]);
+  }, [loadPublished, publishVisibility]);
 
   const openPublished = useCallback(
     async (id: string) => {
@@ -1466,6 +1501,7 @@ export function StudioRoom({ wide, onMode }: Props) {
           id: data.id,
           version: data.version,
           rollbackOf: data.rollbackOf ?? id,
+          visibility: normalizeVisibility(data.visibility),
         });
         void loadPublished();
       } catch (error) {
@@ -1502,12 +1538,23 @@ export function StudioRoom({ wide, onMode }: Props) {
   const canUpload =
     uploadEnabled && selectedFile !== null && !uploadBusy && upload.kind !== 'ready';
   const canAnalyze = uploadEnabled && Boolean(uploaded?.id) && !analyzeBusy && !uploadBusy;
-  const accessNote =
-    access.kind === 'ready'
-      ? accessSummary(access.access)
-      : access.kind === 'loading'
-        ? 'checking Studio access…'
-        : `access check failed · ${access.message}`;
+  const accessLine = accessStatusLabel(
+    access.kind,
+    access.kind === 'ready' ? access.access : undefined,
+    access.kind === 'error' ? access.message : undefined,
+  );
+  const catalogStatus = examplesStatusLabel({
+    loading: catalog.loading,
+    source: catalog.source,
+    count: samples.length,
+    note: catalog.note,
+  });
+  const staleHint =
+    result.kind === 'preview'
+      ? 'Spec changed since this preview — rerun Preview to refresh the plan, hash, and audio.'
+      : result.kind === 'validate'
+        ? 'Spec changed since validation — rerun Validate or Preview.'
+        : 'Spec changed since the last run — run it again to check the current JSON.';
 
   const catalogPatterns = patternIds(samples);
   const patternChoices = catalogPatterns.includes(selection.pattern)
@@ -1528,36 +1575,47 @@ export function StudioRoom({ wide, onMode }: Props) {
       <TopBar mode="studio" onMode={onMode} searchEnabled={false} />
 
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, compact && styles.scrollCompact]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.shell}>
+        <View style={[styles.shell, compact && styles.shellCompact]}>
           <View style={styles.header}>
             <View style={styles.eyebrowRow}>
               <Text style={[type.section, styles.eyebrow]}>Studio · sentence JSON</Text>
               <View style={styles.devBadge}>
                 <Text style={styles.devBadgeText}>DEV</Text>
               </View>
-              <Text numberOfLines={1} style={styles.sessionText}>
-                {sessionLabel(sessionId)} · {accessNote}
-              </Text>
             </View>
             <Text style={[type.displayNarrow, styles.title]}>Sentence lab</Text>
-            <Text style={styles.subtitle}>
-              Edit one sentence spec, validate it against the registry, preview the
-              plan and render hash, then play the short preview WAV and publish a
-              version. The JSON editor remains the source of truth. The image
-              panel above is a separate front half: upload a score photo, ask
-              Gemini for a TextureSpec note draft, and review it here without
-              overwriting the sentence JSON.
+            <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>
+              Flow: pick an example → edit the spec JSON → Validate/Preview → play the
+              short WAV → Publish. The JSON editor is the source of truth. The score
+              photo panel is a separate front half and never overwrites this JSON.
             </Text>
           </View>
 
-          <View style={[styles.columns, wide && styles.columnsWide]}>
-            <View style={[styles.column, wide && styles.columnWide]}>
-              <View style={styles.card}>
+          <View style={[styles.statusStrip, compact && styles.statusStripCompact]}>
+            <View style={styles.statusCell}>
+              <Text style={styles.statusLabel}>Session</Text>
+              <Text selectable numberOfLines={1} style={styles.statusValue}>
+                {sessionLabel(sessionId)}
+              </Text>
+              <CopyButton value={sessionId} label="Copy session" />
+            </View>
+            <View style={[styles.statusCell, styles.statusCellGrow]}>
+              <Text style={styles.statusLabel}>Access & quota</Text>
+              <StatusText line={accessLine} />
+              {access.kind === 'error' ? (
+                <MiniButton label="Retry access" onPress={() => void loadAccess()} />
+              ) : null}
+            </View>
+          </View>
+
+          <View style={[styles.columns, wide && !compact && styles.columnsWide]}>
+            <View style={[styles.column, wide && !compact && styles.columnWide]}>
+              <View style={[styles.card, compact && styles.cardCompact]}>
                 <View style={styles.resultHeader}>
-                  <Text style={[type.section, styles.cardLabel]}>Import ảnh</Text>
+                  <Text style={[type.section, styles.cardLabel]}>IMG · Score photo</Text>
                   <Text style={styles.actionLabel}>Gemini</Text>
                 </View>
                 <Text style={styles.cardTitle}>Score photo → draft notes</Text>
@@ -1630,7 +1688,7 @@ export function StudioRoom({ wide, onMode }: Props) {
                           : { width, height },
                       );
                     }}
-                    style={styles.cropStage}
+                    style={[styles.cropStage, compact && styles.cropStageCompact]}
                   >
                     {imageDisplay && imageDisplay.width > 0 ? (
                       <View
@@ -1802,6 +1860,13 @@ export function StudioRoom({ wide, onMode }: Props) {
                       upload {shortId(upload.upload.id ?? '', 12)} ·{' '}
                       {upload.upload.mime ?? 'unknown mime'}
                     </Text>
+                    <View style={styles.copyRow}>
+                      <CopyButton
+                        value={upload.upload.id}
+                        label="Copy upload id"
+                      />
+                      <CopyButton value={upload.upload.sha256} label="Copy sha256" />
+                    </View>
                   </View>
                 ) : upload.kind === 'uploading' ? (
                   <Text style={styles.composerHint}>
@@ -1828,26 +1893,28 @@ export function StudioRoom({ wide, onMode }: Props) {
                 </Text>
               </View>
 
-              <View style={styles.card}>
-                <Text style={[type.section, styles.cardLabel]}>
-                  {catalog.source === 'api' ? 'API example' : 'Embedded template'}
-                </Text>
+              <View style={[styles.card, compact && styles.cardCompact]}>
+                <Text style={[type.section, styles.cardLabel]}>1 · Example</Text>
                 <Text style={styles.cardTitle}>{selection.title}</Text>
                 {selection.id ? (
-                  <Text selectable style={styles.templateId}>
-                    id {selection.id}
-                  </Text>
+                  <View style={styles.copyRow}>
+                    <Text selectable numberOfLines={1} style={styles.templateId}>
+                      id {selection.id}
+                    </Text>
+                    <CopyButton value={selection.id} label="Copy example id" />
+                  </View>
                 ) : null}
                 <Text style={styles.hint}>
                   Picking a pattern or meter loads a known-good example and replaces
                   the editor contents. The JSON below is always the source of truth
                   for a run.
                 </Text>
-                {catalog.loading ? (
-                  <Text style={styles.catalogNote}>Loading examples…</Text>
-                ) : catalog.note ? (
-                  <Text style={styles.catalogWarning}>{catalog.note}</Text>
-                ) : null}
+                <View style={styles.statusRow}>
+                  {catalog.loading ? (
+                    <ActivityIndicator color={palette.data} size="small" />
+                  ) : null}
+                  <StatusText line={catalogStatus} />
+                </View>
 
                 <Text style={styles.fieldLabel}>Pattern</Text>
                 <View style={styles.chips}>
@@ -1878,7 +1945,7 @@ export function StudioRoom({ wide, onMode }: Props) {
 
                 <View style={styles.editorHeader}>
                   <View>
-                    <Text style={[type.section, styles.cardLabel]}>Spec JSON</Text>
+                    <Text style={[type.section, styles.cardLabel]}>2 · Spec JSON</Text>
                     <Text style={styles.hint}>One sentence spec mapping.</Text>
                   </View>
                   <Text style={styles.stats}>
@@ -1893,7 +1960,7 @@ export function StudioRoom({ wide, onMode }: Props) {
                     setSpecText(next);
                     setDirty(true);
                   }}
-                  style={styles.editor}
+                  style={[styles.editor, compact && styles.editorCompact]}
                   accessibilityLabel="Sentence spec JSON"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -1924,24 +1991,42 @@ export function StudioRoom({ wide, onMode }: Props) {
                     disabled={running || publishing}
                     busy={queuedJob.kind === 'waiting'}
                   />
-                  <ActionButton
-                    label="Publish"
-                    onPress={() => void publish()}
-                    disabled={running || publishing}
-                    busy={publishing}
-                  />
+                  <View style={styles.publishGroup}>
+                    <ActionButton
+                      label="Publish"
+                      onPress={() => void publish()}
+                      disabled={running || publishing}
+                      busy={publishing}
+                    />
+                    <View style={styles.visibilityPicker}>
+                      <Text style={styles.pickerLabel}>Publish as</Text>
+                      <Chip
+                        label="Private"
+                        active={publishVisibility === 'private'}
+                        accessibilityLabel="Publish as private"
+                        onPress={() => setPublishVisibility('private')}
+                        disabled={publishing}
+                      />
+                      <Chip
+                        label="Public"
+                        active={publishVisibility === 'public'}
+                        accessibilityLabel="Publish as public"
+                        onPress={() => setPublishVisibility('public')}
+                        disabled={publishing}
+                      />
+                    </View>
+                  </View>
                   {running || publishing ? (
                     <ActivityIndicator color={palette.data} size="small" />
                   ) : null}
-                  {stale ? (
-                    <Text style={styles.stale}>Edited since the last run.</Text>
-                  ) : null}
                 </View>
+                <Text style={styles.composerHint}>{visibilityHint(publishVisibility)}</Text>
+                {stale ? <Text style={styles.stale}>{staleHint}</Text> : null}
 
-                <PublishStatus state={publishState} />
+                <PublishStatus state={publishState} visibility={publishVisibility} />
               </View>
 
-              <View style={styles.card}>
+              <View style={[styles.card, compact && styles.cardCompact]}>
                 <Pressable
                   onPress={() => setShowFixture((open) => !open)}
                   accessibilityRole="button"
@@ -1953,7 +2038,9 @@ export function StudioRoom({ wide, onMode }: Props) {
                   ]}
                 >
                   <View style={styles.fixtureHeaderText}>
-                    <Text style={[type.section, styles.cardLabel]}>Preview fixture</Text>
+                    <Text style={[type.section, styles.cardLabel]}>
+                      3 · Preview fixture
+                    </Text>
                     <Text style={styles.cardTitle}>
                       {showFixture ? 'Fixture JSON' : 'Show the fixture sent with Preview'}
                     </Text>
@@ -1976,7 +2063,11 @@ export function StudioRoom({ wide, onMode }: Props) {
                       setFixtureJson(next);
                       setDirty(true);
                     }}
-                    style={[styles.editor, styles.fixtureEditor]}
+                    style={[
+                      styles.editor,
+                      styles.fixtureEditor,
+                      compact && styles.editorCompact,
+                    ]}
                     accessibilityLabel="Preview fixture JSON"
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -1990,10 +2081,10 @@ export function StudioRoom({ wide, onMode }: Props) {
               </View>
             </View>
 
-            <View style={[styles.column, wide && styles.columnWide]}>
-              <View style={[styles.card, styles.resultCard]}>
+            <View style={[styles.column, wide && !compact && styles.columnWide]}>
+              <View style={[styles.card, styles.resultCard, compact && styles.cardCompact]}>
                 <View style={styles.resultHeader}>
-                  <Text style={[type.section, styles.cardLabel]}>Gemini draft</Text>
+                  <Text style={[type.section, styles.cardLabel]}>IMG · Gemini draft</Text>
                   <Text style={styles.actionLabel}>TextureSpec notes</Text>
                 </View>
 
@@ -2108,10 +2199,10 @@ export function StudioRoom({ wide, onMode }: Props) {
               </View>
 
               {textureDraft ? (
-                <View style={[styles.card, styles.resultCard]}>
+                <View style={[styles.card, styles.resultCard, compact && styles.cardCompact]}>
                   <View style={styles.resultHeader}>
                     <Text style={[type.section, styles.cardLabel]}>
-                      TextureSpec draft
+                      IMG · TextureSpec draft
                     </Text>
                     <Text style={styles.actionLabel}>
                       {textureDraftSummary(textureDraft)}
@@ -2197,10 +2288,14 @@ export function StudioRoom({ wide, onMode }: Props) {
                 result={result}
                 job={queuedJob}
                 stale={stale}
+                staleHint={staleHint}
                 audio={audio}
                 audioSupported={Platform.OS === 'web'}
                 canPlayAudio={previewSnapshot !== null}
                 onPlayAudio={() => void playAudio()}
+                onRerunPreview={() => void run('preview')}
+                previewBusy={running || publishing}
+                compact={compact}
                 specText={specText}
                 onSpecSaved={(nextSpecText) => {
                   setSpecText(nextSpecText);
@@ -2217,48 +2312,72 @@ export function StudioRoom({ wide, onMode }: Props) {
                 onAskRollback={(id) => setConfirmingRollbackId(id)}
                 onCancelRollback={() => setConfirmingRollbackId(null)}
                 onConfirmRollback={(id) => void rollback(id)}
+                compact={compact}
               />
-              <View style={styles.endpoints}>
-                <Text style={styles.endpointLabel}>Endpoints</Text>
-                <Text selectable style={styles.endpoint}>
-                  GET {studioAccessUrl()}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioUploadsUrl()}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioAnalyzeUrl()}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  GET {studioSentenceUrl('examples')}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioSentenceUrl('validate')}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioTextureValidateUrl()}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioSentenceUrl('preview')}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioJobsUrl()}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  GET {studioJobsUrl()}/{'<id>'}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioSentenceUrl('audio')}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioSentenceUrl('publish')}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  GET {studioSentenceUrl('specs')}
-                </Text>
-                <Text selectable style={styles.endpoint}>
-                  POST {studioSentenceUrl('specs')}/{'<id>'}/rollback
-                </Text>
+              <View style={styles.card}>
+                <Pressable
+                  onPress={() => setShowEndpoints((open) => !open)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showEndpoints }}
+                  accessibilityLabel="Studio API endpoints"
+                  style={({ pressed }) => [
+                    styles.fixtureHeader,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.fixtureHeaderText}>
+                    <Text style={[type.section, styles.cardLabel]}>DEV · Endpoints</Text>
+                    <Text style={styles.hint}>
+                      {showEndpoints
+                        ? 'Routes this screen calls.'
+                        : 'Show the Studio routes this screen calls.'}
+                    </Text>
+                  </View>
+                  <Text style={styles.fixtureToggle}>{showEndpoints ? '−' : '+'}</Text>
+                </Pressable>
+                {showEndpoints ? (
+                  <View style={styles.endpoints}>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioAccessUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioUploadsUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioAnalyzeUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioSentenceUrl('examples')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('validate')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioTextureValidateUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('preview')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioJobsUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioJobsUrl()}/{'<id>'}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('audio')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('publish')}?visibility=private|public
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioSentenceUrl('specs')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('specs')}/{'<id>'}/rollback
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
           </View>
@@ -2273,26 +2392,136 @@ function Chip({
   active,
   onPress,
   accessibilityLabel,
+  disabled = false,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
   accessibilityLabel: string;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ selected: active }}
+      accessibilityState={{ selected: active, disabled }}
       style={({ pressed }) => [
         styles.chip,
         active && styles.chipActive,
-        pressed && styles.pressed,
+        pressed && !disabled ? styles.pressed : null,
+        disabled ? styles.buttonDisabled : null,
       ]}
     >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
+  );
+}
+
+/** Copy a full id/hash (not the shortened display form) to the clipboard. */
+function CopyButton({
+  value,
+  label,
+  accessibilityLabel,
+}: {
+  value: string | null | undefined;
+  label: string;
+  accessibilityLabel?: string;
+}) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const text = copyValue(value);
+
+  useEffect(() => {
+    setState('idle');
+  }, [text]);
+
+  const onPress = async () => {
+    if (!text) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setState('copied');
+        return;
+      }
+    } catch {
+      // Fall through to the failed state; the value stays selectable on screen.
+    }
+    setState('failed');
+  };
+
+  return (
+    <Pressable
+      onPress={() => void onPress()}
+      disabled={!text}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: !text }}
+      style={({ pressed }) => [
+        styles.copyButton,
+        pressed && text ? styles.pressed : null,
+        !text ? styles.buttonDisabled : null,
+      ]}
+    >
+      <Text style={styles.copyButtonText}>
+        {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Small inline action used by status rows and collapsed dev panels. */
+function MiniButton({
+  label,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [
+        styles.copyButton,
+        pressed && !disabled ? styles.pressed : null,
+        disabled ? styles.buttonDisabled : null,
+      ]}
+    >
+      <Text style={styles.copyButtonText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function StatusText({ line }: { line: StatusLine }) {
+  const tone =
+    line.tone === 'ok'
+      ? styles.statusOk
+      : line.tone === 'warn'
+        ? styles.statusWarn
+        : line.tone === 'error'
+          ? styles.statusError
+          : line.tone === 'loading'
+            ? styles.statusLoading
+            : null;
+  return <Text style={[styles.statusText, tone]}>{line.text}</Text>;
+}
+
+function VisibilityBadge({ visibility }: { visibility: StudioVisibility }) {
+  const isPublic = normalizeVisibility(visibility) === 'public';
+  return (
+    <View style={[styles.visBadge, isPublic ? styles.visBadgePublic : null]}>
+      <Text
+        style={[styles.visBadgeText, isPublic ? styles.visBadgeTextPublic : null]}
+      >
+        {visibilityLabel(visibility)}
+      </Text>
+    </View>
   );
 }
 
@@ -2440,32 +2669,66 @@ function ResultBlock({
   );
 }
 
-function PublishStatus({ state }: { state: PublishState }) {
-  if (state.kind === 'idle') return null;
+function PublishStatus({
+  state,
+  visibility,
+}: {
+  state: PublishState;
+  visibility: StudioVisibility;
+}) {
+  if (state.kind === 'idle') {
+    return (
+      <View style={styles.publishStatus}>
+        <Text style={styles.statusLabel}>Publish status</Text>
+        <Text style={styles.publishStatusText}>
+          Not published yet in this session. The next publish uses{' '}
+          {visibilityLabel(visibility)} — {visibilityHint(visibility)}
+        </Text>
+      </View>
+    );
+  }
   if (state.kind === 'running') {
     return (
       <View style={styles.publishStatus}>
-        <ActivityIndicator color={palette.data} size="small" />
-        <Text style={styles.publishStatusText}>Publishing current spec…</Text>
+        <View style={styles.audioRow}>
+          <ActivityIndicator color={palette.data} size="small" />
+          <Text style={styles.publishStatusText}>
+            Publishing as {visibilityLabel(state.visibility)}…
+          </Text>
+        </View>
       </View>
     );
   }
   if (state.kind === 'failure') {
     return (
       <View style={styles.publishStatus}>
-        <Text style={styles.publishFailure}>{state.message}</Text>
-        <ErrorList errors={state.errors} />
+        <Text style={styles.publishFailure}>Publish failed · {state.message}</Text>
+        {state.errors.length ? (
+          <ErrorList errors={state.errors} />
+        ) : (
+          <Text style={styles.publishStatusText}>
+            No error path was returned. Check the backend log and retry.
+          </Text>
+        )}
       </View>
     );
   }
   return (
     <View style={styles.publishStatus}>
-      <Text style={styles.publishOk}>
-        Published v{state.version} · {shortId(state.id)}
+      <View style={styles.badgeRow}>
+        <Badge ok label="PUBLISHED" />
+        <VisibilityBadge visibility={state.visibility} />
+      </View>
+      <Text selectable style={styles.publishOk}>
+        {publishSuccessLabel(state.visibility, state.version, state.id)}
       </Text>
       <Text style={styles.publishStatusText}>
-        {patternLabel(state.pattern)} · {meterLabel(state.meter)}
+        {patternLabel(state.pattern)} · {meterLabel(state.meter)} ·{' '}
+        {visibilityHint(state.visibility)}
       </Text>
+      <View style={styles.copyRow}>
+        <CopyButton value={state.id} label="Copy published id" />
+      </View>
     </View>
   );
 }
@@ -2510,21 +2773,30 @@ function AudioControls({
           busy={state.kind === 'loading'}
         />
         {state.kind === 'loading' ? (
-          <Text style={styles.audioText}>Synthesizing the cached WAV…</Text>
-        ) : state.kind === 'ready' ? (
-          <Text style={styles.audioText}>
-            {durationLabel(state.durationSec)} WAV
-            {state.playing ? ' · playing' : ''}
-          </Text>
-        ) : state.kind === 'error' ? (
-          <Text style={styles.audioText}>{state.message}</Text>
-        ) : (
-          <Text style={styles.audioText}>
-            Calls /sentence/audio for this preview&apos;s spec and fixture.
-          </Text>
-        )}
+          <ActivityIndicator color={palette.data} size="small" />
+        ) : null}
+        <Text style={styles.audioText}>
+          {audioStatusLabel(
+            state.kind,
+            state.kind === 'ready' ? state.durationSec : 0,
+            state.kind === 'ready' ? state.playing : false,
+          )}
+        </Text>
       </View>
-      {state.kind === 'error' ? <ErrorList errors={state.errors} /> : null}
+      {state.kind === 'error' ? (
+        <>
+          <Text style={styles.catalogWarning}>{state.message}</Text>
+          <ErrorList errors={state.errors} />
+          <Text style={styles.composerHint}>
+            Rerun Preview to refresh the render hash, then play again.
+          </Text>
+        </>
+      ) : state.kind === 'idle' ? (
+        <Text style={styles.composerHint}>
+          Calls /sentence/audio for this preview&apos;s spec and fixture and caches
+          by render hash.
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -2651,34 +2923,53 @@ function ResultPanel({
   result,
   job,
   stale,
+  staleHint,
   audio,
   audioSupported,
   canPlayAudio,
   onPlayAudio,
+  onRerunPreview,
+  previewBusy,
+  compact,
   specText,
   onSpecSaved,
 }: {
   result: StudioResult;
   job: QueuedJobState;
   stale: boolean;
+  staleHint: string;
   audio: AudioState;
   audioSupported: boolean;
   canPlayAudio: boolean;
   onPlayAudio: () => void;
+  onRerunPreview: () => void;
+  previewBusy: boolean;
+  compact: boolean;
   specText: string;
   onSpecSaved: (nextSpecText: string) => void;
 }) {
+  const cardStyle = [styles.card, styles.resultCard, compact && styles.cardCompact];
+  const staleNotice = stale ? (
+    <View style={styles.staleNotice}>
+      <Text style={styles.stale}>{staleHint}</Text>
+      <MiniButton label="Rerun preview" onPress={onRerunPreview} disabled={previewBusy} />
+    </View>
+  ) : null;
+
   if (result.kind === 'idle') {
     return (
-      <View style={[styles.card, styles.resultCard]}>
-        <Text style={[type.section, styles.cardLabel]}>Result</Text>
-        <Text style={styles.cardTitle}>Nothing run yet</Text>
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
+        <Text style={styles.cardTitle}>No preview yet</Text>
         <Text style={styles.hint}>
           Validate checks the spec without rendering. Preview sends the spec plus a
           fixture and returns a plan, row, matrix, note list, and render hash.
         </Text>
         <View style={styles.emptyBox}>
-          <Text style={styles.empty}>Validate or Preview to see output here.</Text>
+          <Text style={styles.empty}>
+            Nothing has run. Validate or Preview above to see output here; audio and
+            the velocity lane appear after a successful preview.
+          </Text>
         </View>
       </View>
     );
@@ -2686,15 +2977,13 @@ function ResultPanel({
 
   if (result.kind === 'running') {
     return (
-      <View style={[styles.card, styles.resultCard]}>
-        <Text style={[type.section, styles.cardLabel]}>Result</Text>
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
         <View style={styles.loadingRow}>
           <ActivityIndicator color={palette.data} />
           <Text style={styles.loadingText}>
             {job.kind === 'waiting'
-              ? job.status === 'running'
-                ? 'Rendering preview on the Studio worker…'
-                : 'Queued for the Studio worker…'
+              ? jobStatusLabel(job.status)
               : result.action === 'validate'
                 ? 'Validating spec…'
                 : 'Rendering preview…'}
@@ -2707,6 +2996,11 @@ function ResultPanel({
                 ? `Job ${shortId(job.jobId)} · ${msLabel(job.elapsedMs)}`
                 : 'Submitting job…'}
             </Text>
+            {job.jobId ? (
+              <View style={styles.copyRow}>
+                <CopyButton value={job.jobId} label="Copy job id" />
+              </View>
+            ) : null}
             <Text style={styles.hint}>
               Polling the job endpoint with Retry-After and backoff. Direct
               Preview still works while this is queued.
@@ -2719,7 +3013,8 @@ function ResultPanel({
 
   if (result.kind === 'failure') {
     return (
-      <View style={[styles.card, styles.resultCard]}>
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
         <View style={styles.resultHeader}>
           <Badge ok={false} label={result.sent ? 'REQUEST FAILED' : 'NOT SENT'} />
           <Text style={styles.actionLabel}>
@@ -2727,12 +3022,21 @@ function ResultPanel({
           </Text>
         </View>
         <Text style={styles.failureTitle}>{result.message}</Text>
-        <ErrorList errors={result.errors} />
+        {result.errors.length ? (
+          <ErrorList errors={result.errors} />
+        ) : (
+          <Text style={styles.hint}>
+            No error path was returned for this failure.
+          </Text>
+        )}
         <Text style={styles.hint}>
           {result.sent
             ? 'The request was sent but the Studio API did not answer successfully. Check the backend and try again.'
             : 'The request was stopped in the app. Fix the highlighted JSON and run it again.'}
         </Text>
+        <View style={styles.actions}>
+          <MiniButton label="Rerun preview" onPress={onRerunPreview} disabled={previewBusy} />
+        </View>
       </View>
     );
   }
@@ -2740,17 +3044,19 @@ function ResultPanel({
   if (result.kind === 'validate') {
     const { data } = result;
     return (
-      <View style={[styles.card, styles.resultCard]}>
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
         <View style={styles.resultHeader}>
           <Badge ok={data.ok} label={data.ok ? 'VALID' : 'INVALID'} />
           <Text style={styles.actionLabel}>Validate · {msLabel(result.elapsedMs)}</Text>
         </View>
-        {stale ? <Text style={styles.stale}>Editor changed since this run.</Text> : null}
+        {staleNotice}
         <ErrorList errors={data.errors} />
         {data.ok && data.errors.length === 0 ? (
           <View style={styles.filledBox}>
             <Text style={styles.successText}>
-              Spec accepted by the server. Run Preview to render a plan.
+              Spec accepted by the server. Run Preview to render a plan, hash, and
+              audio.
             </Text>
           </View>
         ) : !data.ok && data.errors.length === 0 ? (
@@ -2775,19 +3081,26 @@ function ResultPanel({
       : 'No plan returned.';
 
   return (
-    <View style={[styles.card, styles.resultCard]}>
+    <View style={cardStyle}>
+      <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
       <View style={styles.resultHeader}>
         <Badge ok={data.ok} label={data.ok ? 'PREVIEW OK' : 'PREVIEW FAILED'} />
         <Text style={styles.actionLabel}>Preview · {msLabel(result.elapsedMs)}</Text>
       </View>
-      {stale ? <Text style={styles.stale}>Editor changed since this run.</Text> : null}
+      {staleNotice}
       <ErrorList errors={data.errors} />
+      {!data.ok && data.errors.length === 0 ? (
+        <Text style={styles.hint}>
+          Preview failed without an error path. Check the backend log, then rerun.
+        </Text>
+      ) : null}
 
       <View style={styles.hashRow}>
         <Text style={[type.section, styles.blockLabel]}>Render hash</Text>
         <Text selectable style={styles.hash}>
           {data.renderHash ?? 'not returned'}
         </Text>
+        <CopyButton value={data.renderHash} label="Copy hash" />
       </View>
 
       <AudioControls
@@ -2821,6 +3134,7 @@ function PublishedPanel({
   onAskRollback,
   onCancelRollback,
   onConfirmRollback,
+  compact,
 }: {
   state: PublishedListState;
   loadingId: string | null;
@@ -2831,17 +3145,14 @@ function PublishedPanel({
   onAskRollback: (id: string) => void;
   onCancelRollback: () => void;
   onConfirmRollback: (id: string) => void;
+  compact: boolean;
 }) {
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, compact && styles.cardCompact]}>
       <View style={styles.publishedHeader}>
         <View style={styles.fixtureHeaderText}>
-          <Text style={[type.section, styles.cardLabel]}>Published specs</Text>
-          <Text style={styles.cardTitle}>
-            {state.items.length
-              ? `${state.items.length} version${state.items.length === 1 ? '' : 's'}`
-              : 'No versions yet'}
-          </Text>
+          <Text style={[type.section, styles.cardLabel]}>5 · Published versions</Text>
+          <Text style={styles.cardTitle}>{publishedCountLabel(state.items.length)}</Text>
         </View>
         <Pressable
           onPress={onRefresh}
@@ -2859,33 +3170,58 @@ function PublishedPanel({
       </View>
 
       {rollback.kind === 'ok' ? (
-        <Text selectable style={styles.rollbackOk}>
-          {rollbackLabel(rollback.version, rollback.rollbackOf) ?? 'Rollback complete.'}
-        </Text>
+        <View style={styles.filledBox}>
+          <View style={styles.badgeRow}>
+            <Badge ok label="ROLLED BACK" />
+            <VisibilityBadge visibility={rollback.visibility} />
+          </View>
+          <Text selectable style={styles.rollbackOk}>
+            {rollbackLabel(rollback.version, rollback.rollbackOf) ?? 'Rollback complete.'}
+          </Text>
+          <View style={styles.copyRow}>
+            <CopyButton value={rollback.id} label="Copy new version id" />
+          </View>
+        </View>
       ) : null}
-      {state.error ? <Text style={styles.catalogWarning}>{state.error}</Text> : null}
+
+      {state.loading && state.items.length === 0 ? (
+        <View style={styles.statusRow}>
+          <ActivityIndicator color={palette.data} size="small" />
+          <Text style={styles.loadingText}>Loading published versions…</Text>
+        </View>
+      ) : null}
+      {state.error ? (
+        <View style={styles.noticeBox}>
+          <Text style={styles.noticeTitle}>Could not load versions</Text>
+          <Text style={styles.noticeText}>{state.error}</Text>
+        </View>
+      ) : null}
       {state.items.length === 0 && !state.loading && !state.error ? (
         <Text style={styles.empty}>
-          Publish a spec to start its version history. Rows load the stored payload
-          back into the editor.
+          No versions yet. Publish a spec to start its history; rows load the stored
+          payload back into the editor.
         </Text>
       ) : null}
 
       {state.items.map((item) => {
         const lineage = publishedSpecLineage(item);
+        const visibility = publishedVisibility(item);
         return (
           <View key={item.id} style={styles.publishedRow}>
             <Pressable
               onPress={() => onOpen(item.id)}
               accessibilityRole="button"
-              accessibilityLabel={`Load published ${publishedSpecTitle(item)}, ${publishedSpecMeta(item)}, id ${item.id}`}
+              accessibilityLabel={`Load published ${publishedSpecTitle(item)}, ${publishedSpecMeta(item)}, id ${item.id}, ${visibilityLabel(visibility)}`}
               style={({ pressed }) => [
                 styles.publishedOpen,
                 pressed && styles.pressed,
               ]}
             >
               <View style={styles.publishedRowMain}>
-                <Text style={styles.publishedTitle}>{publishedSpecTitle(item)}</Text>
+                <View style={styles.publishedTitleRow}>
+                  <Text style={styles.publishedTitle}>{publishedSpecTitle(item)}</Text>
+                  <VisibilityBadge visibility={visibility} />
+                </View>
                 <Text selectable numberOfLines={1} style={styles.publishedId}>
                   {item.id}
                 </Text>
@@ -2905,20 +3241,28 @@ function PublishedPanel({
                 <ActivityIndicator color={palette.data} size="small" />
               ) : null}
             </Pressable>
-            <RollbackControl
-              item={item}
-              confirming={confirmingId === item.id}
-              busy={rollback.kind === 'running' && rollback.id === item.id}
-              failure={
-                rollback.kind === 'failure' && rollback.id === item.id
-                  ? rollback.message
-                  : null
-              }
-              disabled={rollback.kind === 'running'}
-              onAsk={() => onAskRollback(item.id)}
-              onCancel={onCancelRollback}
-              onConfirm={() => onConfirmRollback(item.id)}
-            />
+            <View style={styles.publishedRowSide}>
+              <CopyButton value={item.id} label="Copy id" />
+              <RollbackControl
+                item={item}
+                confirming={confirmingId === item.id}
+                busy={rollback.kind === 'running' && rollback.id === item.id}
+                failure={
+                  rollback.kind === 'failure' && rollback.id === item.id
+                    ? rollback.message
+                    : null
+                }
+                failureErrors={
+                  rollback.kind === 'failure' && rollback.id === item.id
+                    ? rollback.errors
+                    : []
+                }
+                disabled={rollback.kind === 'running'}
+                onAsk={() => onAskRollback(item.id)}
+                onCancel={onCancelRollback}
+                onConfirm={() => onConfirmRollback(item.id)}
+              />
+            </View>
           </View>
         );
       })}
@@ -2931,6 +3275,7 @@ function RollbackControl({
   confirming,
   busy,
   failure,
+  failureErrors,
   disabled,
   onAsk,
   onCancel,
@@ -2940,6 +3285,7 @@ function RollbackControl({
   confirming: boolean;
   busy: boolean;
   failure: string | null;
+  failureErrors: StudioError[];
   disabled: boolean;
   onAsk: () => void;
   onCancel: () => void;
@@ -2985,7 +3331,12 @@ function RollbackControl({
   }
   return (
     <View style={styles.rollbackArea}>
-      {failure ? <Text style={styles.rollbackFailure}>{failure}</Text> : null}
+      {failure ? (
+        <View style={styles.rollbackFailureBox}>
+          <Text style={styles.rollbackFailure}>Rollback failed · {failure}</Text>
+          <ErrorList errors={failureErrors} />
+        </View>
+      ) : null}
       <Pressable
         onPress={onAsk}
         disabled={disabled}
@@ -3012,11 +3363,18 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  scrollCompact: {
+    padding: 12,
+    paddingBottom: 28,
+  },
   shell: {
     width: '100%',
     maxWidth: 1280,
     alignSelf: 'center',
     gap: 16,
+  },
+  shellCompact: {
+    gap: 12,
   },
   header: {
     gap: 6,
@@ -3054,6 +3412,92 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
+  subtitleCompact: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  statusStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.panel,
+  },
+  statusStripCompact: {
+    padding: 10,
+  },
+  statusCell: {
+    minWidth: 140,
+    gap: 4,
+  },
+  statusCellGrow: {
+    flex: 1,
+    minWidth: 220,
+  },
+  statusLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  statusValue: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  statusText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  statusOk: {
+    color: palette.data,
+  },
+  statusWarn: {
+    color: palette.playhead,
+  },
+  statusError: {
+    color: palette.sound,
+  },
+  statusLoading: {
+    color: palette.textMuted,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  copyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  copyButton: {
+    minHeight: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  copyButtonText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
   columns: {
     gap: 16,
   },
@@ -3075,6 +3519,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 14,
     gap: 10,
+  },
+  cardCompact: {
+    padding: 10,
+    gap: 8,
   },
   resultCard: {
     minHeight: 260,
@@ -3188,6 +3636,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  editorCompact: {
+    minHeight: 260,
+    padding: 10,
+    fontSize: 11,
+    lineHeight: 17,
+  },
   fixtureEditor: {
     minHeight: 140,
   },
@@ -3196,6 +3650,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  publishGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  visibilityPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  pickerLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   button: {
     minHeight: TOUCH_TARGET,
@@ -3235,6 +3715,17 @@ const styles = StyleSheet.create({
     fontFamily: type.sans.fontFamily,
     fontSize: 11,
     lineHeight: 16,
+  },
+  staleNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 8,
+    borderRadius: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: palette.playhead,
+    backgroundColor: palette.surface,
   },
   publishStatus: {
     gap: 6,
@@ -3309,6 +3800,30 @@ const styles = StyleSheet.create({
   },
   badgeTextFail: {
     color: palette.sound,
+  },
+  visBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  visBadgePublic: {
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  visBadgeText: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  visBadgeTextPublic: {
+    color: palette.data,
   },
   actionLabel: {
     color: palette.textFaint,
@@ -3506,6 +4021,19 @@ const styles = StyleSheet.create({
     minWidth: 150,
     gap: 2,
   },
+  publishedTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  publishedRowSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
   publishedTitle: {
     color: palette.text,
     fontFamily: type.sans.fontFamily,
@@ -3567,6 +4095,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     maxWidth: 260,
+  },
+  rollbackFailureBox: {
+    flex: 1,
+    minWidth: 180,
+    gap: 6,
+    padding: 8,
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: palette.sound,
+    backgroundColor: palette.surface,
   },
   rollbackOk: {
     color: palette.data,
@@ -3691,6 +4229,9 @@ const styles = StyleSheet.create({
     borderColor: palette.hairline,
     backgroundColor: palette.background,
     overflow: 'hidden',
+  },
+  cropStageCompact: {
+    height: 200,
   },
   cropSurface: {
     position: 'absolute',

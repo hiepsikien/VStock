@@ -23,8 +23,11 @@ import {
   normalizeTextureValidateResponse,
   normalizeUploadResponse,
   normalizeValidateResponse,
+  normalizeVisibility,
   parseRetryAfter,
+  publishVisibilityQuery,
   studioSessionError,
+  DEFAULT_STUDIO_VISIBILITY,
   type CropRect,
   type StudioAccess,
   type StudioAnalyzeDraft,
@@ -41,6 +44,7 @@ import {
   type StudioRollbackResponse,
   type StudioUpload,
   type StudioValidateResponse,
+  type StudioVisibility,
 } from './protocol';
 import { studioSessionHeaders } from './sessionStorage';
 
@@ -68,6 +72,7 @@ export type {
   StudioRollbackResponse,
   StudioUpload,
   StudioValidateResponse,
+  StudioVisibility,
 } from './protocol';
 
 /**
@@ -77,8 +82,8 @@ export type {
  *   POST {prefix}/validate          body = one sentence spec mapping
  *   POST {prefix}/preview           body = { spec, fixture }
  *   POST {prefix}/audio             body = { spec, fixture } | { renderHash }
- *   POST {prefix}/publish           body = one sentence spec mapping
- *   POST {prefix}/specs/{id}/rollback -> { ok, id, pattern, meter, version, rollbackOf }
+ *   POST {prefix}/publish?visibility=private|public  body = one sentence spec mapping
+ *   POST {prefix}/specs/{id}/rollback -> { ok, id, pattern, meter, version, rollbackOf, visibility }
  *   GET  {prefix}/specs             -> { ok, specs: [...] }
  *   GET  {prefix}/specs/{id}        -> summary + { payload }
  *
@@ -452,9 +457,13 @@ export async function requestSentenceAudio(
 /** Persist one spec, assigning the next version for its `(pattern, meter)`. */
 export async function publishSentenceSpec(
   spec: Record<string, unknown>,
+  visibility: StudioVisibility = DEFAULT_STUDIO_VISIBILITY,
   signal?: AbortSignal,
 ): Promise<StudioPublishResponse> {
-  return normalizePublishResponse(await postStudio('publish', spec, signal));
+  const url = `${studioSentenceUrl('publish')}${publishVisibilityQuery(
+    normalizeVisibility(visibility),
+  )}`;
+  return normalizePublishResponse(await postStudioUrl(url, spec, signal));
 }
 
 /** Newest published versions first. */

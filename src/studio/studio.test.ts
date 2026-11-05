@@ -8,6 +8,7 @@ import {
   buildValidateBody,
   cropField,
   DEFAULT_JOB_RETRY_SEC,
+  DEFAULT_STUDIO_VISIBILITY,
   emptyStudioQuota,
   normalizeAccessResponse,
   normalizeAnalyzeResponse,
@@ -25,8 +26,10 @@ import {
   normalizeTextureValidateResponse,
   normalizeUploadResponse,
   normalizeValidateResponse,
+  normalizeVisibility,
   nextJobPollDelayMs,
   parseRetryAfter,
+  publishVisibilityQuery,
   resolveAudioUrl,
   studioSessionError,
 } from './protocol';
@@ -34,8 +37,11 @@ import {
   DEFAULT_SAMPLE,
   PATTERNS,
   SAMPLES,
+  accessDetail,
   accessReasonLabel,
+  accessStatusLabel,
   accessSummary,
+  audioStatusLabel,
   byteSizeLabel,
   checkSpecShape,
   checkSpecText,
@@ -43,6 +49,7 @@ import {
   confidenceBand,
   confidenceLabel,
   containRect,
+  copyValue,
   cropForUpload,
   cropHandleAt,
   cropRectBetween,
@@ -54,11 +61,13 @@ import {
   draftToTextureSpec,
   draftVoice,
   durationLabel,
+  examplesStatusLabel,
   examplesToSamples,
   findSample,
   fixtureForSpec,
   fixtureText,
   imageSizeError,
+  jobStatusLabel,
   jsonErrorLocation,
   measureLines,
   meterLabel,
@@ -79,9 +88,12 @@ import {
   planLines,
   prefixErrorPaths,
   publishedAtLabel,
+  publishedCountLabel,
   publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
+  publishedVisibility,
+  publishSuccessLabel,
   resizeCropRect,
   rollbackLabel,
   sampleText,
@@ -92,6 +104,8 @@ import {
   textureDraftSummary,
   uploadMetaLabel,
   valueLines,
+  visibilityHint,
+  visibilityLabel,
 } from './spec';
 import {
   STUDIO_SESSION_HEADER,
@@ -245,6 +259,7 @@ const published = {
   version: 3,
   status: 'published',
   createdAt: '2026-11-05T09:41:02+00:00',
+  visibility: 'private' as const,
 };
 equal(publishedSpecTitle(published), 'Villa arpeggio · 4/4');
 equal(publishedSpecMeta(published), 'v3 · 2026-11-05 09:41');
@@ -254,6 +269,68 @@ equal(durationLabel(1.24), '1.2s');
 equal(durationLabel(61), '1:01');
 equal(durationLabel(0), '—');
 equal(durationLabel(Number.NaN), '—');
+
+// Visibility, copy formatting, and status copy are pure and locale-free.
+equal(visibilityLabel('public'), 'Public');
+equal(visibilityLabel('private'), 'Private');
+equal(
+  visibilityHint('public'),
+  'Every Studio session can list and load this version.',
+);
+equal(
+  visibilityHint('private'),
+  'Only this Studio session can list and load this version.',
+);
+equal(publishedVisibility(published), 'private');
+equal(publishedVisibility({ visibility: 'public' }), 'public');
+equal(publishedVisibility({}), 'private');
+equal(publishedCountLabel(0), 'No versions yet');
+equal(publishedCountLabel(1), '1 version');
+equal(publishedCountLabel(3), '3 versions');
+equal(copyValue('  0123456789abcdef  '), '0123456789abcdef');
+equal(copyValue('   '), null);
+equal(copyValue(null), null);
+equal(copyValue(undefined), null);
+equal(
+  publishSuccessLabel('public', 3, published.id),
+  'Published v3 · Public · 0123456789…',
+);
+equal(
+  publishSuccessLabel('private', null, 'short'),
+  'Published a new version · Private · short',
+);
+equal(audioStatusLabel('idle'), 'No audio rendered for this preview yet.');
+equal(audioStatusLabel('loading'), 'Synthesizing the cached preview WAV…');
+equal(audioStatusLabel('ready', 1.24, true), '1.2s WAV · playing');
+equal(audioStatusLabel('ready', 61, false), '1:01 WAV · ready');
+equal(audioStatusLabel('error'), 'Audio preview failed.');
+equal(jobStatusLabel('queued'), 'Queued for the Studio worker…');
+equal(jobStatusLabel('running'), 'Rendering preview on the Studio worker…');
+deepEqual(examplesStatusLabel({ loading: true, source: 'fallback', count: 7, note: null }), {
+  tone: 'loading',
+  text: 'Loading examples from the API…',
+});
+deepEqual(examplesStatusLabel({ loading: false, source: 'api', count: 1, note: null }), {
+  tone: 'ok',
+  text: '1 example loaded from the API.',
+});
+deepEqual(examplesStatusLabel({ loading: false, source: 'api', count: 4, note: null }), {
+  tone: 'ok',
+  text: '4 examples loaded from the API.',
+});
+deepEqual(examplesStatusLabel({ loading: false, source: 'fallback', count: 0, note: null }), {
+  tone: 'error',
+  text: 'No examples available. Paste a spec into the editor to continue.',
+});
+deepEqual(
+  examplesStatusLabel({
+    loading: false,
+    source: 'fallback',
+    count: 7,
+    note: 'Examples API unavailable — using embedded samples.',
+  }),
+  { tone: 'warn', text: 'Examples API unavailable — using embedded samples.' },
+);
 
 // Editor counters.
 deepEqual(textStats(''), { lines: 1, chars: 0 });
@@ -545,6 +622,7 @@ deepEqual(
     pattern: 'villa_pattern',
     meter: '4/4',
     version: 2,
+    visibility: 'private',
     errors: [],
   },
 );
@@ -558,7 +636,37 @@ deepEqual(
     pattern: null,
     meter: null,
     version: null,
+    visibility: 'private',
     errors: [{ path: 'spec.slots[0]', message: 'bad' }],
+  },
+);
+
+// Publish visibility is explicit on the wire and fails closed to private.
+equal(DEFAULT_STUDIO_VISIBILITY, 'private');
+equal(normalizeVisibility(undefined), 'private');
+equal(normalizeVisibility('PUBLIC'), 'public');
+equal(normalizeVisibility('public'), 'public');
+equal(normalizeVisibility('team'), 'private');
+equal(normalizeVisibility('team', 'public'), 'public');
+equal(publishVisibilityQuery('private'), '?visibility=private');
+equal(publishVisibilityQuery('public'), '?visibility=public');
+deepEqual(
+  normalizePublishResponse({
+    ok: true,
+    id: 'pub',
+    pattern: 'galop',
+    meter: '*',
+    version: 1,
+    visibility: 'public',
+  }),
+  {
+    ok: true,
+    id: 'pub',
+    pattern: 'galop',
+    meter: '*',
+    version: 1,
+    visibility: 'public',
+    errors: [],
   },
 );
 
@@ -580,10 +688,23 @@ deepEqual(specs, [
     version: 1,
     status: '',
     createdAt: '2026-11-04T00:00:00Z',
+    visibility: 'private',
   },
 ]);
 deepEqual(normalizeSpecsResponse([published]), [published]);
 deepEqual(normalizeSpecsResponse({ ok: true }), []);
+equal(
+  normalizeSpecsResponse({
+    specs: [{ ...published, visibility: 'public' }],
+  })[0]?.visibility,
+  'public',
+);
+equal(
+  normalizeSpecsResponse({
+    specs: [{ ...published, visibility: 'everyone' }],
+  })[0]?.visibility,
+  'private',
+);
 
 deepEqual(
   normalizePublishedSpecResponse({ ...published, payload: { id: 'villa' } }),
@@ -631,6 +752,7 @@ deepEqual(
     meter: '4/4',
     version: 4,
     rollbackOf: 'old',
+    visibility: 'private',
     errors: [],
   },
 );
@@ -641,6 +763,7 @@ deepEqual(normalizeRollbackResponse({ ok: true, id: 'new', version: 4 }, 'old'),
   meter: null,
   version: 4,
   rollbackOf: 'old',
+  visibility: 'private',
   errors: [],
 });
 deepEqual(
@@ -652,6 +775,7 @@ deepEqual(
     meter: null,
     version: null,
     rollbackOf: 'old',
+    visibility: 'private',
     errors: [],
   },
 );
@@ -667,6 +791,7 @@ deepEqual(
     meter: null,
     version: null,
     rollbackOf: 'old',
+    visibility: 'private',
     errors: [{ path: 'spec', message: 'bad' }],
   },
 );
@@ -757,6 +882,29 @@ deepEqual(access, {
   errors: [],
 });
 equal(accessSummary(access), 'Open beta · 20 uploads/day · max 20 MB');
+equal(
+  accessDetail(access),
+  '20 uploads/day · 100 analyses/day · 50 publishes/day · max 20 MB · 1 preview slot',
+);
+deepEqual(accessStatusLabel('loading'), {
+  tone: 'loading',
+  text: 'Checking session and Studio access…',
+});
+deepEqual(accessStatusLabel('ready', access), {
+  tone: 'ok',
+  text: 'Open beta · 20 uploads/day · 100 analyses/day · 50 publishes/day · max 20 MB · 1 preview slot',
+});
+deepEqual(accessStatusLabel('error', undefined, 'offline'), {
+  tone: 'warn',
+  text: 'Access check failed · offline. Uploads stay enabled; the server enforces quota.',
+});
+deepEqual(
+  accessStatusLabel('ready', normalizeAccessResponse({ enabled: false, reason: 'disabled' })),
+  {
+    tone: 'warn',
+    text: 'Studio disabled · Disabled · the sentence editor still works.',
+  },
+);
 equal(accessReasonLabel('open_beta'), 'Open beta');
 equal(accessReasonLabel('entitled'), 'Entitled');
 equal(accessReasonLabel('disabled'), 'Disabled');
