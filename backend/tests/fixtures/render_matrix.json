@@ -78,6 +78,30 @@
     {
       "family": "villa",
       "fixture": {
+        "bars": 8,
+        "closes": false,
+        "length": 8,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_valsa_arpeggio_period",
+      "meter": "3/4",
+      "note_count": 79,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:9999e82430a4d5f9a2335651d2361403baa84166289c987195d539241270ff55",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 48,
+        "2": 18,
+        "3": 13,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
         "bars": 3,
         "closes": false,
         "length": 3,
