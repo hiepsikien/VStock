@@ -1,0 +1,34 @@
+{
+  "runtime": "code",
+  "schema_version": 1,
+  "specs": [
+    {
+      "id": "bach_exposition_three_voices",
+      "meter": "4/4",
+      "pattern": "bach_fuga",
+      "select": {
+        "closes": null,
+        "length_max": 6,
+        "length_min": 6,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 6,
+          "procedure": "bach_exposition",
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": 6,
+        "truncate_to_length": true
+      }
+    }
+  ]
+}

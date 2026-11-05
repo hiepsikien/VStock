@@ -6,10 +6,14 @@
      "payload": {...}}
 
 The sources are the committed files: `app/studio/specs/*.json` (Torroba/Sor,
-written by `app.studio.export`) and `app/studio/candidates/*.json` (the Villa
-and Barrios pilots). `payload` is one single-spec mapping, rebuilt with
+written by `app.studio.export`) and `app/studio/candidates/*.json` (the Villa,
+Barrios, and Brouwer pilots). `payload` is one single-spec mapping, rebuilt with
 `sentence_spec.spec_to_mapping`, so it is a valid body for `/validate` and the
 `{spec, fixture}` half of `/preview`.
+
+A procedure-only candidate (a slot with `procedure` instead of a figure) is
+skipped: the generic `/preview` route has no procedure renderer, and its owner
+preview module reads the file directly.
 
 Order is deterministic: `(pattern, meter, id)`. Reading is uncached: the files
 are small and a developer editing one should see it immediately.
@@ -57,6 +61,10 @@ def _load() -> tuple[Example, ...]:
         for path in sorted(Path(directory).glob("*.json")):
             wrapper = json.loads(path.read_text(encoding="utf-8"))
             for spec in parse_payload(wrapper):
+                if any(slot.procedure is not None for slot in spec.slots):
+                    # The generic sentence preview has no procedure renderer;
+                    # the owner preview module serves this candidate instead.
+                    continue
                 key = (spec.pattern, spec.meter, spec.id)
                 if key in seen:
                     raise ValueError(
