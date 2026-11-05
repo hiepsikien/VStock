@@ -21,6 +21,7 @@ from app.routers.stocks import router as stocks_router
 from app.routers.companion import router as companion_router
 from app.routers.sonify import router as sonify_router
 from app.routers.studio import router as studio_router
+from app.routers.studio_publish import router as studio_publish_router
 from app.schemas import HealthResponse
 from app.sentry_setup import init_sentry
 from app.store.db import close_db, init_db
@@ -84,6 +85,7 @@ app.include_router(health_router)
 app.include_router(companion_router)
 app.include_router(sonify_router)
 app.include_router(studio_router)
+app.include_router(studio_publish_router)
 
 
 @app.get("/health", response_model=HealthResponse)

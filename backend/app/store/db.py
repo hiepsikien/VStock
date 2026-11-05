@@ -102,6 +102,20 @@ CREATE TABLE IF NOT EXISTS income_statements (
 );
 
 CREATE INDEX IF NOT EXISTS idx_income_statements_updated_at ON income_statements(updated_at);
+
+CREATE TABLE IF NOT EXISTS studio_sentence_specs (
+    id TEXT PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    meter TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'published',
+    created_at TEXT NOT NULL,
+    UNIQUE(pattern, meter, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_studio_sentence_specs_key
+    ON studio_sentence_specs(pattern, meter, version DESC);
 """
 
 
