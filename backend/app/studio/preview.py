@@ -78,9 +78,16 @@ from app.sonify.keys import active_register
 from app.sonify.model import Phrase, Run
 from app.sonify import sentence_specs
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
+from app.studio.preview_fixture import (
+    MAX_PLAN_BARS,
+    MAX_RENDER_BARS,
+    SpecParseError,
+    allowed_fixture_keys,
+    fixture_bool as _fixture_bool,
+    fixture_int as _fixture_int,
+    matrix_axes,
+)
 
-MAX_RENDER_BARS = 16
-MAX_PLAN_BARS = 64
 MAX_MATRIX_LENGTH = 12
 MAX_MATRIX_ROWS = 4096
 _HASH_PREFIX = "sha256:"
@@ -90,10 +97,6 @@ _CHARACTERS = frozenset({None, "calm", "rally", "selloff", "volatile"})
 _MODES = frozenset({"major", "minor"})
 _TORROBA_CONTOUR = (67, 65, 64, 62, 60, 62, 64, 65)
 _GALOP_PITCH = 67
-
-
-class SpecParseError(ValueError):
-    """The JSON mapping could not become a `SentenceSpec`."""
 
 
 @dataclass(frozen=True)
@@ -339,28 +342,6 @@ def _default_n(spec: SentenceSpec) -> int:
     return 0
 
 
-def _fixture_int(
-    value: Any,
-    path: str,
-    *,
-    minimum: int | None = None,
-    maximum: int | None = None,
-) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise SpecParseError(f"{path} must be an integer")
-    if minimum is not None and value < minimum:
-        raise SpecParseError(f"{path} must be >= {minimum}")
-    if maximum is not None and value > maximum:
-        raise SpecParseError(f"{path} must be <= {maximum}")
-    return value
-
-
-def _fixture_bool(value: Any, path: str) -> bool:
-    if not isinstance(value, bool):
-        raise SpecParseError(f"{path} must be a boolean")
-    return value
-
-
 def _resolve_fixture(spec: SentenceSpec, fixture: Mapping[str, Any] | None) -> dict[str, Any]:
     supplied = dict(fixture or {})
     allowed = {
@@ -378,9 +359,7 @@ def _resolve_fixture(spec: SentenceSpec, fixture: Mapping[str, Any] | None) -> d
         "profile",
         "matrix",
     }
-    unknown = set(supplied) - allowed
-    if unknown:
-        raise SpecParseError(f"fixture: unknown field(s) {sorted(unknown)}")
+    allowed_fixture_keys(supplied, allowed)
 
     profile = supplied.get("profile")
     if profile is None:
@@ -716,57 +695,22 @@ def _render_hash(plan: dict[str, Any], row: list[str], notes: tuple[dict[str, An
 # selection/render matrix
 
 
+_MATRIX_DEFAULTS = {
+    "lengths": tuple(range(1, MAX_MATRIX_LENGTH + 1)),
+    "n": (0, 1, 2, 3),
+    "closes": (False, True),
+    "rise": (0, 1, 2),
+}
+
+
 def _matrix_axes(supplied: Mapping[str, Any] | None) -> dict[str, list[Any]]:
     """Resolve (and bound) the selection grid. Raises `SpecParseError`."""
-    supplied = supplied or {}
-    if not isinstance(supplied, Mapping):
-        raise SpecParseError("fixture.matrix must be a mapping")
-    raw_lengths = supplied.get("lengths", list(range(1, MAX_MATRIX_LENGTH + 1)))
-    raw_n = supplied.get("n", [0, 1, 2, 3])
-    raw_closes = supplied.get("closes", [False, True])
-    raw_rise = supplied.get("rise", [0, 1, 2])
-    for name, raw in (
-        ("lengths", raw_lengths),
-        ("n", raw_n),
-        ("closes", raw_closes),
-        ("rise", raw_rise),
-    ):
-        if not isinstance(raw, (list, tuple)):
-            raise SpecParseError(f"fixture.matrix.{name} must be a list")
-
-    # Slice before converting so a huge input cannot be materialised.
-    lengths = sorted(
-        {
-            value
-            for value in (
-                _fixture_int(item, "fixture.matrix.lengths", minimum=1,
-                             maximum=MAX_MATRIX_LENGTH)
-                for item in raw_lengths[: MAX_MATRIX_LENGTH * 2]
-            )
-        }
+    return matrix_axes(
+        supplied,
+        defaults=_MATRIX_DEFAULTS,
+        max_rows=MAX_MATRIX_ROWS,
+        max_length=MAX_MATRIX_LENGTH,
     )
-    n_values = [
-        _fixture_int(item, "fixture.matrix.n", minimum=0)
-        for item in raw_n[:8]
-    ]
-    closes_values = [
-        _fixture_bool(item, "fixture.matrix.closes")
-        for item in raw_closes[:2]
-    ]
-    rise_values = [
-        _fixture_int(item, "fixture.matrix.rise", minimum=0)
-        for item in raw_rise[:8]
-    ]
-    if not lengths or not n_values or not closes_values or not rise_values:
-        raise SpecParseError("fixture.matrix axes must be non-empty")
-    if len(lengths) * len(n_values) * len(closes_values) * len(rise_values) > MAX_MATRIX_ROWS:
-        raise SpecParseError(f"fixture.matrix is capped at {MAX_MATRIX_ROWS} rows")
-    return {
-        "lengths": lengths,
-        "n": n_values,
-        "closes": closes_values,
-        "rise": rise_values,
-    }
 
 
 def _matrix_row_spans(spec: SentenceSpec, length: int) -> list[dict[str, Any]]:

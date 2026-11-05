@@ -8,8 +8,9 @@ real Barrios per-bar renderers.
 
 It deliberately does not use `app.studio.preview.preview_spec`: that path only
 knows the Torroba/Sor owners, and its fixture table would reject `preludio`.
-`studio/preview.py` is left untouched. This module reads the same result,
-note, and hash shapes so the Studio UI can consume either result.
+It shares only renderer-agnostic helpers (`preview_fixture`, note/hash shapes,
+`_Ctx`) with the other pilots. This module reads the same result, note, and
+hash shapes so the Studio UI can consume either result.
 
 Nothing here registers a spec. `SENTENCE_SPECS` is only read by
 `sentence_specs._validate` / `_matches`; the candidate never enters it.
@@ -36,20 +37,24 @@ from app.sonify.keys import active_register
 from app.sonify.model import Phrase, Run
 from app.sonify.sentence_specs import SentenceSpec
 from app.studio.preview import (
-    MAX_PLAN_BARS,
-    MAX_RENDER_BARS,
     Error,
     PreviewResult,
-    SpecParseError,
     _CHARACTERS,
     _METERS,
     _MODES,
-    _fixture_bool,
-    _fixture_int,
     _notes,
     _render_hash,
     _shape_ok,
     _voice,
+)
+from app.studio.preview_fixture import (
+    MAX_PLAN_BARS,
+    MAX_RENDER_BARS,
+    SpecParseError,
+    allowed_fixture_keys,
+    fixture_bool as _fixture_bool,
+    fixture_int as _fixture_int,
+    matrix_axes,
 )
 
 MAX_BARRIOS_MATRIX_ROWS = 64
@@ -178,70 +183,6 @@ def _default_n(spec: SentenceSpec) -> int:
     return 1 if select.n_parity == "odd" else 0
 
 
-def _matrix_axes(
-    supplied: Mapping[str, Any] | None,
-    *,
-    length: int,
-    n: int,
-    closes: bool,
-    rise: int,
-) -> dict[str, list[Any]]:
-    supplied = supplied or {}
-    if not isinstance(supplied, Mapping):
-        raise SpecParseError("fixture.matrix must be a mapping")
-    raw_lengths = supplied.get("lengths", [length])
-    raw_n = supplied.get("n", [n])
-    raw_closes = supplied.get("closes", [closes])
-    raw_rise = supplied.get("rise", [rise])
-    for name, raw in (
-        ("lengths", raw_lengths),
-        ("n", raw_n),
-        ("closes", raw_closes),
-        ("rise", raw_rise),
-    ):
-        if not isinstance(raw, (list, tuple)):
-            raise SpecParseError(f"fixture.matrix.{name} must be a list")
-
-    lengths = sorted(
-        {
-            _fixture_int(
-                item,
-                "fixture.matrix.lengths",
-                minimum=1,
-                maximum=MAX_PLAN_BARS,
-            )
-            for item in raw_lengths[: MAX_PLAN_BARS * 2]
-        }
-    )
-    n_values = [
-        _fixture_int(item, "fixture.matrix.n", minimum=0)
-        for item in raw_n[:8]
-    ]
-    closes_values = [
-        _fixture_bool(item, "fixture.matrix.closes")
-        for item in raw_closes[:2]
-    ]
-    rise_values = [
-        _fixture_int(item, "fixture.matrix.rise", minimum=0)
-        for item in raw_rise[:8]
-    ]
-    if not lengths or not n_values or not closes_values or not rise_values:
-        raise SpecParseError("fixture.matrix axes must be non-empty")
-    if (
-        len(lengths) * len(n_values) * len(closes_values) * len(rise_values)
-        > MAX_BARRIOS_MATRIX_ROWS
-    ):
-        raise SpecParseError(
-            f"fixture.matrix is capped at {MAX_BARRIOS_MATRIX_ROWS} rows"
-        )
-    return {
-        "lengths": lengths,
-        "n": n_values,
-        "closes": closes_values,
-        "rise": rise_values,
-    }
-
-
 def _resolve_fixture(
     spec: SentenceSpec, fixture: Mapping[str, Any] | None
 ) -> dict[str, Any]:
@@ -259,9 +200,7 @@ def _resolve_fixture(
         "bpm",
         "matrix",
     }
-    unknown = set(supplied) - allowed
-    if unknown:
-        raise SpecParseError(f"fixture: unknown field(s) {sorted(unknown)}")
+    allowed_fixture_keys(supplied, allowed)
 
     pattern = supplied.get("pattern", spec.pattern)
     if pattern != spec.pattern:
@@ -319,12 +258,16 @@ def _resolve_fixture(
         "mode": mode,
         "character": character,
         "bpm": bpm,
-        "matrix": _matrix_axes(
+        "matrix": matrix_axes(
             supplied.get("matrix"),
-            length=length,
-            n=n,
-            closes=closes,
-            rise=rise,
+            defaults={
+                "lengths": [length],
+                "n": [n],
+                "closes": [closes],
+                "rise": [rise],
+            },
+            max_rows=MAX_BARRIOS_MATRIX_ROWS,
+            max_length=MAX_PLAN_BARS,
         ),
     }
 
