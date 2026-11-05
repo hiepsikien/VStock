@@ -1074,6 +1074,8 @@ figure writer (level gốc)
 - **Studio preview** có `renderHash`; ở đó mới so hash.
 - Quy trình: baseline code → render fixture cố định → extract contour → render lại với contour → so từng NoteEvent + digest. Chỉ accept khi **identical**; nếu lệch, contour/schema sai, không được nới tolerance.
 - Contour vắng hoặc offset 0 phải identical; đây là điều kiện rollout.
+- Oracle hiện có: `backend/tests/micro_velocity_golden.py`, `backend/tests/fixtures/micro_velocity_golden.json`, `backend/tests/test_micro_velocity_golden.py`. Baseline lưu **full NoteEvent surface** (bar/beat/midi/duration/voice/velocity/staff/tie/slur/accent/tenuto/staccato/hairpin/pinned) + `fixture_digest`/`notes_digest`/`score_digest` (sha256), boundary là `render_patterned_voices` sau `apply_guitar_wave` trước humanize.
+- Fixture ids: `tremolo_44`, `tremolo_34`, `galop_1`, `galop_2`, `catedral_preludio`, `etude1`, `etude11`; offset 0 phải reproduce đúng notes_digest đã commit, không có update mode/tolerance.
 
 #### UI
 
