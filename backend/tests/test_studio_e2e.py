@@ -22,6 +22,10 @@ Covered journeys
 5. ``/v1/studio/jobs`` submit/poll for a preview; job ids are owner-scoped.
 6. Private/public owner visibility: session A cannot read session B's private
    spec; a public row is readable but still not rollback-able by B.
+7. The examples catalog serves all 46 committed specs, and every Suite
+   candidate still validates and previews through the shared API.
+8. Malformed authoring/audio requests soft-fail with the shared error shape
+   (never a 500), and unknown job ids answer a structured 404.
 
 Local-run checklist (reported in the hand-off, kept here so it travels with
 the suite)
@@ -385,6 +389,92 @@ def test_meter_gate_rejects_a_spec_the_runtime_does_not_support(
     assert body["ok"] is False
     assert body["errors"]
     assert all(error["path"] for error in body["errors"])
+
+
+# ---------------------------------------------------------------------------
+# journey 1b: examples catalog and the Suite candidate previews
+# ---------------------------------------------------------------------------
+
+
+SUITE_EXAMPLE_IDS = {
+    "suite_choros1_arpeggio_abba",
+    "suite_gavotta_arpeggio_baab",
+    "suite_mazurka_arpeggio_aaba",
+    "suite_schottish_arpeggio_abab",
+    "suite_valsa_arpeggio_period",
+}
+
+
+def test_examples_catalog_serves_all_committed_specs(client: TestClient) -> None:
+    rows = _examples(client)
+    assert len(rows) == 46
+    assert {row["id"] for row in rows} >= SUITE_EXAMPLE_IDS
+    assert len([row for row in rows if row["id"] in SUITE_EXAMPLE_IDS]) == 5
+
+    for row in rows:
+        assert set(row) == {"pattern", "meter", "id", "payload"}
+
+    # Every Suite candidate still validates and previews through the same URL
+    # the UI posts to. A broken candidate must fail this gate, not the browser.
+    for row in rows:
+        if row["id"] not in SUITE_EXAMPLE_IDS:
+            continue
+        assert row["pattern"] == "villa_pattern"
+        validated = _validate(client, row["payload"])
+        assert validated == {"ok": True, "errors": []}, row["id"]
+
+        preview = _preview(client, row["payload"])
+        assert set(preview) == PREVIEW_SHAPE
+        assert preview["ok"] is True, (row["id"], preview["errors"])
+        assert preview["errors"] == []
+        assert preview["renderHash"].startswith("sha256:")
+        assert preview["notes"]
+        assert preview["row"]
+
+
+# ---------------------------------------------------------------------------
+# journey 1c: malformed requests soft-fail with the shared shape
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_authoring_requests_never_return_a_500(client: TestClient) -> None:
+    # A missing spec is a parse error, not a server error.
+    validated = client.post(VALIDATE, json={})
+    assert validated.status_code == 200
+    assert validated.json()["ok"] is False
+    assert validated.json()["errors"][0]["path"] == "spec"
+
+    previewed = client.post(PREVIEW, json={"spec": {}, "fixture": {}})
+    assert previewed.status_code == 200
+    preview = previewed.json()
+    assert set(preview) == PREVIEW_SHAPE
+    assert preview["ok"] is False
+    assert preview["errors"]
+    assert preview["plan"] is None and preview["row"] is None
+    assert preview["renderHash"] is None and preview["matrix"] == []
+
+    # Audio without a spec or hash, and with a malformed hash, both soft-fail.
+    missing = client.post(AUDIO, json={})
+    assert missing.status_code == 200
+    assert missing.json()["ok"] is False
+    assert missing.json()["errors"][0]["path"] == "spec"
+    assert missing.json()["audioUrl"] is None
+
+    bad_hash = client.post(AUDIO, json={"renderHash": "not-a-hash"})
+    assert bad_hash.status_code == 200
+    assert bad_hash.json()["ok"] is False
+    assert bad_hash.json()["errors"][0]["path"] == "renderHash"
+
+    # An unknown example pattern and an unknown job id are structured errors.
+    missing_example = client.get(f"{EXAMPLES}/nope")
+    assert missing_example.status_code == 200
+    assert missing_example.json()["ok"] is False
+    assert missing_example.json()["errors"][0]["path"] == "pattern"
+
+    missing_job = client.get(f"{JOBS}/job_does_not_exist", headers=SESSION_A)
+    assert missing_job.status_code == 404
+    assert missing_job.json()["ok"] is False
+    assert missing_job.json()["errors"][0]["path"] == "job"
 
 
 # ---------------------------------------------------------------------------
