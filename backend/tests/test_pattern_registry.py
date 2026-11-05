@@ -4,8 +4,9 @@ Metadata only. These tests pin the split the model doc section 12 decided: five
 texture ids, thirty-three topics, and a printed title for every topic.
 
 The second half is the codegen gate: the generated TypeScript must match the
-Python registries, every row must carry a title, and uniqueness is per
-ensemble rather than global.
+Python registries, every row must carry a title plus its `level`/`name_source`,
+and uniqueness is per ensemble rather than global. The TS `PATTERN_NAMES` set
+is the 30 distinct topic titles; `Pedal` is a texture and never enters it.
 """
 
 from __future__ import annotations
@@ -233,6 +234,53 @@ def test_generated_rows_cover_the_python_registries() -> None:
         assert row.family == _FAMILY[row.pattern]
         assert row.title, (row.ensemble, row.pattern)
         assert row.wave_profile is (row.ensemble is not None)
+        expected = PATTERN_META[row.pattern]
+        assert row.level == expected.level, (row.ensemble, row.pattern)
+        assert row.name_source == expected.name_source, (row.ensemble, row.pattern)
+
+
+def test_generated_rows_split_topics_from_textures() -> None:
+    """33 topic rows and 6 texture rows, with `pedal` never a printed topic."""
+    rows = _codegen().build_rows()
+
+    topic_rows = [row for row in rows if row.level == "topic"]
+    texture_rows = [row for row in rows if row.level == "texture"]
+    assert len(topic_rows) == 33
+    assert len(texture_rows) == 6
+    assert {row.pattern for row in texture_rows} == _TEXTURE
+
+    pedal_rows = [row for row in rows if row.pattern == "pedal"]
+    assert len(pedal_rows) == 1
+    assert pedal_rows[0].level == "texture"
+    assert pedal_rows[0].name_source is None
+
+
+def test_generated_topic_titles_are_the_frontend_set() -> None:
+    """The TS set is the 30 distinct topic titles, with no texture title.
+
+    33 topic rows collapse to 30 titles because `Etude`, `Prelude`, and
+    `Sarabande` each name a topic in two ensembles. `PATTERN_NAMES` is a Set,
+    so the count is 30. `Pedal` is a texture, so it never enters.
+    """
+    rows = _codegen().build_rows()
+
+    topic_titles = {row.title for row in rows if row.level == "topic"}
+    assert len(topic_titles) == 30
+    assert "Pedal" not in topic_titles
+    assert topic_titles.isdisjoint({"Arpeggio", "Chord Melody", "Tremolo"})
+
+    # The full row set keeps the four known global repeats (§12.3).
+    all_titles = [row.title for row in rows]
+    repeated = {
+        title for title in set(all_titles) if all_titles.count(title) > 1
+    }
+    assert repeated == _KNOWN_GLOBAL_DUPLICATES
+    # 34 distinct titles over all 39 rows; 33 over the printed rows, because
+    # `Pedal` is the only non-printed row and it owns a title of its own.
+    assert len(set(all_titles)) == 34
+    printed_titles = {row.title for row in rows if row.wave_profile}
+    assert len(printed_titles) == 33
+    assert "Pedal" not in printed_titles
 
 
 def test_committed_registry_is_fresh() -> None:

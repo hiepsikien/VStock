@@ -1,4 +1,5 @@
 import type { RecapEnsemble, RecapVariant } from '../api/client';
+import { PATTERN_REGISTRY } from './patternRegistry.generated';
 
 export type SpanId = '1D' | '1W' | '1M' | '3M' | '1Y';
 export type Mode = 'major' | 'minor';
@@ -49,42 +50,17 @@ export function playingLines(title: string, movement: string | null): string[] {
   return movement ? [title, movement] : [title];
 }
 
-/** Friendly pattern names. A movement title in this set is the pattern, so it is not prefixed. */
-const PATTERN_NAMES = new Set([
-  'Etude',
-  'Galop',
-  'Variations',
-  'Elegy',
-  'Cantabile',
-  'Arpeggio',
-  'Etude 1',
-  'Etude 11',
-  'Chord Melody',
-  'Prelude',
-  'Tremolo',
-  'Andante',
-  'Choro',
-  'Polka',
-  'Hemiola',
-  'Waltz',
-  'Ballade',
-  'Dance',
-  'Sarabande',
-  'Fugue',
-  'Bourree',
-  'Gavotte',
-  'Gigue',
-  'Chaconne',
-  'Allemande',
-  'Courante',
-  'Castillo',
-  'Sonatina',
-  'Fandanguillo',
-  'Danza',
-  'Juglar',
-  'Alcaniz',
-  'Olite',
-]);
+/**
+ * Friendly topic names, read from the generated pattern registry. A movement
+ * title in this set is the pattern, so it is not prefixed.
+ *
+ * Only `level === 'topic'` rows contribute. A texture owns no printed name,
+ * so `Pedal` (and every other texture) never enters the set: the registry's
+ * `level` is the gate, not a hand-kept list.
+ */
+export const PATTERN_NAMES: ReadonlySet<string> = new Set(
+  PATTERN_REGISTRY.filter((row) => row.level === 'topic').map((row) => row.title),
+);
 
 export type ChartFocus = { start: number; end: number };
 

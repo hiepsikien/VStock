@@ -4,6 +4,8 @@ export type PatternRegistryRow = {
   pattern: string;
   title: string;
   family: string | null;
+  level: 'topic' | 'texture';
+  nameSource: string | null;
   waveProfile: boolean;
 };
 
@@ -13,6 +15,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_allemande",
     "title": "Allemande",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -20,6 +24,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_bourree",
     "title": "Bourree",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -27,6 +33,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_chaconne",
     "title": "Chaconne",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "form",
     "waveProfile": true
   },
   {
@@ -34,6 +42,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_courante",
     "title": "Courante",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -41,6 +51,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_fuga",
     "title": "Fugue",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "form",
     "waveProfile": true
   },
   {
@@ -48,6 +60,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_gavotte",
     "title": "Gavotte",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -55,6 +69,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_gigue",
     "title": "Gigue",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -62,6 +78,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_prelude",
     "title": "Prelude",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "function",
     "waveProfile": true
   },
   {
@@ -69,6 +87,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "bach_sarabande",
     "title": "Sarabande",
     "family": "bach",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -76,6 +96,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "andante",
     "title": "Andante",
     "family": "chorale",
+    "level": "topic",
+    "nameSource": "tempo",
     "waveProfile": true
   },
   {
@@ -83,6 +105,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "choro",
     "title": "Choro",
     "family": "dance",
+    "level": "topic",
+    "nameSource": "genre",
     "waveProfile": true
   },
   {
@@ -90,6 +114,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "hemiola",
     "title": "Hemiola",
     "family": "dance",
+    "level": "topic",
+    "nameSource": "device",
     "waveProfile": true
   },
   {
@@ -97,6 +123,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "polca",
     "title": "Polka",
     "family": "dance",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -104,6 +132,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "preludio",
     "title": "Prelude",
     "family": "arpeggio",
+    "level": "topic",
+    "nameSource": "function",
     "waveProfile": true
   },
   {
@@ -111,6 +141,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "thumb_cantabile",
     "title": "Cantabile",
     "family": "chorale",
+    "level": "texture",
+    "nameSource": null,
     "waveProfile": true
   },
   {
@@ -118,6 +150,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "tremolo",
     "title": "Tremolo",
     "family": "tremolo",
+    "level": "texture",
+    "nameSource": null,
     "waveProfile": true
   },
   {
@@ -125,6 +159,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "vals",
     "title": "Waltz",
     "family": "dance",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -132,6 +168,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "brouwer_etude",
     "title": "Etude",
     "family": "brouwer",
+    "level": "topic",
+    "nameSource": "genre",
     "waveProfile": true
   },
   {
@@ -139,6 +177,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "elogio_pizz",
     "title": "Dance",
     "family": "brouwer",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -146,6 +186,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "noviembre",
     "title": "Ballade",
     "family": "brouwer",
+    "level": "topic",
+    "nameSource": "genre",
     "waveProfile": true
   },
   {
@@ -153,6 +195,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "sarabande",
     "title": "Sarabande",
     "family": "brouwer",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -160,6 +204,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "cantabile",
     "title": "Cantabile",
     "family": "chorale",
+    "level": "topic",
+    "nameSource": "character",
     "waveProfile": true
   },
   {
@@ -167,6 +213,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "elegiaque",
     "title": "Elegy",
     "family": "chorale",
+    "level": "topic",
+    "nameSource": "genre",
     "waveProfile": true
   },
   {
@@ -174,6 +222,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "galop",
     "title": "Galop",
     "family": "arpeggio",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -181,6 +231,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "mozart_var",
     "title": "Variations",
     "family": "arpeggio",
+    "level": "topic",
+    "nameSource": "form",
     "waveProfile": true
   },
   {
@@ -188,6 +240,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "study",
     "title": "Etude",
     "family": "arpeggio",
+    "level": "topic",
+    "nameSource": "genre",
     "waveProfile": true
   },
   {
@@ -195,6 +249,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "alcaniz",
     "title": "Alcaniz",
     "family": "torroba",
+    "level": "topic",
+    "nameSource": "work",
     "waveProfile": true
   },
   {
@@ -202,6 +258,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "castillo",
     "title": "Castillo",
     "family": "torroba",
+    "level": "topic",
+    "nameSource": "work",
     "waveProfile": true
   },
   {
@@ -209,6 +267,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "danza",
     "title": "Danza",
     "family": "torroba",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -216,6 +276,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "fandanguillo",
     "title": "Fandanguillo",
     "family": "torroba",
+    "level": "topic",
+    "nameSource": "dance",
     "waveProfile": true
   },
   {
@@ -223,6 +285,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "olite",
     "title": "Olite",
     "family": "torroba",
+    "level": "topic",
+    "nameSource": "work",
     "waveProfile": true
   },
   {
@@ -230,6 +294,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "sonatina",
     "title": "Sonatina",
     "family": "torroba",
+    "level": "topic",
+    "nameSource": "form",
     "waveProfile": true
   },
   {
@@ -237,6 +303,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "torroba_tremolo",
     "title": "Juglar",
     "family": "torroba",
+    "level": "topic",
+    "nameSource": "work",
     "waveProfile": true
   },
   {
@@ -244,6 +312,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "chord_melody",
     "title": "Chord Melody",
     "family": "chorale",
+    "level": "texture",
+    "nameSource": null,
     "waveProfile": true
   },
   {
@@ -251,6 +321,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "etude1",
     "title": "Etude 1",
     "family": "arpeggio",
+    "level": "topic",
+    "nameSource": "genre",
     "waveProfile": true
   },
   {
@@ -258,6 +330,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "etude11",
     "title": "Etude 11",
     "family": "arpeggio",
+    "level": "topic",
+    "nameSource": "genre",
     "waveProfile": true
   },
   {
@@ -265,6 +339,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "thumb_cantabile",
     "title": "Prelude",
     "family": "chorale",
+    "level": "texture",
+    "nameSource": null,
     "waveProfile": true
   },
   {
@@ -272,6 +348,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "villa_pattern",
     "title": "Arpeggio",
     "family": "arpeggio",
+    "level": "texture",
+    "nameSource": null,
     "waveProfile": true
   },
   {
@@ -279,6 +357,8 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
     "pattern": "pedal",
     "title": "Pedal",
     "family": "pedal",
+    "level": "texture",
+    "nameSource": null,
     "waveProfile": false
   }
 ];

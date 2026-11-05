@@ -8,11 +8,13 @@ Run from the repo root:
 a drift, so the pytest gate fails instead of letting the registry diverge from
 `PROFILES`, `_FAMILY`, and `_PATTERN_TITLE`.
 
-The source of truth stays in Python. This script reads it and writes only
-`src/sonify/patternRegistry.generated.ts`; no runtime consumer switches yet.
+The source of truth stays in Python. This script reads it and writes
+`src/sonify/patternRegistry.generated.ts`; the app reads the generated module.
 Every row is one `(ensemble, pattern)` in `PROFILES`, plus the family-only ids
-that have no wave profile. Rows are sorted and carry no timestamps, so two
-builds produce byte-identical output.
+that have no wave profile. Each row carries `level` and `name_source` from
+`PATTERN_META`, so a consumer can drop a texture without re-reading Python.
+Rows are sorted and carry no timestamps, so two builds produce byte-identical
+output.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ sys.path.insert(0, str(BACKEND))
 
 from app.sonify.guitar_patterns import _FAMILY  # noqa: E402
 from app.sonify.guitar_wave import PROFILES  # noqa: E402
+from app.sonify.pattern_registry import PATTERN_META  # noqa: E402
 from app.sonify.program import pattern_title  # noqa: E402
 
 TS_PATH = ROOT / "src" / "sonify" / "patternRegistry.generated.ts"
@@ -43,12 +46,19 @@ FALLBACK_ENSEMBLE = "classic"
 
 @dataclass(frozen=True)
 class Row:
-    """One registry row. `ensemble` is None for an id with no wave profile."""
+    """One registry row. `ensemble` is None for an id with no wave profile.
+
+    `level` and `name_source` are copied verbatim from `PATTERN_META`; a
+    texture's `name_source` is None even though its row may still carry the
+    legacy title `_PATTERN_TITLE` holds.
+    """
 
     ensemble: str | None
     pattern: str
     title: str
     family: str | None
+    level: str
+    name_source: str | None
     wave_profile: bool
 
 
@@ -63,12 +73,15 @@ def build_rows() -> list[Row]:
     """The union of `PROFILES` and `_FAMILY`, in a stable order."""
     rows: list[Row] = []
     for ensemble, pattern in sorted(PROFILES):
+        found = PATTERN_META[pattern]
         rows.append(
             Row(
                 ensemble=ensemble,
                 pattern=pattern,
                 title=_title(pattern, ensemble),
                 family=_FAMILY.get(pattern),
+                level=found.level,
+                name_source=found.name_source,
                 wave_profile=True,
             )
         )
@@ -77,12 +90,15 @@ def build_rows() -> list[Row]:
     for pattern in sorted(set(_FAMILY) - profiled):
         # Family-only by definition: no `PROFILES` row, so no owning ensemble.
         # The title still probes, through the documented fallback.
+        found = PATTERN_META[pattern]
         rows.append(
             Row(
                 ensemble=None,
                 pattern=pattern,
                 title=_title(pattern, None),
                 family=_FAMILY.get(pattern),
+                level=found.level,
+                name_source=found.name_source,
                 wave_profile=False,
             )
         )
@@ -96,6 +112,8 @@ def _row_payload(row: Row) -> dict[str, object]:
         "pattern": row.pattern,
         "title": row.title,
         "family": row.family,
+        "level": row.level,
+        "nameSource": row.name_source,
         "waveProfile": row.wave_profile,
     }
 
@@ -114,6 +132,8 @@ def render_text() -> str:
         + "  pattern: string;\n"
         + "  title: string;\n"
         + "  family: string | null;\n"
+        + "  level: 'topic' | 'texture';\n"
+        + "  nameSource: string | null;\n"
         + "  waveProfile: boolean;\n"
         + "};\n\n"
         + "export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = "
