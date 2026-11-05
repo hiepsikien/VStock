@@ -54,6 +54,30 @@
     {
       "family": "villa",
       "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_mazurka_arpeggio_aaba",
+      "meter": "3/4",
+      "note_count": 41,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:355b8f14a64216aba65b8ef407bb9fdba6881ae1810d1dd8a9dbdc2b156a6f80",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 24,
+        "2": 10,
+        "3": 7,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
         "bars": 3,
         "closes": false,
         "length": 3,
