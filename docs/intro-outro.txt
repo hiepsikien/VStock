@@ -1,0 +1,389 @@
+Dưới đây là bản review chi tiết cho [PR #78](https://github.com/hiepsikien/VStock/pull/78) (`docs/sonify-guitar-frame-variations.md`), gồm: **(1) Các điểm chưa chính xác / còn thiếu so với codebase hiện tại**, **(2) Các ràng buộc kỹ thuật cần làm rõ trong tài liệu trước khi code**, và **(3) Đề xuất chi tiết kịch bản Intro/Outro (2 ô & 4 ô) cho từng pattern của 5 Composer** sao cho giàu tính âm nhạc, nối mượt vào thân bài và mang đúng dấu ấn tác phẩm gốc.
+
+---
+
+## Phần 1: Review PR #78 — Những điểm tốt & các lỗ hổng cần chỉnh
+
+### 1. Điểm hợp lý của PR #78
+- **Chẩn đoán đúng vấn đề**: Hiện tại `guitar_frame.py` chỉ rẽ nhánh theo `ctx.ensemble` (cộng 3 cờ phụ `_bach_dance`, `edge` của Brouwer, `bright` của Villa), khiến 28 pattern trong `PROFILES` bị gom vào 7 họ intro và 8 họ outro. Chuyển khóa chọn khung sang `(ctx.ensemble, body_pattern)` (intro đọc pattern ô thân bài đầu `leading[-1] + 1`, outro đọc pattern ô thân bài cuối `trailing[0] - 1`) là hướng giải quyết rất chuẩn xác.
+- **Tái sử dụng thông minh các hàm có sẵn**: Việc tách các mảnh đang đặt nhầm chỗ (như đưa `_bach_tetrachord` và `_bach_arpeggiato` về `bach_chaconne`, đưa `_bach_dominant_flourish` về `bach_gigue`, tách Op. 9 về riêng `mozart_var`) giúp tận dụng code tốt và trả lại đúng tính chất cho từng điệu.
+- **Giữ nguyên kiến trúc động lực học**: Không phá vỡ `frame_roles`, `_compressed`, hay đường tâm `fit_intro` / `fit_outro` trong `guitar_wave.py`.
+
+### 2. Các điểm lệch với code thực tế hoặc còn mơ hồ trong PR #78
+
+1. **Nhận định sai về `vals` và `thumb_cantabile` của Barrios ở mục 1.6 và mục 3.5**:
+   - Tài liệu viết: *"`vals` và `thumb_cantabile` của Barrios chỉ đứng ở trio hoặc cầu, nên cửa của chúng chưa kêu trên form hiện tại."*
+   - **Thực tế trong code**: Ở các bản Barrios dài (`ctx.bars > 40`), hàm `_assign_macro` xoay vòng qua `_barrios_palette` theo từng vùng (`regions`) chứ không khóa cứng A–B–A:
+```1101:1114:backend/app/sonify/guitar_patterns.py
+    if ctx.ensemble == "barrios" and ctx.bars > 40:
+        regions = _barrios_regions(ctx, body)
+        if len(regions) >= 2:
+            primary = _dominant_pattern(
+                ctx,
+                [ctx.phrases[index] for index in regions[0]],
+                _phrase_bars(ctx, regions[0]),
+            )
+            palette = _barrios_palette(ctx, primary)
+            for ordinal, indexes in enumerate(regions):
+                pattern = palette[ordinal % len(palette)]
+                for index in indexes:
+                    chosen[index] = pattern
+            return chosen
+```
+   - Trong `_barrios_palette` (dòng `1014–1038`), `vals` và `thumb_cantabile` nằm ở các vị trí thứ 2, 3, 4 của tuple. Do đó, tùy số lượng `regions` của chương dài, **ô thân bài cuối cùng (`trailing[0] - 1`) hoàn toàn có thể là `vals` hoặc `thumb_cantabile`**, tức là **cửa Outro của 2 pattern này CÓ kêu** trên form hiện tại (chỉ có Intro là không kêu ở đầu chương).
+
+2. **Mâu thuẫn giữa mô tả `etude11` / `villa_pattern` và hàm `_apply_stabs` trong `guitar_wave.py`**:
+   - Mục 3.6 ghi *"Không đổi stab gán sau bộ lọc (`70 / 66 / 62`)"*, đồng thời mục 4 & 5.4 ghi *"Stab sáng cuối outro chỉ còn ở rally của `villa_pattern`"* và *"`etude11` Outro: hoa mỹ giải xuống I, nhấn rồi ngân... không mượn stab sáng của `villa_pattern`"*.
+   - **Thực tế trong code**: `_apply_stabs` hiện đang gắn cứng theo `ctx.ensemble == "villa"` và `_bright(ctx, event.bar)` (`rally` hoặc `volatile`) hễ thấy `event.accent`:
+```861:869:backend/app/sonify/guitar_wave.py
+            villa_stab = (
+                ctx.ensemble == "villa"
+                and last is not None
+                and event.bar == last
+                and event.accent
+                and _bright(ctx, event.bar)
+            )
+            if stabbed or villa_stab:
+                _put(events, index, _STAB[voice])
+```
+   - Vì `etude11` chạy khi `mood == "volatile"` (`_bright` là `True`), nếu ô cuối của `etude11` có `accent=True` ("nhấn rồi ngân"), nó vẫn sẽ bị `_apply_stabs` ép thành stab `70 / 66 / 62` trừ khi sửa điều kiện `villa_stab` trong `guitar_wave.py` để kiểm tra thêm pattern là `villa_pattern` và mood là `rally`.
+
+3. **Chưa truyền `patterns` vào `render_intro` / `render_outro` và xung đột với `_smooth_boundaries`**:
+   - Hiện tại `_paint_frames` trong `guitar_patterns.py` (dòng `2736`) chỉ gọi `render_intro(ctx, leading)` và `render_outro(ctx, trailing)` mà chưa truyền `patterns` (hoặc tên pattern đầu/cuối).
+   - Ngay sau `_paint_frames`, `_smooth_boundaries` (dòng `2937–2953`) chạy trên `_boundary_bars`, trong đó có `leading[-1]` (ô cuối của intro) và `trailing[0] - 1` (ô cuối của thân bài):
+     - Với `leading[-1]`, `_bar_pattern` trả về `"pedal"`, nên `_plant_pickup` tự động **xóa móc đơn cuối của bè Bass (Voice 3) ở ô cuối intro và chèn một nốt bass pickup ở velocity `50`**. Nếu intro của `bach_bourree`, `bach_gavotte`, `tremolo`, `etude1`, `etude11`, hay `choro` đã tự viết pickup hoặc bass ngân đặc thù ở cuối ô intro, `_plant_pickup` sẽ ghi đè hoặc làm hỏng cấu trúc tay bấm!
+
+4. **Giới hạn lưới móc đơn (eighth-note grid) và cữ âm trong `guitar_frame.py`**:
+   - Toàn bộ `guitar_frame.py` hiện tại dùng `specs = [(offset, length, midi, voice, velocity, flags)]` tính theo **đơn vị móc đơn** (`0 .. ctx.epb`) và render qua `_eighth_event` (dòng `1826`).
+   - Thế nhưng các đề xuất trong Mục 5 lại yêu cầu kết cấu **ngoài lưới móc đơn** hoặc **ngoài dải âm mặc định của frame**:
+     - `tremolo`: `a-m-i` trong `guitar.py` chạy trên lưới **móc tam (`0.125` phách)**.
+     - `etude1`, `choro`, `polca`: chạy trên lưới **móc kép (`0.25` phách)** (ví dụ `choro` đánh lơi ở các slot móc kép lẻ `3, 7, 11, 15`; `polca` đánh ở slot `2, 4, 8, 10`).
+     - `etude11`: chạy trên lưới **chùm 6 (`1/6` phách)**.
+     - `thumb_cantabile` (Barrios & Villa): thân bài đặt giai điệu ngón cái ở `Voice 3` vươn lên tới MIDI `64` (`E4`), nhưng `_bass_hi(ctx)` của `guitar_frame.py` (dòng `1287`) đang khóa cứng ở `53 - ctx.semitones` (`F3`), và `assert_playable` (dòng `3140`) sẽ báo lỗi `Unplayable` nếu `Voice 3 > 53` trên một ô có profile `"study"` (mặc định của `"pedal"`).
+   - Tài liệu cần chỉ rõ: hoặc mở rộng `_realize` trong `guitar_frame.py` để hỗ trợ sub-eighth / register riêng theo pattern, hoặc quy định cách mô phỏng các cử chỉ đó trên lưới móc đơn/móc kép hợp lệ.
+
+5. **Mô tả kịch bản trong Mục 5 còn quá vắn tắt (chưa phân tách Bước `0, 1` cho Short và Bước `0, 1, 2, 3` cho Long)**:
+   - Một số mục ở phần 5 hiện mới là ý tưởng 1 dòng (ví dụ `polca`: *"Intro: ô-phách polca, nhẹ hơn choro. Outro: hai cadence staccato"*), chưa đủ rõ để người đọc hay agent tiếp theo cài đặt chính xác từng bước `role = 0, 1` (bản 2 ô) và `role = 0, 1, 2, 3` (bản 4 ô), phân bổ 3 bè (`Voice 1, 2, 3`), tiến trình bậc hòa âm (`I, ii, IV, V7`) và mức velocity viết sẵn (`_PP=46, _P=50, _MP=56, _MF=64`).
+
+---
+
+## Phần 2: Đề xuất làm rõ 4 quy tắc kiến trúc trong tài liệu PR #78
+
+Trước khi đi vào từng composer, bạn nên bổ sung một mục **"Quy tắc kỹ thuật tại biên Intro / Thân bài / Outro"** vào tài liệu với 4 điểm sau:
+
+1. **Chữ ký hàm & cách lấy pattern tại biên**:
+   - `_paint_frames(ctx, patterns, lead, support, low)` xác định:
+     - `intro_pattern = _bar_pattern(ctx, leading[-1] + 1, patterns)` (nếu có thân bài phía sau, ngược lại dùng `headline_id(ctx, patterns)`).
+     - `outro_pattern = _bar_pattern(ctx, trailing[0] - 1, patterns)` (nếu có thân bài phía trước, ngược lại dùng `headline_id(ctx, patterns)`).
+   - Truyền `pattern` vào `render_intro(ctx, leading, pattern=intro_pattern)` và `render_outro(ctx, trailing, pattern=outro_pattern)`.
+
+2. **Quy tắc tương thích với `fit_intro` / `fit_outro` (Động lực học tự nhiên)**:
+   - Mặc dù `guitar_wave.py` dịch toàn bộ ô theo tâm $C$, **hiệu số velocity nội bộ trong mỗi ô (`V_written - 64`) được giữ nguyên hoàn toàn**!
+   - Do đó, để intro có cảm giác "thức dậy" và outro có cảm giác "lắng xuống" ngay cả khi `fit_intro` giữ phẳng đường tâm $C$ (do chạm ngưỡng $L$), các bước trong `guitar_frame.py` phải tự viết bậc thang velocity nội tại:
+     - **Intro**: Bước 0 viết ở `_PP (46)` → Bước 1 `_P (50)` → Bước 2 `_P.._MP (50..56)` → Bước 3 `_MP.._MF (56..60)` hướng thẳng vào âm lượng thân bài (`_MELODY = 64`, `_BASS = 56`, `_INNER = 46`).
+     - **Outro**: Bước 0 đón năng lượng từ thân bài ở `_MP (56)` hoặc `_P (50)` → Bước 1–2 giảm dần về `_P (50)` / `_PP (46)` → Bước cuối kết ở `_PP (46)` (trừ các pattern kết bằng cú chốt `staccato/accent` như `galop`, `choro`, `polca`, `elogio_pizz`).
+
+3. **Quy tắc nối nhịp tại biên (`Seam & Pickup Rule`)**:
+   - **Tại biên Intro → Thân bài (`leading[-1]`)**:
+     - Nửa sau của bước cuối Intro (`role == steps - 1`) phải chuẩn bị **đúng mô-típ chuyển động hoặc âm vực** của ô thân bài đầu tiên (`ctx.melody[nxt * ctx.epb]`).
+     - Không để `_plant_pickup` trong `_smooth_boundaries` ghi đè mù quáng lên móc đơn cuối của `leading[-1]` khi kịch bản intro của pattern đó đã tự thiết kế pickup/anacrusis hoặc bass pedal riêng.
+   - **Tại biên Thân bài → Outro (`trailing[0]`)**:
+     - Bước 0 của Outro (`role == 0`) phải là **hậu dư (afterglow)** của kết cấu thân bài (ví dụ thân bài đang chạy móc kép ở `etude1` hay `preludio`, thì Bước 0 của Outro giãn nhịp từ móc kép sang móc đơn rồi mới dừng, thay vì đứt phựt sang hợp âm trắng ngay lập tức).
+
+4. **Quy tắc lưới tiết tấu & cữ tay (`Grid & Register Rule`)**:
+   - Với các pattern có đặc trưng **móc kép (16th)** như `preludio` (*La Catedral*), `etude1`, `choro`, `polca`, hoặc `bach_sarabande` / `bach_chaconne`, cho phép helper trong `guitar_frame.py` phát sự kiện trên lưới `1/16` (`_spell16`) hoặc giữ quy ước nếu viết trên lưới `1/8` thì phải nêu rõ cách quy đổi hình tiết tấu.
+   - Với `thumb_cantabile` (Villa & Barrios), cho phép `Voice 3` (ngón cái hát) mở rộng trần lên `min(ctx.treble_floor, 60 - ctx.semitones)` và gán profile `"thumb_cantabile"` cho vùng pedal đó để `assert_playable` không báo lỗi.
+
+---
+
+## Phần 3: Đề xuất chi tiết Intro & Outro theo từng Composer và Pattern
+
+Dưới đây là đề xuất cụ thể cho toàn bộ **28 pattern thuộc 5 đại sư**, được thiết kế để bạn có thể đưa trực tiếp vào mục 4 & 5 của `docs/sonify-guitar-frame-variations.md`. Mỗi pattern đều định nghĩa rõ: **Chất liệu âm nhạc gốc**, **Intro Ngắn (2 bước: `0 → 1`)**, **Intro Dài (4 bước: `0 → 1 → 2 → 3`)**, **Outro Ngắn (`0 → 1`)**, và **Outro Dài (`0 → 1 → 2 → 3`)**.
+
+---
+
+### 3.1 J.S. Bach (`ensemble = "bach"`) — Ngôn ngữ Suite Lute BWV 995–1000 & Partita BWV 1004/1006a
+
+Đặc trưng của Bach là **tính độc lập của các bè**, **nhịp lấy đà (anacrusis) chuẩn xác theo từng điệu nhảy Baroque**, và **tiến trình hòa âm chuẩn xác (`I – iv/IV – V7 – I`)**.
+
+#### 1. `bach_bourree` (*Bourrée in E minor, BWV 996*)
+- **Đặc trưng thân bài**: Nhịp đôi nhanh (`4/4`), đối vị 2 bè *basso continuo* sắc gọn; khi bè trên ngân, bè dưới bước 2 móc đơn lấy đà đẩy vào phách mạnh.
+- **Intro (Giữ khung vũ điệu hiện có, tinh chỉnh bước 1 của bản dài)**:
+  - *Ngắn (2 ô)*: Bước `0`: Bass đánh Chủ (`I`) ở phách 1 (`_P`), 3 móc đơn cuối ô chạy scale lấy đà (`_bach_tonic_anacrusis`). Bước `1`: Hợp âm `V7` nửa đầu ô (`_MP`), nửa sau chạy scale móc đơn nối thẳng vào nốt mở đầu thân bài (`_bach_dominant_run`).
+  - *Dài (4 ô)*: Bước `0`: Hợp âm `I` staccato phách 1, bass ngân nhẹ (`_bach_staccato_pickup`). Bước `1`: **Đổi từ `_bach_tetrachord` (vốn thuộc Chaconne) sang Walking Bass nhịp đôi Baroque** (`I -> IV -> V`, bass bước nốt đen đan xen móc đơn lấy đà kiểu BWV 996). Bước `2`: Hợp âm `V7` kèm nốt hoa mỹ *mordent* (`_bach_mordent`, `_MP`). Bước `3`: Bass `I` giữ nửa đầu, 3 móc đơn lấy đà (`_bach_upbeat_scale`) lao vào phách 1 thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Nửa kết `IV -> V7` (`_bach_half_cadence`, `_MP`). Bước `1`: Hợp âm khối `I` gốc (`_bach_block`, `_P`, giữ nguyên trưởng/thứ của điệu).
+  - *Dài (4 ô)*: Bước `0`: Walking bass hướng về hạ át (`I -> IV`, `_P`). Bước `1`: Nửa kết `IV -> V7` (`_MP`). Bước `2`: Hoa mỹ *mordent* trên `V7` (`_MP`). Bước `3`: Hợp âm khối `I` (`_P`).
+
+#### 2. `bach_gavotte` (*Gavotte en Rondeau, BWV 1006a*)
+- **Đặc trưng thân bài**: Nhịp `4/4` thanh lịch; nửa đầu ô là **hai nốt đen (quarter-quarter)** (nốt đen thứ 2 staccato), nửa sau ô là **4 móc đơn đi song thanh quãng 3 hoặc quãng 6** giữa `Voice 1` và `Voice 2` trên nền bass gốc/quãng 5. Điệu Gavotte cổ điển luôn mở bằng **anacrusis đúng nửa ô nhịp (2 phách cuối ô = 4 móc đơn hoặc 2 nốt đen)**.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Nửa đầu ô giữ bass `I` tĩnh (`_PP`); nửa sau ô (từ móc đơn thứ 4) mở **2 nốt đen lấy đà chuẩn Gavotte** (móc đơn `4–5` và `6–7` đi song thanh quãng 3/6 giữa `Voice 1` và `Voice 2`, nốt thứ hai `staccato`, `_P`). Bước `1`: Nửa đầu ô đáp ở `V7` bằng 2 nốt đen (`0–1` và `2–3` staccato, `_MP`); nửa sau ô (`4..7`) chạy 4 móc đơn song thanh quãng 3/6 dẫn vào nốt đầu thân bài.
+  - *Dài (4 ô)*: Bước `0`: Lấy đà giữa ô trên `I` (2 nốt đen ở nửa sau ô, `_P`). Bước `1`: Mô-típ Rondeau trên `IV -> I` (2 nốt đen đầu ô + 4 móc đơn song thanh nửa sau, `_P`). Bước `2`: Dừng nửa kết trên `V7` với *mordent* thanh lịch (`_MP`). Bước `3`: Nửa đầu nghỉ nhẹ trên bass `V`, nửa sau vào đúng **2 nốt đen lấy đà Gavotte** (`_MP`) đẩy vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: 4 móc đơn song thanh quãng 3/6 trên `V7` dẫn về. Bước `1`: **Cadence đúng phách Gavotte** — giải về `I` bằng 2 nốt đen ở nửa đầu ô, và đặt hợp âm chốt `I` ngân dài bắt đầu từ **giữa ô nhịp (móc đơn thứ 4)** hoặc phủ hết nửa sau.
+  - *Dài (4 ô)*: Bước `0`: Mô-típ Gavotte trên `IV` (`_MP`). Bước `1`: 4 móc đơn song thanh trên `V7` kèm hoa mỹ (`_MP`). Bước `2`: Giải tạm về `I` ở giữa ô nhịp (`_P`). Bước `3`: Hợp âm `I` đầy 3 bè ngân trọn ô khép lại Rondeau (`_P`).
+
+#### 3. `bach_gigue` (*Gigue, BWV 996 / BWV 997*)
+- **Đặc trưng thân bài**: Nhịp kép `6/8` (`epb = 6`), chuyển động cuộn xoáy liên tục theo hai cụm 3 móc đơn (`0, 1, 2` và `3, 4, 5`), arpeggio gãy bắt chéo giữa `Voice 1` (phách `0, 2, 3, 5`) và `Voice 2` (phách `1, 2, 4, 5`) trên bass nhấn ở `0` và `3`.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở bằng một móc đơn lấy đà hoặc arpeggio gãy kiểu Gigue trên `I` (bass nhấn phách `0` và `3`, `Voice 1` và `Voice 2` đan xen móc đơn liên tục `0..5`, `_P`). Bước `1`: Chuyển sang `V7`, chạy flourish móc đơn đi lên xuyên suốt 6 móc đơn (`_bach_dominant_flourish`, `_MP`) lao thẳng vào phách 1 thân bài.
+  - *Dài (4 ô)*: Bước `0`: Bè cao (`Voice 1`) xuất phát một mình bằng mô-típ arpeggio gãy 6 móc đơn trên `I` (kiểu mở đầu Gigue fugato, `_P`). Bước `1`: Bè trầm (`Voice 3`) và bè trung nhập cuộc ở phách `0, 3` tạo đà đối âm nhịp `6/8` (`_P`). Bước `2`: Dồn về `V7` với câu rải leo cao (`_bach_dominant_flourish`, `_MP`). Bước `3`: Scale hoặc broken chord trên `V7` tăng dần velocity (`52 -> 60`) khóa vào nốt đầu thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Flourish `V7` rải 6 móc đơn (`_bach_dominant_flourish`, `_MP`). Bước `1`: Hợp âm `I` nhấn ở phách 1 và ngân trọn ô `6/8` (`_P`).
+  - *Dài (4 ô)*: Bước `0`: Arpeggio gãy `6/8` trên `IV` (`_MP`). Bước `1`: `_bach_dominant_flourish` trên `V7` (`_MP`). Bước `2`: Hoa mỹ *mordent* ở phách 1 và nhịp lấy đà ở móc đơn thứ 5 trên `V7` (`_P`). Bước `3`: Hợp âm khối `I` ngân dài (`_P`).
+
+#### 4. `bach_fuga` (*Fuga, BWV 997 / BWV 998 / BWV 1000*)
+- **Đặc trưng thân bài**: Phức điệu đối âm — Soprano (`Voice 1`) hát chủ đề giá hiện tại, Bass (`Voice 3`) đáp lại 1:1 sau 2 ô nhịp, Alto (`Voice 2`) chỉ điểm thưa để giữ độ trong suốt giữa hai bè ngoài.
+- **Intro (Giữ và làm sắc nét kịch bản Subject/Answer hiện có)**:
+  - *Ngắn (2 ô)*: Bước `0`: Soprano (`Voice 1`) xướng *Subject* đơn âm 4 nốt đầu tiên, sau đó Bass vào nốt Pedal ở nửa sau ô (`_P`). Bước `1`: Hai bè giao thoa tạo nghịch âm treo rồi giải về `V7` (`_bach_dominant_neighbor` với `drive=True`, `_MP`) dẫn vào thân bài.
+  - *Dài (4 ô)*: Bước `0`: `_bach_subject` — Soprano (`Voice 1`) xướng chủ đề đơn âm hoàn toàn, Bass và Alto im lặng (`_P`). Bước `1`: `_bach_answer` — Bass (`Voice 3`) vào *Answer* ở bậc Át (`V`), Soprano dệt *Countersubject* đi ngược chiều ở trên (`_P`). Bước `2`: `_bach_converge_dominant` — 3 bè tụ lại tạo *suspension* (treo và giải) trên `V7` (`_MP`). Bước `3`: Nửa đầu giải về `I`, nửa sau mở câu nối đơn âm hướng vào nốt đầu của Soprano thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: *Stretto* ngắn — Bass và Soprano đuổi nhau cách 2 móc đơn trên `V7` (`_MP`). Bước `1`: Giải về hợp âm Chủ **Picardy Third (`_bach_picardy`, `I+`, `_P`)** — truyền thống kết Fuga Baroque.
+  - *Dài (4 ô)*: Bước `0`: `_bach_pedal_upper` trên `V7` (Dominant Pedal căng thẳng, `_MP`). Bước `1`: *Stretto* 2 bè cô đọng từ `V7` về `I` (`_P`). Bước `2`: `_bach_pedal_upper` trên `I` (Tonic Pedal với bè trong chuyển động `IV -> I`, `_P`). Bước `3`: Hợp âm Trưởng `_bach_picardy` (`I+`, `_PP`).
+
+#### 5. `bach_sarabande` (*Sarabande, BWV 995 / BWV 1004*)
+- **Đặc trưng thân bài**: Nhịp `3/4` (hoặc tempo chậm $\le 72$), **trọng âm rơi vào Phách 2** (`accent = 2` ở `3/4`, `4/4`; `accent = 3` ở `6/8`) với hợp âm rải mềm + *mordent*, và câu lướt *passing scale* nhẹ ở phách cuối nối sang ô sau.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở đúng nhịp Sarabande trên `I` — phách 1 đặt nốt trầm và giai điệu nhẹ (`_P`), **phách 2 nhấn trọng âm hợp âm 3 bè kèm *mordent*** (`accent=True`, `_MP`), phách 3 ngân. Bước `1`: Nhịp Sarabande trên `V7` — phách 2 nhấn hợp âm Át, phách cuối đi 2 nốt lướt mềm (`_P`) nối vào phách 1 thân bài.
+  - *Dài (4 ô)*: Bước `0`: Sarabande trên `I` (trọng âm phách 2, `_P`). Bước `1`: Sarabande trên `IV` (hoặc `iv` ở giọng thứ, bass bước xuống bậc 4 ở phách 2, `_P`). Bước `2`: Sarabande trên `V7` với hoa mỹ *mordent* ở phách 2 (`_MP`). Bước `3`: Giải nhẹ về `I` ở phách 1–2, phách 3 vuốt một câu *passing scale* nối vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Nhấn trọng âm phách 2 trên `V7` kèm *mordent* (`_P`). Bước `1`: Phách 1 đặt bass `I`, **phách 2 mới bung đầy hợp âm `I` ngân dài hết ô** (đúng kiểu kết Sarabande Baroque; giọng thứ giữ nguyên hợp âm thứ `i`, không dùng Picardy).
+  - *Dài (4 ô)*: Bước `0`: Sarabande trên `iv/IV` (`_P`). Bước `1`: Sarabande trên `V7` nhấn phách 2 (`_P`). Bước `2`: Bè trên giải trễ (suspension 4–3) ở phách 2 trên nền bass `I` (`_PP`). Bước `3`: Hợp âm `I` (thứ giữ thứ) ngân tĩnh lặng (`_PP`).
+
+#### 6. `bach_chaconne` (*Chaconne in D minor, BWV 1004*)
+- **Đặc trưng thân bài**: Tiến trình trầm **Ground Bass bước xuống 4 bậc (`Do – Ti – La – Sol` / `I – V6 – iv – V`)** kết hợp với kết cấu móc kép **Bariolage** đan xen giữa dây buông và dây bấm ở bè trung/cao.
+- **Intro (Thu hồi `_bach_tetrachord` từ Bourrée và `_bach_arpeggiato` từ Fuga về đúng Chaconne)**:
+  - *Ngắn (2 ô)*: Bước `0`: `_bach_tetrachord` — Bè trầm (`Voice 3`) bước xuống 4 nốt Ground Bass *Chaconne* uy nghi dưới hợp âm phách 2 kiểu Sarabande-Chaconne (`_MP`). Bước `1`: Bè trung và bè cao bắt đầu đan *bariolage* trên `V7` nửa sau ô dẫn vào thân bài (`_MP`).
+  - *Dài (4 ô)*: Bước `0` & `1`: **Chủ đề Chaconne nguyên bản** — 2 ô đầu trình bày tiến trình Ground Bass bước xuống với hợp âm chấm dôi nhấn phách 2 (`_P -> _MP`). Bước `2`: `_bach_arpeggiato` — Hợp âm rải chậm qua các dây (mở màn cho đoạn *Arpeggiato* nổi tiếng của BWV 1004, `_MP`). Bước `3`: Khởi động mô-típ đan dây *bariolage* trên `V7` dẫn thẳng vào thân bài (`_MP`).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: `_bach_tetrachord` đi lượt Ground Bass cuối cùng về `V7` (`_MP`). Bước `1`: Hợp âm khối Chủ `I` đầy đặn ở phách 1–2 (`_P`, giữ nguyên giọng gốc `d minor` / `i`, đúng như kết bản Chaconne BWV 1004 kết ở âm chủ chứ không Picardy).
+  - *Dài (4 ô)*: Bước `0`: `_bach_tetrachord` (`_MP`). Bước `1`: `_bach_arpeggiato` rải chậm lắng dần (`_P`). Bước `2`: `_bach_converge_dominant` nén 3 bè về `V7` (`_P`). Bước `3`: Hợp âm Chủ `I` ngân dài khép lại công trình kiến trúc (`_P`).
+
+---
+
+### 3.2 Fernando Sor (`ensemble = "classic"`) — Ngôn ngữ Cổ điển châu Âu (Op. 6, Op. 9, Op. 32, Op. 35, Op. 59)
+
+Đặc trưng của Sor là **bố cục hòa âm Cổ điển rõ ràng (kiểu Haydn/Mozart)**, phân biệt rạch ròi giữa nét uy nghi của Overture (`mozart_var`), nét sư phạm trong trẻo của Étude (`study`), tiếng hát song thanh quãng 3/6 (`cantabile`), nhịp hành khúc tang lễ chấm dôi (`elegiaque`), và vũ khúc salon bật nảy (`galop`).
+
+#### 1. `mozart_var` (*Introduction & Variations on a Theme by Mozart, Op. 9*)
+- **Đặc trưng thân bài**: Bè trầm đánh Root – Fifth (mỗi nốt nửa ô), bè trung (`Voice 2`) dệt một đường **đối vị liền bậc (stepwise counter-melody)** ở các móc đơn `1, 2, 3, 5, 6, 7` dưới giai điệu.
+- **Intro (Giữ trọn kịch bản Op. 9 đang có)**:
+  - *Ngắn (2 ô)*: `_sor_intro_short` (Hợp âm `I` + chấm dôi Pháp `_overture_cells` → `V7` chấm dôi + scale vào thân bài).
+  - *Dài (4 ô)*: `_sor_intro_long` (`I` staccato + pickup chấm dôi → `_sor_lyric_walk` đi bộ quãng 6/3 → `V7` chấm dôi → scale trên `I` vào thân bài).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Câu hoa mỹ *turn* (xoay quanh âm bậc 2–3–1–7) ở bè trong/bè cao trên nền `V7` (`_MP`). Bước `1`: Hợp âm `I` tươi sáng (`_P`).
+  - *Dài (4 ô)*: Bước `0`: Bass đi `I – IV – V` kèm bè trung chạy liền bậc kiểu `mozart_var` (`_P`). Bước `1`: Chấm dôi trên `V7` (`_MP`). Bước `2`: Nét *turn* cổ điển trên `V7` (`_MP`). Bước `3`: Hợp âm `I` ở thế tay cao (`high=True`, `_P`).
+
+#### 2. `study` (*Estudios Op. 6 / Op. 35 & Grand Solo Op. 14*)
+- **Đặc trưng thân bài**: Bass đánh Root phách 1, Fifth phách 3 (`0` và `4` trong 4/4); bè trung (`Voice 2`) gảy cặp nốt arpeggio luân phiên (`_study_pair`) ở các móc đơn phách yếu (`2, 3, 6, 7` hoặc `2, 6`).
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở đúng mẫu arpeggio Op. 35 No. 22 / Op. 6 No. 8 trên hợp âm `I` tĩnh (bass Root ở `0`, Fifth ở `4`, bè trung đan nhẹ ở `2, 6`, giai điệu giữ âm bậc 3 hoặc bậc 5 của hợp âm `I`, `_P`). Bước `1`: Nửa đầu ô giữ mẫu arpeggio trên `V7` (`_MP`), nửa sau ô (`cut..epb`) chạy một mảnh scale cổ điển ngắn (`_scale_into`) nối mượt vào nốt đầu thân bài.
+  - *Dài (4 ô)*: Bước `0`: Arpeggio `I` tĩnh ở mức `p` (chỉ 1–2 nốt bè trung như `_render_study_bar` lúc quiet, `_P`). Bước `1`: Arpeggio mở rộng sang `IV` với cặp nốt bè trung đan đều (`_P`). Bước `2`: Arpeggio trên `V7` (`_MP`). Bước `3`: Nửa đầu giữ `I`, nửa sau chạy `_scale_into` (`_MP`) vào thân bài.
+- **Outro (Giữ cadence cổ điển gọn gàng đang có)**:
+  - *Ngắn (2 ô)*: `_sor_outro_short` (`_compact` trên `V7` → hợp âm khối `I`).
+  - *Dài (4 ô)*: Bước `0`: Arpeggio Study lắng dần trên `I – IV` (`_P`). Bước `1`: Cadence `I6/4 -> V7` (`_MP`). Bước `2`: Arpeggio mỏng trên `I` (`_P`). Bước `3`: Hợp âm khối `I` chuẩn xác (`_P`).
+
+#### 3. `cantabile` (*Andante Cantabile, Op. 31 / Op. 35*)
+- **Đặc trưng thân bài**: Giai điệu (`Voice 1`) và bè trung (`Voice 2`) **hát song hành hoàn toàn theo quãng 3 hoặc quãng 6 (`_parallel`)** với cùng độ dài trường độ, trên nền bass trầm giữ từng nửa ô hoặc cả ô.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Một câu thở **song thanh quãng 3/6** giữa `Voice 1` và `Voice 2` (2 nốt trắng hoặc nốt đen ngân dài, không chấm dôi) trên nền bass `I` đặt nhẹ ở phách 1 (`_P`). Bước `1`: Song thanh quãng 3/6 bước qua `V7` rồi dẫn liền bậc về sát nốt mở đầu thân bài (`_MP`).
+  - *Dài (4 ô)*: Bước `0`: `Voice 1` và `Voice 2` vào trước bằng một quãng 3/6 mềm mại, bass nghỉ nửa ô đầu rồi mới điểm nhẹ âm gốc `I` (`_PP -> _P`). Bước `1`: `_sor_lyric_walk` — song thanh quãng 3/6 đi bộ qua `I – IV – V` (`_P`). Bước `2`: Nét thở *appoggiatura* (nốt tựa liền bậc) trong cặp quãng 3/6 trên nền `V7` (`_MP`). Bước `3`: Giải êm về `I`, cặp quãng 3/6 dẫn thẳng vào câu hát đầu tiên của thân bài (`_P`).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Cặp quãng 3/6 tạo *appoggiatura* trên `V7` (`_P`). Bước `1`: Giải mềm về quãng 3 của hợp âm `I` trên bass ngân dài (`_PP`, không đánh hợp âm chặn khô).
+  - *Dài (4 ô)*: Bước `0`: Song thanh quãng 3/6 lướt nhẹ `I – IV` (`_P`). Bước `1`: Nét *appoggiatura* trên `V7` (`_P`). Bước `2`: Bè trong và bè cao ngân quãng 3 trên `I`, bass chạm nhẹ bậc 5 rồi về bậc 1 (`_PP`). Bước `3`: Hai bè giữ quãng 3 Chủ âm lịm dần (`_PP`).
+
+#### 4. `elegiaque` (*Fantaisie Élégiaque, Op. 59 — Marche funèbre*)
+- **Đặc trưng thân bài**: Nhịp hành khúc bi thương `_march_grid` ở bè trầm: `(0, 3, "root"), (3, 1, "step"), (4, 3, "fifth"), (7, 1, "step")` (tức là nốt chấm dôi + móc đơn bước xuống liền bậc), điểm *appoggiatura* nghẹn ngào ở bè cao.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Thiết lập ngay **nhịp bước chân hành khúc tang lễ (`_march_grid`) ở bè trầm một mình hoặc dưới một âm giai điệu giữ tĩnh** trên `i/I` (`_PP -> _P`: bass ở `0` ngân 3 móc đơn, móc đơn thứ `3` bước xuống 1 bậc thang âm, móc đơn `4` về bậc 5). Bước `1`: Bass tiếp tục bước lament xuống qua `V7`, bè cao ngân một nốt *appoggiatura* (bậc 6 thứ giải xuống bậc 5) dẫn vào thân bài (`_P`).
+  - *Dài (4 ô)*: Bước `0`: Tiếng trống tang lễ trầm đục ở bè Bass theo đúng `_march_grid` trên `i` (`_PP`, bè trên chưa vào hoặc chỉ giữ một âm trung trầm). Bước `1`: Bè cao bắt đầu cất tiếng thở dài bằng một nốt *appoggiatura* nhấn nhẹ (`_P`) trên nền bass lament bước xuống. Bước `2`: Hòa âm chuyển sang `iv -> V7` trên lưới `_march_grid` (`_MP`). Bước `3`: Nửa kết bi thương trên `V7`, móc đơn cuối bass bước xuống dẫn vào thân bài (`_P`).
+- **Outro (Charlotte! Adieu!)**:
+  - *Ngắn (2 ô)*: Bước `0`: Bass đi bước lament cuối cùng từ bậc 5 xuống bậc 1 trên lưới `_march_grid`, bè cao giải *appoggiatura* (`_P`). Bước `1`: Hợp âm Chủ thứ (`i`) trầm tối ở thế tay thấp, để dây trầm ngân tự nhiên (`_PP`, tuyệt đối không V–I rộn rã hay Picardy).
+  - *Dài (4 ô)*: Bước `0`: Nhịp `_march_grid` với đường bass *lament* đi xuống liền bậc liên tiếp (`_P`, giống nhánh `lament` ở cuối câu của `_render_elegiaque_bar`). Bước `1`: Tiếng thở *appoggiatura* trên `iv -> V7` (`_P`). Bước `2`: Nhịp chấm dôi tang lễ gõ nhẹ trực tiếp trên âm chủ `i` (`_PP`). Bước `3`: Dây buông trầm ngân tắt dần (`_PP`).
+
+#### 5. `galop` (*Galop, Op. 32 No. 6*)
+- **Đặc trưng thân bài**: Bass bật nảy `staccato` ở hai phách chính `_galop_bass_points` (`0, 4` trong 4/4; `0, 3` trong 6/8) luân phiên Root và Fifth; bè trung (`Voice 2`) đáp hợp âm giòn `staccato + accent` ở các móc đơn phách yếu `_galop_inner_offsets` (`1, 3, 5, 7` trong 4/4; `1, 2, 4, 5` trong 6/8); bè cao nhảy quãng 3 tươi sáng (`_galop_sparkle`).
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở màn "vamp" kiểu Galop — Bass bật `staccato` Root ở `0` và Fifth ở `4` (`0, 3` nếu 6/8), bè trung đáp `staccato` ở phách yếu `1, 3, 5, 7`, bè cao chưa vào hoặc chỉ điểm một nốt ngắn ở phách 1 (`_P -> _MP`). Bước `1`: Giữ nhịp bật Galop trên `V7` nửa đầu ô, nửa sau ô bè cao nhảy một bước quãng 3/scale tươi sáng (`staccato`) lấy đà vào thân bài (`_MP`).
+  - *Dài (4 ô)*: Bước `0`: Gõ nhịp ngựa phi (bass `0, 4` staccato + inner `1, 3, 5, 7` staccato) trên `I` (`_P`). Bước `1`: Bè cao bắt đầu nhảy mô-típ *sparkle* (nhảy quãng 3 đi lên ở móc đơn thứ hai) trên nền Galop `I -> IV` (`_MP`). Bước `2`: Nhịp Galop dồn trên `V7` (`_MP`). Bước `3`: Một cú ngắt *caesura* ngắn giữa ô rồi 3 móc đơn lấy đà giòn giã (`_MF`) lao vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Nhịp Galop trên `V7` (`_MP`). Bước `1`: **Chốt kiểu vũ khúc Salon** — hai hợp âm staccato giòn (`V7` ở móc đơn `0`, `I` ở móc đơn `2` hoặc `4` với `staccato=True, accent=True`) rồi nghỉ gọn (không ngân hợp âm trắng dài).
+  - *Dài (4 ô)*: Bước `0`: Nhịp Galop kèm *sparkle* trên `I – IV` (`_MP`). Bước `1`: Nhịp Galop trên `V7` (`_MP`). Bước `2`: Đuổi bắt `V7 -> I -> V7` staccato (`_MF`). Bước `3`: Hai cú chập hợp âm `I` staccato giòn giã chốt bài.
+
+---
+
+### 3.3 Agustín Barrios Mangoré (`ensemble = "barrios"`) — Ngôn ngữ Lãng mạn Nam Mỹ
+
+Đặc trưng của Barrios là **hòa âm Lãng mạn giàu màu sắc truyền giáo & dân gian Mỹ Latinh**, phân hóa cực mạnh giữa không gian thánh đường (`preludio`, `andante`), tiếng hát tremolo (`tremolo`), giai điệu ngón cái (`thumb_cantabile`), và các điệu nhảy Nam Mỹ (`choro`, `polca`, `hemiola`, `vals`).
+
+#### 1. `preludio` (*La Catedral — I. Preludio "Saudade"*)
+- **Đặc trưng thân bài**: Bass pedal ngân 2 ô nhịp; bè cao (`Voice 1`) hát hai nốt mỗi nửa ô (nốt đen chấm dôi ở slot móc kép `0` + móc đơn ở slot `6`) ở âm vực cao trong vắt (`65..79`); bè trung (`Voice 2`) dệt làn sóng 5 móc kép chữ V (`slots 1, 2, 3, 4, 5` và `7`) ưu tiên dây buông campanella (`_catedral_cell`).
+- **Intro (Giữ khung chuông & arpeggio đang có, kết nối sát hơn với sóng *Saudade*)**:
+  - *Ngắn (2 ô)*: `_barrios_intro_short` (Bước `0`: Chuông harmonics `_bells` `_PP` → Bước `1`: Bass `I` thức dậy dưới arpeggio đi lên `_rising_over_bass` với `contour=True`).
+  - *Dài (4 ô)*: `_barrios_intro_long` (Bước `0`: `_bells` → Bước `1`: `_cantabile` → Bước `2`: `_rising_over_bass` trên `ii` → Bước `3`: `_barrios_intro_cadence` nhường vào thân bài). *(Gợi ý cải tiến nhỏ: ở Bước `3`, đặt nốt kết của `_scale_into` khớp với cữ canto đã nâng của `_catedral_canto_pitch` để không bị nhảy quãng 8 khi vào ô thân bài đầu).*
+- **Outro**:
+  - *Ngắn (2 ô)*: `_barrios_outro_short` (`_sparse` trên `I` → `_bell_chord` Picardy `_PP`).
+  - *Dài (4 ô)*: `_barrios_outro_long` (`_sparse` `I` → `_cantabile` `_PP` → `_compact` `ii` `_PP` → `_bell_chord` Picardy `_PP`).
+
+#### 2. `tremolo` (*El Último Canto / Un Sueño en la Floresta*)
+- **Đặc trưng thân bài**: Ngón cái (`p`, `Voice 3`) đánh đường trầm + trung âm trên lưới móc đơn; ba ngón `a-m-i` (`Voice 1`) lặp lại nốt giai điệu trên lưới móc tam (`0.125` phách) với đường vòm động lực học theo từng phách (`_TREMOLO_QUARTER_OFFSETS`).
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Đặt một hợp âm rải chậm hoặc bass pedal `I` kèm **một nốt giai điệu đơn lẻ ngân dài ở `Voice 1`** (`_P`, giới thiệu cao độ sẽ rung tremolo, chưa bật `a-m-i`). Bước `1`: Nửa đầu ô bass bước qua `V7` dưới nốt giai điệu ngân; **nửa sau ô (2 phách cuối) bắt đầu khởi động tiếng rung lặp lại trên 1 nốt ở `Voice 1`** (có thể dùng móc kép lặp trên cùng 1 cao độ với crescendo `48 -> 58` hoặc gọi cụm `_tremolo` nửa ô) để thân bài đón làn sóng tremolo đang chạy sẵn.
+  - *Dài (4 ô)*: Bước `0`: Bass trầm và câu arpeggio lãng mạn mở màn kiểu *Un Sueño en la Floresta* trên `I` (`_PP -> _P`). Bước `1`: Bè cao hát 2 nốt cantabile đơn lẻ ngân dài trên nền `iv/ii` (`_P`). Bước `2`: Hòa âm dâng lên `V7` (`_MP`), giai điệu chạm vào âm dẫn/âm bậc 5. Bước `3`: Nửa đầu giữ âm giai điệu trên `V7`, nửa sau bắt đầu **rung lặp lại trên cùng một cao độ (pre-tremolo roll)** tăng dần lực dẫn thẳng vào ô đầu thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: **Tremolo giãn nhịp (ritardando viết bằng nốt)** — nửa đầu ô lặp nốt ở móc kép, nửa sau ô giãn ra thành móc đơn trên cùng cao độ Chủ âm với decrescendo (`54 -> 46`), bass giữ `I`. Bước `1`: Nốt giai điệu cuối cùng đứng yên một mình trên hợp âm `I` ngân dài (`_PP`, không chuông).
+  - *Dài (4 ô)*: Bước `0`: Giai điệu lặp nhẹ trên `I` với bass bước xuống (`_P`). Bước `1`: Qua màu `ii` hoặc `iv` trầm ấm (`_P`). Bước `2`: Giãn nhịp lặp về móc đơn thưa (`_sparse` trên `V7 -> I`, `_PP`). Bước `3`: Một hợp âm `I` ấm áp ngân dài ở cữ trung (`_PP`).
+
+#### 3. `andante` (*Andante Religioso — La Catedral II / Preludio Op. 5 No. 1*)
+- **Đặc trưng thân bài**: Hợp âm khối thánh ca trang nghiêm đặt trên lưới `_andante_grid` (`[0, 4]` độ dài `[4, 4]` trong 4/4; `[0, 3]` độ dài `[3, 3]` trong 6/8; `[0]` độ dài `[6]` hoặc `[0, 4]` trong 3/4), 3 bè chuyển động đồng bộ như dàn đàn dây/đàn đại phong cầm.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Hai hợp âm khối 3 bè trầm mặc đặt đúng trên lưới `_andante_grid` (`I` ở phách đầu, `IV` hoặc thế đảo ở phách giữa, `_P`, không rải arpeggio, không chuông). Bước `1`: Hai hợp âm khối `ii -> V7` trên `_andante_grid` (`_P -> _MP`), bè cao bước liền bậc dẫn vào nốt đầu thân bài.
+  - *Dài (4 ô)*: Bước `0`: Hợp âm khối `I` ở thế tay trầm ấm trên `_andante_grid` (`_PP`). Bước `1`: Tiến trình thánh ca `iv/IV -> I` bằng hợp âm khối đồng bộ (`_P`). Bước `2`: Hợp âm khối trên `ii -> V7` với bè trong chuyển động nửa cung kiểu Barrios (`_MP`). Bước `3`: Hợp âm khối `I -> V7` lắng lại (`_P`) mở đường cho câu thánh ca thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Kết Plagal thánh ca (`iv/IV` ở nửa đầu ô → `I` ở nửa sau ô trên `_andante_grid`, `_P`). Bước `1`: Một hợp âm khối `I` (giữ nguyên thứ/trưởng, không Picardy, không chuông) ngân trọn ô (`_PP`).
+  - *Dài (4 ô)*: Bước `0`: Hợp âm khối `I -> VI` (hoặc `IV`) trên `_andante_grid` (`_P`). Bước `1`: Hợp âm khối `ii -> V7` (`_P`). Bước `2`: Kết Plagal *Amen* (`iv/IV -> I`, `_PP`). Bước `3`: Hợp âm khối `I` trầm sâu ngân hết ô (`_PP`).
+
+#### 4. `choro` (*Choro da Saudade / Maxixe*)
+- **Đặc trưng thân bài**: Nhịp `4/4` đảo phách Brazil/Paraguay — Bass đánh trên phách (`slots 0, 4, 8, 12` = móc đơn `0, 2, 4, 6` luân phiên Root và Fifth), bè trung (`Voice 2`) gảy **hợp âm đảo phách móc kép** ở `slots 3, 6, 7` và `11, 14, 15` (`sync=True` có accent), kèm nốt bass хроmatic approach (`root - 1`) ở móc kép cuối ô khi đổi hợp âm quãng 5 xuống.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở 1 ô "vamp" Choro trên `I` (bass đi Root – Fifth ở móc đơn `0, 2, 4, 6`, bè trung gảy nhát đảo phách ở móc đơn/móc kép lệch, `_P -> _MP`). Bước `1`: Nửa đầu giữ cell Choro trên `V7`, nửa sau bass đi bước dẫn nửa cung (`_approach_pitch`) hoặc câu chạy ngắn đẩy vào phách 1 thân bài (`_MP`).
+  - *Dài (4 ô)*: Bước `0`: Bass vào nhịp `0, 2, 4, 6` với hợp âm màu bậc 7/6 nhẹ (`_P`). Bước `1`: Bè cao điểm nét đảo phách Choro trên `I -> ii` (`_MP`). Bước `2`: Cell Choro đầy đủ trên `V7` với nhấn đảo phách (`_MP`). Bước `3`: Câu chạy lấy đà kiểu Choro + nốt bass approach (`_MF`) khóa vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Cell đảo phách Choro trên `V7` (`_MP`). Bước `1`: Một nhát đảo phách ngắn rồi **chốt hợp âm `I` staccato/accent gọn** ở phách 2 (không ngân lê thê, không chuông).
+  - *Dài (4 ô)*: Bước `0`: Cell Choro trên `I – ii` (`_MP`). Bước `1`: Cell Choro trên `V7` (`_MP`). Bước `2`: Bass đi câu lướt xuống rồi bật đảo phách (`_P -> _MP`). Bước `3`: Nhấn đảo phách rồi chốt stab `I` gọn.
+
+#### 5. `polca` (*Danza Paraguaya / Polca Paraguaya*)
+- **Đặc trưng thân bài**: Nhịp `6/8` nhanh, vui tươi — Bass đánh theo cảm giác **2 phách (duple feel: slot móc kép `0` = phách 1, slot `6` = giữa ô với `sync=True`)**, trong khi bè trung (`Voice 2`) điểm ở các slot `2, 4, 8, 10` (móc đơn `1, 2, 4, 5`), tạo độ nảy nhẹ nhàng của Polca Paraguay.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở ngay nền *Polca Paraguaya* trên `I` — Bass đánh Root ở móc đơn `0` và Fifth (nhấn nhẹ) ở móc đơn `3`, bè trung gảy ở móc đơn `1, 2, 4, 5` (`_P`). Bước `1`: Giữ nền Polca trên `V7`, 2 móc đơn cuối bè cao nhảy lấy đà vào thân bài (`_MP`).
+  - *Dài (4 ô)*: Bước `0`: Bè trung và bass gảy nhịp Polca nhẹ nhàng trên `I` (`_P`). Bước `1`: Bè cao điểm giai điệu nhảy quãng 3 đặc trưng Paraguay trên `I -> IV` (`_MP`). Bước `2`: Nền Polca trên `V7` (`_MP`). Bước `3`: Lấy đà trên `V7` (`_MP -> _MF`) nối vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Nhịp Polca trên `V7` (`_MP`). Bước `1`: **Hai hợp âm cadence staccato** ở móc đơn `0` (`V7` hoặc `I`) và móc đơn `3` (`I`, `staccato=True, accent=True`) rồi nghỉ gọn.
+  - *Dài (4 ô)*: Bước `0`: Nhịp Polca trên `IV` (`_MP`). Bước `1`: Nhịp Polca trên `V7` (`_MP`). Bước `2`: Giảm nhẹ về `I` rồi bật lại `V7` (`_P -> _MP`). Bước `3`: Hai hợp âm cadence staccato `I` ở móc đơn `0` và `3` khép lại điệu nhảy.
+
+#### 6. `hemiola` (*Danza Paraguaya — Hemiola 3-against-2*)
+- **Đặc trưng thân bài**: Nhịp `6/8` nhưng cả Bass (`Voice 3`) và Bè trung (`Voice 2`) đều đánh ở **móc đơn `0, 2, 4` (tức slots móc kép `0, 4, 8` — chia ô `6/8` thành 3 phách nốt đen như nhịp `3/4`)** với trọng âm ở `2` và `4` (`sync=True`).
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Thiết lập ngay nhịp **3 chống 2** trên `I` — Bass và Inner đánh ở móc đơn `0, 2, 4` (`accent` ở `2` và `4`), trong khi `Voice 1` giữ phách `0` và `3` (2 nốt đen chấm dôi của `6/8`) để tai người nghe cảm nhận rõ sự cọ xát 3 chống 2 (`_MP`). Bước `1`: Tiếp tục lưới `0, 2, 4` trên `V7` (`_MP -> _MF`) đẩy thẳng vào thân bài.
+  - *Dài (4 ô)*: Bước `0`: Mở bằng nhịp `6/8` thuận (`0, 3`) trên `I` (`_P`). Bước `1`: Bắt đầu bẻ sang nhịp Hemiola (`0, 2, 4`) trên `IV` (`_MP`). Bước `2`: Hemiola căng đầy trên `V7` với nhấn ở móc đơn `2, 4` (`_MP`). Bước `3`: Hemiola trên `V7` kèm bước dẫn vào thân bài (`_MF`).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Một ô Hemiola (`0, 2, 4`) trên `V7` (`_MP`). Bước `1`: **Giải phóng Hemiola về nhịp thật** — đánh hợp âm `I` dứt khoát đúng vào **phách 1 (`offset = 0`)** (hoặc `0` và `3` của `6/8`) rồi ngân.
+  - *Dài (4 ô)*: Bước `0` & `1`: Hai ô Hemiola (`0, 2, 4`) đi qua `IV -> V7` (`_MP`). Bước `2`: Thu về nhịp đôi `6/8` (`0, 3`) trên `I -> V7` (`_P`). Bước `3`: Hợp âm `I` chốt đúng phách 1 (`_P`).
+
+#### 7. `vals` (*Vals Op. 8 No. 3 / No. 4*)
+- **Đặc trưng thân bài**: Nhịp valse Nam Mỹ lãng mạn, có nốt bass lướt nhấn ở móc đơn thứ 4 (`beat 2.0`, giao điểm giữa `3/4` và `6/8`) và các hợp âm gảy nhẹ ở móc đơn `1, 2, 4, 5`. *(Lưu ý: Outro của `vals` CÓ kêu ở các chương Barrios dài `> 40` ô).*
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Nhịp đệm Valse kinh điển trên `I` — Bass đánh phách 1 (`offset 0`), hợp âm gảy nhẹ ở phách 2 và 3 (`offset 2, 4`, `_P`). Bước `1`: Bass bước qua `V7` với một nét lướt duyên dáng ở bè cao dẫn vào giai điệu (`_MP`).
+  - *Dài (4 ô)*: Bước `0`: Một câu *rubato arpeggio* mở màn kiểu Vals Op. 8 No. 4 trên `I` (`_P`). Bước `1`: Vào nhịp đệm Valse (`bass 0`, hợp âm `2, 4`) trên `I` (`_P`). Bước `2`: Nhịp Valse trên `V7` có nhấn nhẹ ở móc đơn `4` (`_MP`). Bước `3`: Câu lướt Valse nối vào thân bài (`_MP`).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Nhịp Valse trên `V7` (`_P`). Bước `1`: Cadence Valse trên `I` — bass đánh âm gốc ở phách 1, hợp âm nhẹ ở phách 2 rồi để ngân tự nhiên (`_PP`, không chuông, không tremolo).
+  - *Dài (4 ô)*: Bước `0`: Valse trên `iv/IV` (`_P`). Bước `1`: Valse trên `V7` (`_P`). Bước `2`: Giai điệu hạ xuống âm chủ trên nền Valse mỏng (`_PP`). Bước `3`: Bass đánh âm chủ ở phách 1, hợp âm `I` ngân êm (`_PP`).
+
+#### 8. `thumb_cantabile` (*Julia Florida — Barcarola*)
+- **Đặc trưng thân bài**: Giai điệu nằm ở **ngón cái (`Voice 3`, cữ `48..64`)**, trong khi `Voice 2` và `Voice 1` gảy cặp quãng đôi (dyad) mềm như tiếng sóng nước ở các móc đơn phách yếu `_thumb_offsets` (`2, 6` trong 4/4; `2, 5` hoặc `1, 2, 4, 5` trong 6/8; `2, 4` trong 3/4) với velocity rất khẽ (`42..46`). *(Outro CÓ kêu ở chương Barrios dài).*
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Bè trên (`Voice 1` & `Voice 2`) gảy nhẹ cặp dyad nhịp *Barcarola* ở phách yếu (`_PP = 44..46`), dưới đó ngón cái (`Voice 3`) bắt đầu cất lên một nốt ngân ấm ở phách 1 (`_P = 52`). Bước `1`: Ngón cái (`Voice 3`) bước 2 nốt cantabile qua `V7 -> I` (`52 -> 56`) dẫn thẳng vào cao độ mở đầu của đường thumb thân bài, bè trên điểm nhẹ 1 dyad ở giữa ô.
+  - *Dài (4 ô)*: Bước `0`: Chỉ có tiếng sóng nước nhẹ của bè trên trên một âm bass buông trầm (`_PP`). Bước `1`: Ngón cái (`Voice 3`) bắt đầu hát câu mở đầu 2 nốt trên `I` (`_P`). Bước `2`: Ngón cái hát qua `ii/IV -> V7` dưới lớp dyad mỏng ở phách yếu (`_P -> _MP`). Bước `3`: Ngón cái dẫn liền bậc vào nốt đầu thân bài (`_MP`).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Ngón cái (`Voice 3`) kết câu hát về âm chủ `I` (`_P`), bè trên điểm cặp dyad cuối cùng ở móc đơn `2`. Bước `1`: **Ngón cái ngân một mình âm chủ `I`**, bè trên tắt dần từng tiếng (`_PP`).
+  - *Dài (4 ô)*: Bước `0`: Ngón cái hát qua `IV -> I` dưới dyad mỏng (`_P`). Bước `1`: Qua `V7` nhẹ nhàng (`_P`). Bước `2`: Giải về `I`, chỉ còn một nốt bè trung điểm khẽ (`_PP`). Bước `3`: Ngón cái giữ độc tấu âm chủ trầm ấm (`_PP`).
+
+---
+
+### 3.4 Heitor Villa-Lobos (`ensemble = "villa"`) — Ngôn ngữ Năm Préludes & Mười Hai Études
+
+Đặc trưng của Villa-Lobos là **dây buông cộng hưởng với thế tay dịch chuyển song song trên cần đàn**, nhịp **tresillo `3+3+2`**, tiếng hát cello của ngón cái (*Prélude No. 1*), và các **cơ cấu tay phải đặc thù** của *Étude No. 1* và *Étude No. 11*.
+
+#### 1. `villa_pattern` (*Chôros No. 1 / Prélude No. 3 — Open-string Roll & Tresillo*)
+- **Đặc trưng thân bài**: Ngón cái giữ Root và Fifth ở phách `0` và `4` (`0` và `3` ở 6/8); ngón `i-m` cuộn sóng qua các dây ở các móc đơn còn lại với hiệu ứng *campanella* và nhấn nhịp **tresillo `{0, 3, 6}`**.
+- **Intro (Giữ khung Villa đang có)**:
+  - *Ngắn (2 ô)*: `_villa_intro_short` (Bước `0`: `_roll` dây buông trên `I` → Bước `1`: `_stabs` đảo phách rồi nhả về bass buông).
+  - *Dài (4 ô)*: `_villa_intro_long` (Bước `0, 1`: `_roll` dịch thế tay `shift=index` → Bước `2`: `_ascending` → Bước `3`: hợp âm nhấn `accent` rồi ngân).
+- **Outro (Chỉ giữ stab sáng khi `mood == "rally"` của riêng `villa_pattern`)**:
+  - *Ngắn (2 ô)*: Bước `0`: `_ascending` trên `I`. Bước `1`: Nếu `mood == "rally"` thì đánh `_stabs`, ngược lại cuộn `_roll` lắng về dây buông (`_P`).
+  - *Dài (4 ô)*: Bước `0`: `_roll`. Bước `1`: `_open_pedal`. Bước `2`: `_ascending`. Bước `3`: `_stabs` (nếu `rally`) hoặc `_bell_chord` không Picardy (`_P`).
+
+#### 2. `chord_melody` (*Prélude No. 1 — Lý tưởng Chorale / Lento*)
+- **Đặc trưng thân bài**: Hợp âm khối đặt trên lưới `_chord_grid` (`[0, 4]` hoặc `[0, 2, 4, 6]` trong 4/4; `[0]` hoặc `[0, 3]` trong 6/8), trong đó bè trung (`Voice 2`) lấy các **âm màu (`_COLOR_SUSPENDED` hoặc `_COLOR_TERTIAN`) di chuyển cùng chiều với giai điệu (`_block_tone`)**.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Hai hợp âm khối trầm ấm trên lưới `[0, 4]` (`[0, 3]` nếu 6/8) với giai điệu nằm ở bè cao và âm màu tertian/suspended ở bè trung (`_P`, không cuộn `_roll`, không stab). Bước `1`: Hai hợp âm khối bước qua `V7` (hoặc hợp âm dịch song song một cung kiểu Villa-Lobos) dẫn liền bậc vào cao độ mở đầu thân bài (`_MP`).
+  - *Dài (4 ô)*: Bước `0`: Một hợp âm khối `I` ngân trọn ô ở thế tay trầm (`_PP -> _P`). Bước `1`: Hai hợp âm khối trên lưới `_chord_grid` dịch chuyển song song (`_P`). Bước `2`: Bốn hợp âm khối nốt đen (`[0, 2, 4, 6]`) dâng nhẹ cảm xúc lên `_MP` (đúng như `_chord_grid` khi câu nhạc `rise`). Bước `3`: Lắng lại thành 2 hợp âm khối trên `V7 -> I` (`_P`) nối vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Hai hợp âm khối chậm trên `V7 -> I` (`_P`). Bước `1`: **Khối cuối giữ, bè trong nhả trước** — cả 3 bè đánh hợp âm `I` ở phách 1 (`_P`), nhưng `Voice 2` dừng sau nửa ô trong khi `Voice 3` (bass) và `Voice 1` (lead) ngân tiếp hết ô (`_PP`).
+  - *Dài (4 ô)*: Bước `0`: Hợp âm khối trên `IV -> I` (`_P`). Bước `1`: Hợp âm khối trên `V7` (`_P`). Bước `2`: Hợp âm khối `I` với bè trong nhả trước (`_PP`). Bước `3`: Chỉ còn quãng 8/quãng 10 giữa Bass buông và Giai điệu ngân tĩnh lặng (`_PP`).
+
+#### 3. `thumb_cantabile` (*Prélude No. 1 in E minor — Cello Melody in the Thumb*)
+- **Đặc trưng thân bài**: Dành cho `selloff` của Villa-Lobos. Ngón cái (`Voice 3`) hát giai điệu trầm hùng như đàn Cello (`velocity 64..72`), trong khi `Voice 2` và `Voice 1` điểm hợp âm đi kèm ở các phách sau (`_thumb_offsets`: móc đơn `2, 6` trong 4/4; `2, 4` trong 3/4) rất êm (`42..46`).
+- **Intro (Đúng phong cách mở bài Prélude No. 1 của Villa-Lobos)**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở bằng **một tiếng thở dây trầm buông ở phách 1**, rồi từ phách 2 ngón cái (`Voice 3`) bắt đầu cất tiếng hát đi lên từng bậc (`_P -> _MP`), bè trên chỉ điểm một hợp âm nhẹ ở móc đơn `6` (`_PP`). Bước `1`: Ngón cái (`Voice 3`) giữ một nốt ngân đầy đặn, bè trên (`Voice 1` & `2`) đáp hai hợp âm nhẹ ở móc đơn `2` và `6` (`_thumb_offsets`) dẫn thẳng vào câu hát ngón cái của thân bài.
+  - *Dài (4 ô)*: Bước `0`: Ngón cái (`Voice 3`) độc tấu hoàn toàn một câu mở đầu 3 nốt từ dây trầm đi lên (như 5 nốt mở đầu bất hủ của *Prélude No. 1*, `_P -> _MP`), bè trên im lặng. Bước `1`: Ngón cái ngân nốt đỉnh câu mở, bè trên đáp hợp âm nhẹ ở phách yếu (`_thumb_offsets`, `_PP`). Bước `2`: Ngón cái bước xuống qua hòa âm `iv -> V7` với hợp âm đệm ở `2, 6` (`_MP`). Bước `3`: Ngón cái lấy đà vào đúng cao độ mở đầu của thân bài (`_MP`).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Ngón cái hát nốt kết trên `I`, bè trên đáp hợp âm khẽ lần cuối ở móc đơn `2` (`_P`). Bước `1`: **Ngón cái một mình giữ âm chủ `I` ngân dài trọn ô** (`_PP`).
+  - *Dài (4 ô)*: Bước `0`: Ngón cái bước chậm qua `iv -> I` kèm hợp âm phách yếu (`_P`). Bước `1`: Ngón cái ngân trên `V7 -> I`, bè trên chỉ điểm 1 lần ở móc đơn `2` (`_PP`). Bước `2`: Một âm Harmonics hoặc dây buông cao điểm khẽ trên nền ngón cái giữ `I` (`_PP`). Bước `3`: Ngón cái độc tấu nốt trầm Chủ âm tắt dần (`_PP`).
+
+#### 4. `etude1` (*Étude No. 1 in E minor — 16-Sixteenth Arpeggio Machine*)
+- **Đặc trưng thân bài**: Mỗi ô `4/4` là một chu kỳ **16 móc kép** (`_render_etude1_bar`): ngón cái đánh Root ở phách 1 ngân cả ô, bè trung (`Voice 2`) đan arpeggio móc kép qua 4 bậc nội bộ (`_ETUDE1_MIDDLE`) với vòm động lực học `_ETUDE1_ARC`, và 2 nốt giai điệu (`Voice 1`) bật lên ở móc kép thứ `7` và `9`.
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: Khởi động "cỗ máy" arpeggio trên hợp âm `I` tĩnh — nửa đầu ô đi móc đơn mở dây buông (`_P`), nửa sau ô vào nhịp móc kép arpeggio ở bè trung. Bước `1`: Chạy **đúng 1 chu kỳ 16 móc kép của Étude No. 1 trên hợp âm `I` đứng yên** (2 nốt cao ở slot `7` và `9` lấy cùng 1 âm hợp âm chuẩn bị cho nốt đầu thân bài, velocity ở mức `_P.._MP`), để khi sang ô đầu thân bài thì guồng tay phải đã khớp 100%.
+  - *Dài (4 ô)*: Bước `0`: Bass dây buông `I` ngân cùng 4 nốt arpeggio chậm (`_PP -> _P`). Bước `1`: Chu kỳ arpeggio Étude No. 1 trên `I` tĩnh ở mức nhẹ (`_P`). Bước `2`: Chu kỳ arpeggio dịch lên thế tay kế tiếp (hợp âm màu chuẩn bị / `V7` trên pedal bass `I` đúng kiểu Villa-Lobos dịch thế tay trên dây E buông, `_MP`). Bước `3`: Chu kỳ Étude No. 1 giải về `I` (`_MP`, có thể thở nhẹ ở 4 móc kép cuối `index >= 12` như `breathe=True` trong `_render_etude1_bar`) nối vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Một chu kỳ arpeggio Étude No. 1 trên `I` nhưng **bỏ 4 móc kép cuối (`breathe=True`)** và giảm dần lực ở nửa sau (`_MP -> _P`). Bước `1`: Arpeggio thu gọn về hai dây ngoài (Bass `Voice 3` ở phách 1, một nốt trung ở phách 2, và nốt Chủ âm cao ở phách 3 ngân dài đến hết ô, `_PP`).
+  - *Dài (4 ô)*: Bước `0`: Chu kỳ arpeggio trên hợp âm dịch thế tay về `I` (`_MP`). Bước `1`: Chu kỳ arpeggio trên `I` với `breathe=True` (`_P`). Bước `2`: Giãn nhịp từ móc kép về móc đơn đi xuống về dây trầm (`_P -> _PP`). Bước `3`: Dây trầm buông và âm chủ ngân dài (`_PP`).
+
+#### 5. `etude11` (*Étude No. 11 in E minor — Animé Sextuplet Arches & Lent Misterioso*)
+- **Đặc trưng thân bài**: Mỗi phách nốt đen là một vòm **chùm 6 (`sextuplet`, đơn vị `1/6` phách)**: Bass và Giai điệu đánh cùng lúc ở đầu phách (`accent=True`), Giai điệu lặp lại ở nửa phách (`+0.5`), và bè trung (`Voice 2`) luồn 4 nốt hoa mỹ chùm 6 ở các slot `1, 2, 4, 5` (`_render_etude11_bar`).
+- **Intro (Gợi nhớ cấu trúc *Lent – Animé* của Étude No. 11)**:
+  - *Ngắn (2 ô)*: Bước `0`: Mở bằng câu **ngón cái hát trầm chậm rãi (*Lent*)** 2 nốt trên nền dây buông (`_P`, tạo sự tĩnh lặng huyền bí trước cơn lốc). Bước `1`: Nửa đầu ô đặt hợp âm chuẩn bị (`_MP`), nửa sau ô (phách 3 và 4) **phóng 2 vòm hoa mỹ chùm 6 (`slot 1, 2, 4, 5`) đầu tiên** trên hợp âm `I` để bắt tốc độ *Animé* vào thẳng thân bài.
+  - *Dài (4 ô)*: Bước `0` & `1`: Hai ô mở đầu mang tinh thần *Lent* của Étude No. 11 — giai điệu trầm ấm đi từng bước chậm trên hợp âm màu dây buông (`_PP -> _P`). Bước `2`: Một vòm hoa mỹ chùm 6 thử giọng ở nửa đầu ô rồi ngân (`_MP`). Bước `3`: Bốn vòm chùm 6 khóa guồng máy *Animé* trên hợp âm `I` (với `drop_middle` ở phách 4 để lấy hơi) lao vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Hai vòm hoa mỹ chùm 6 ở nửa đầu ô rồi **giãn nhịp chậm lại thành móc đơn ở nửa sau ô** giải về `I` (`_MP -> _P`). Bước `1`: Hợp âm `I` đặt một nhát nhấn ấm (`_MP`, **không dùng stab `70/66/62` của `villa_pattern`**) ở phách 1 rồi để dây trầm ngân đến hết ô (`_P`).
+  - *Dài (4 ô)*: Bước `0`: Bốn vòm chùm 6 giảm dần cường độ (`_MP -> _P`). Bước `1`: Chỉ còn 2 vòm chùm 6 ở đầu ô, nửa sau trả về nét giai điệu chậm kiểu *Lent* (`_P`). Bước `2`: Câu trầm bước xuống về âm chủ (`_P -> _PP`). Bước `3`: Hợp âm `I` nhấn ấm ở phách 1 rồi ngân tắt dần (`_PP`).
+
+---
+
+### 3.5 Leo Brouwer (`ensemble = "brouwer"`) — Ngôn ngữ Điện ảnh, Afro-Cuban & Avant-Garde Cuba
+
+Đặc trưng của Brouwer là **hòa âm màu `sus2 / add9 / maj7` xen kẽ dây buông D, G, B (`_brouwer_open_tones`)**, phân cực rõ giữa chất thơ điện ảnh (`noviembre`), nhịp trống Afro-Cuban `3+3+2` (`brouwer_etude`), nghi thức Sarabande hiện đại (`sarabande`), và những nhát gõ staccato/Bartók pizzicato (`elogio_pizz`).
+
+#### 1. `noviembre` (*Un Día de Noviembre*)
+- **Đặc trưng thân bài**: Ballad nhịp đôi nhẹ nhàng (`pulses = [0, 4]` ở 4/4, `[0, 3]` ở 6/8) với nốt bass pickup êm ở móc đơn cuối ô (`_soften_attack`) và câu rải màu `_brouwer_wave` ở các móc đơn `1, 2, 3, 5, 6`.
+- **Intro & Outro (Giữ cửa Trữ tình hiện có của Brouwer cho riêng `noviembre`)**:
+  - *Intro Ngắn (2 ô)*: Bước `0`: Bass dây buông sâu (`_deep_open`, `_PP`). Bước `1`: `_color_roll` (`sus2` leo nhẹ, `_P`).
+  - *Intro Dài (4 ô)*: Bước `0`: Một nốt chuông cao (`_PP`). Bước `1`: `_cantabile` (`_P`). Bước `2`: `_color_roll` (`_P`). Bước `3`: `_settled` trên `I` bước nhẹ vào thân bài (`_MP`).
+  - *Outro Ngắn (2 ô)*: Bước `0`: `_sparse` trên `I` (`_P`). Bước `1`: `_bell_chord` ấm áp (`_PP`, giữ Picardy nhẹ cho riêng `noviembre`).
+  - *Outro Dài (4 ô)*: Bước `0`: `_thin_roll` (`_PP`). Bước `1`: `_tonic_steps` (`_P`). Bước `2`: `_beat_two_hang` (`_P`). Bước `3`: `_bell_chord` (`_PP`).
+
+#### 2. `brouwer_etude` (*Estudios Sencillos No. 1, No. 5, No. 6 — Afro-Cuban Tumbao Motor*)
+- **Đặc trưng thân bài**: Ngón cái (`Voice 3`) đánh mô-típ **Afro-Cuban tumbao** `_etude_cells` (`(0, 3), (3, 3), (6, 2)` trong 4/4; `(0, 2), (2, 3), (5, 1)` trong 6/8; `(0, 3), (3, 3)` trong 3/4), trong khi ngón `i-m` (`Voice 2`) gảy các âm màu + dây buông vào đúng các kẽ móc đơn còn trống (`1, 2, 4, 5, 7` trong 4/4).
+- **Intro (Khởi động guồng máy Tumbao như mở đầu *Estudio Sencillo No. 1 / No. 5*)**:
+  - *Ngắn (2 ô)*: Bước `0`: **Ngón cái (`Voice 3`) độc tấu mô-típ bass Tumbao `3+3+2`** trên hợp âm `I` (`_P`), chỉ điểm duy nhất 1 âm màu dây buông ở `Voice 2` tại móc đơn `2` (để tai người nghe bắt được nhịp đảo phách Cuba trước). Bước `1`: **Khóa máy (Lock the motor)** — cả Bass (`0, 3, 6`) và Bè trung (`1, 2, 4, 5, 7` với `_sus2` + dây buông) chạy đầy đủ guồng `_etude_cells` ở mức `_MP`, móc đơn cuối bass bước `_toward_next` nối thẳng vào ô đầu thân bài.
+  - *Dài (4 ô)*: Bước `0`: Bass đánh phách `0` và `3` trầm tĩnh (`_PP -> _P`). Bước `1`: Bass vào đủ 3 nhịp Tumbao `0, 3, 6` với 2 nốt đáp dây buông ở bè trung (`_P`). Bước `2`: Guồng máy Tumbao đầy đủ (`Voice 3` + `Voice 2`) dịch qua hợp âm màu cách 1 cung rồi về `I` (`_MP`). Bước `3`: Guồng máy Tumbao trên `I` thêm một nốt giai điệu chuẩn bị ở `Voice 1` nửa sau ô (`_MP`) lao vào thân bài.
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: Guồng máy Tumbao (`0, 3, 6`) bắt đầu **thưa dần bè trung** (chỉ giữ móc đơn `1, 4`, giảm velocity `_MP -> _P`). Bước `1`: Máy dừng lại trên **một hợp âm màu `_sus2` / `add9` giữ nguyên** từ phách 1 đến hết ô (`_P`, không chuông Picardy, không stab gắt).
+  - *Dài (4 ô)*: Bước `0`: Một ô Tumbao đầy đủ ở mức `_P`. Bước `1`: Tumbao lược bỏ móc đơn cuối, chỉ còn `0` và `3` với 2 tiếng dây buông (`_P`). Bước `2`: `_tonic_steps` (bass bước nửa cung/1 cung về âm chủ dưới dây buông ngân, `_PP`). Bước `3`: Hợp âm `_sus2` tĩnh lặng ngân hết ô (`_PP`).
+
+#### 3. `sarabande` (*El Decamerón Negro — II. La Huida de los Amantes / Sarabanda de Śnieg*)
+- **Đặc trưng thân bài**: Nhấn trọng âm hợp âm màu nặng vào **Phách 2** (`accent = 2` ở 3/4, 4/4; `accent = 3` ở 6/8 — hàm `_sarabande_points`), sau đó nửa sau ô nhịp có thể cuộn một làn sóng bán âm/thang âm nhỏ (`_modal_figure` với bước $\le 2$ bán cung).
+- **Intro**:
+  - *Ngắn (2 ô)*: Bước `0`: `_beat_two_hang` trên hợp âm `_sus2` — Phách 1 đặt bass trầm nhẹ (`_P`), **Phách 2 buông một hợp âm màu `_sus2` có trọng lượng (`accent=True`, `_MP`) ngân qua hết ô** (không dùng chuông của Noviembre). Bước `1`: Phách 1–2 lặp lại trọng âm Phách 2 trên hợp âm màu dịch 1 cung, nửa sau ô (`figure_at..epb`) `Voice 1` lướt nhẹ **3–4 nốt liền bậc (stepwise $\le 2$ bán cung)** dẫn vào nốt mở đầu thân bài (`_MP`).
+  - *Dài (4 ô)*: Bước `0`: Một âm bass buông trầm ở phách 1 và hợp âm màu `_sus2` treo ở phách 2 (`_beat_two_hang`, `_PP -> _P`). Bước `1`: Trọng âm phách 2 dịch chuyển qua bậc màu thứ hai (`_P`). Bước `2`: Một làn sóng *modal swarm* ngắn ở bè cao đáp lại trọng âm phách 2 (`_MP`). Bước `3`: Trọng âm phách 2 lắng xuống và dẫn liền bậc vào thân bài (`_P`).
+- **Outro**:
+  - *Ngắn (2 ô)*: Bước `0`: `_beat_two_hang` — hợp âm màu `_sus2` treo trên phách 2 (`_P`). Bước `1`: Giải về **quãng 5 trống (open fifth: Root ở `Voice 3` + Fifth ở `Voice 2`/`Voice 1`)** trầm tối ngân dài (`_PP`, tuyệt đối không Picardy).
+  - *Dài (4 ô)*: Bước `0`: Trọng âm phách 2 kèm 3 nốt lướt đi xuống (`_P`). Bước `1`: `_tonic_steps` trầm mặc (`_P`). Bước `2`: `_beat_two_hang` ở mức `_PP`. Bước `3`: Quãng 5 buông trầm ngân tắt dần (`_PP`).
+
+#### 4. `elogio_pizz` (*Elogio de la Danza — II. Obstinato & Estudio Sencillo No. 10/11*)
+- **Đặc trưng thân bài**: Ostinato ngắt âm giòn (`staccato=True`) trên các móc đơn lệch `_elogio_offsets` (`0, 2, 3, 5, 6` trong 4/4; `0, 2, 3, 5` trong 6/8, 3/4), với cú **Bartók pizzicato / slap** (`staccato=True, accent=True`, `+12` velocity) rơi vào **móc đơn thứ 3**.
+- **Intro & Outro (Giữ cửa Edge hiện có của Brouwer cho riêng `elogio_pizz`, thêm điểm nhấn móc đơn thứ 3)**:
+  - *Intro Ngắn (2 ô)*: Bước `0`: `_edge_stab` (cú chập `_sus2` `staccato + accent` ở `0` rồi bass dây buông ngân). Bước `1`: `_edge_run` (bass dừng giữa ô, 4 móc đơn `staccato` leo lên vào thân bài). *(Gợi ý: ở Bước `0`, có thể đặt thêm 1 nhát slap nhẹ ở móc đơn thứ `3` để báo trước `_elogio_offsets`).*
+  - *Intro Dài (4 ô)*: Bước `0`: Một nhát bass `_deep_open` `accent + staccato` (`_MF`). Bước `1`: `_hesitant_bass` (2 nốt bass cách nhau nửa cung, `_P`). Bước `2`: `_parallel_stabs` (các hợp âm `_sus2` dịch song song ở phách lệch `1, 3, 6`, `_MP`). Bước `3`: `_accel` (tăng tốc tiết tấu từ nốt đen sang móc đơn dồn vào thân bài, `_MP -> _MF`).
+  - *Outro Ngắn (2 ô)*: Bước `0`: `_syncopated_blocks` (khối lệch phách ở `1, 5`, `_MP`). Bước `1`: `_stab_and_ring` (2 cú chập `staccato + accent` ở móc đơn `0` và `2` rồi im lặng).
+  - *Outro Dài (4 ô)*: Bước `0`: `_sparse` (`_P`). Bước `1`: `_ascending` (`_MP`). Bước `2`: `_wide_chord` (`_P`). Bước `3`: Một cú dập bass dây buông sâu `staccato + accent` ở phách 1 (`_MF`) rồi ngắt gọn.
+
+---
+
+### Tóm tắt các bước tiếp theo
+Bạn muốn mình:
+1. **Cập nhật trực tiếp file `docs/sonify-guitar-frame-variations.md`** trên nhánh PR #78 (hoặc tạo commit bổ sung) với toàn bộ bảng kịch bản 2 ô / 4 ô và các quy tắc kỹ thuật ở trên, hay
+2. **Viết nhận xét (PR Review comment) lên GitHub PR #78**, hay
+3. **Bắt tay vào triển khai luôn trong `backend/app/sonify/guitar_frame.py`, `guitar_patterns.py`, `guitar_wave.py` kèm unit tests**?
