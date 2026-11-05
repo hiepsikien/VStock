@@ -20,6 +20,11 @@
  *   GET  {prefix}/specs     -> { ok, specs: [{ id, pattern, meter, version, status, createdAt, rollbackOf? }] }
  *   GET  {prefix}/specs/{id} -> summary + { payload }
  *
+ * TextureSpec draft validation lives beside it:
+ *
+ *   POST /v1/studio/texture/validate  body = { spec }
+ *        -> { ok, errors: [{ path, message }] }
+ *
  * `rollbackOf` is optional on summaries (and absent for ordinary publishes):
  * it names the published version a rollback row was copied from.
  */
@@ -119,6 +124,23 @@ function nonNegativeNumber(value: unknown): number {
 
 export function buildValidateBody(spec: Record<string, unknown>): Record<string, unknown> {
   return spec;
+}
+
+/** `POST /texture/validate` wraps the spec so the route can grow options later. */
+export function buildTextureValidateBody(
+  spec: Record<string, unknown>,
+): { spec: Record<string, unknown> } {
+  return { spec };
+}
+
+/**
+ * The texture route returns the same `{ ok, errors }` contract as the sentence
+ * validator; keep one normalizer so path/message handling cannot drift.
+ */
+export function normalizeTextureValidateResponse(
+  body: unknown,
+): StudioValidateResponse {
+  return normalizeValidateResponse(body);
 }
 
 export function buildPreviewBody(

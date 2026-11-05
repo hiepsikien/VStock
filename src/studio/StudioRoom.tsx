@@ -29,9 +29,11 @@ import {
   studioAccessUrl,
   studioAnalyzeUrl,
   studioSentenceUrl,
+  studioTextureValidateUrl,
   studioUploadsUrl,
   uploadStudioImage,
   validateSentenceSpec,
+  validateTextureSpec,
   type StudioAccess,
   type StudioAnalyzeDraft,
   type StudioAnalysisNote,
@@ -52,6 +54,7 @@ import {
   byteSizeLabel,
   draftJson,
   draftNoteRows,
+  draftToTextureSpec,
   examplesToSamples,
   checkSpecText,
   defaultSampleForPattern,
@@ -81,10 +84,13 @@ import {
   sampleText,
   shortId,
   textStats,
+  textureDraftJson,
+  textureDraftSummary,
   uploadMetaLabel,
   valueLines,
   type PublishedListState,
   type StudioSample,
+  type TextureSpecDraft,
 } from './spec';
 
 type Props = {
@@ -181,6 +187,12 @@ type AnalyzeState =
   | { kind: 'ready'; draft: StudioAnalyzeDraft }
   | { kind: 'error'; message: string; errors: StudioError[] };
 
+type TextureValidateState =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | { kind: 'done'; data: StudioValidateResponse }
+  | { kind: 'failure'; message: string; errors: StudioError[] };
+
 const CONFIDENCE_COLOR = {
   high: palette.data,
   medium: palette.playhead,
@@ -264,6 +276,9 @@ export function StudioRoom({ wide, onMode }: Props) {
   const [upload, setUpload] = useState<UploadState>({ kind: 'idle' });
   const [draftState, setDraftState] = useState<AnalyzeState>({ kind: 'idle' });
   const [showDraftJson, setShowDraftJson] = useState(false);
+  const [textureDraft, setTextureDraft] = useState<TextureSpecDraft | null>(null);
+  const [textureValidation, setTextureValidation] =
+    useState<TextureValidateState>({ kind: 'idle' });
   const [copyNote, setCopyNote] = useState<string | null>(null);
 
   const inFlight = useRef<AbortController | null>(null);
@@ -276,6 +291,7 @@ export function StudioRoom({ wide, onMode }: Props) {
   const accessController = useRef<AbortController | null>(null);
   const uploadController = useRef<AbortController | null>(null);
   const analyzeController = useRef<AbortController | null>(null);
+  const textureController = useRef<AbortController | null>(null);
   // The upload an in-flight analyze belongs to; a new file invalidates it.
   const uploadIdRef = useRef<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
@@ -573,6 +589,13 @@ export function StudioRoom({ wide, onMode }: Props) {
     [fixtureJson, resetAudio, specText],
   );
 
+  const resetTextureDraft = useCallback(() => {
+    textureController.current?.abort();
+    textureController.current = null;
+    setTextureDraft(null);
+    setTextureValidation({ kind: 'idle' });
+  }, []);
+
   const pickFile = useCallback(
     (file: File | null) => {
       // Replace flow is delete-then-pick; an already-uploaded file must not
@@ -597,6 +620,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       }
       setSelectedFile(null);
       setSelectedPreview(null);
+      resetTextureDraft();
       setDraftState({ kind: 'idle' });
       setShowDraftJson(false);
       setCopyNote(null);
@@ -646,7 +670,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       setSelectedPreview(preview);
       setUpload({ kind: 'idle' });
     },
-    [access, upload.kind],
+    [access, resetTextureDraft, upload.kind],
   );
 
   const uploadSelected = useCallback(async () => {
@@ -658,6 +682,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     const controller = new AbortController();
     uploadController.current = controller;
     setUpload({ kind: 'uploading', filename: selectedFile.name || 'image' });
+    resetTextureDraft();
     setDraftState({ kind: 'idle' });
     setShowDraftJson(false);
     setCopyNote(null);
@@ -687,7 +712,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     } finally {
       if (uploadController.current === controller) uploadController.current = null;
     }
-  }, [selectedFile]);
+  }, [resetTextureDraft, selectedFile]);
 
   const deleteUpload = useCallback(async () => {
     if (upload.kind !== 'ready' || !upload.upload.id) return;
@@ -725,6 +750,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       setSelectedFile(null);
       setSelectedPreview(null);
       setUpload({ kind: 'idle' });
+      resetTextureDraft();
       setDraftState({ kind: 'idle' });
       setShowDraftJson(false);
       setCopyNote(null);
@@ -738,7 +764,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     } finally {
       if (uploadController.current === controller) uploadController.current = null;
     }
-  }, [upload]);
+  }, [resetTextureDraft, upload]);
 
   const analyzeUpload = useCallback(async () => {
     if (upload.kind !== 'ready' || !upload.upload.id) return;
@@ -746,6 +772,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     analyzeController.current?.abort();
     const controller = new AbortController();
     analyzeController.current = controller;
+    resetTextureDraft();
     setDraftState({ kind: 'running' });
     setShowDraftJson(false);
     setCopyNote(null);
@@ -771,7 +798,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     } finally {
       if (analyzeController.current === controller) analyzeController.current = null;
     }
-  }, [upload]);
+  }, [resetTextureDraft, upload]);
 
   const copyDraft = useCallback(async () => {
     if (draftState.kind !== 'ready') return;
@@ -788,6 +815,54 @@ export function StudioRoom({ wide, onMode }: Props) {
     setCopyNote('Clipboard unavailable — select the read-only JSON instead.');
     setShowDraftJson(true);
   }, [draftState]);
+
+  /**
+   * Build the TextureSpec panel from the current Gemini draft. This only fills
+   * that panel; the SentenceSpec editor and its dirty state stay untouched.
+   */
+  const applyTextureDraft = useCallback(() => {
+    if (draftState.kind !== 'ready') return;
+    textureController.current?.abort();
+    textureController.current = null;
+    setTextureDraft(draftToTextureSpec(draftState.draft));
+    setTextureValidation({ kind: 'idle' });
+  }, [draftState]);
+
+  const validateTextureDraft = useCallback(async () => {
+    if (!textureDraft) return;
+    textureController.current?.abort();
+    const controller = new AbortController();
+    textureController.current = controller;
+    setTextureValidation({ kind: 'running' });
+    try {
+      const data = await validateTextureSpec(textureDraft.spec, controller.signal);
+      if (controller.signal.aborted) return;
+      setTextureValidation({ kind: 'done', data });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setTextureValidation({
+        kind: 'failure',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (textureController.current === controller) textureController.current = null;
+    }
+  }, [textureDraft]);
+
+  const copyTextureDraft = useCallback(async () => {
+    if (!textureDraft) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textureDraftJson(textureDraft));
+        setCopyNote('TextureSpec draft JSON copied.');
+        return;
+      }
+    } catch {
+      // The panel is already selectable; fall through silently.
+    }
+    setCopyNote('Clipboard unavailable — select the TextureSpec JSON instead.');
+  }, [textureDraft]);
 
   const playAudio = useCallback(async () => {
     if (!previewSnapshot) return;
@@ -1450,6 +1525,11 @@ export function StudioRoom({ wide, onMode }: Props) {
 
                     <View style={styles.actions}>
                       <ActionButton
+                        label="Apply draft to TextureSpec"
+                        onPress={applyTextureDraft}
+                        primary
+                      />
+                      <ActionButton
                         label="Copy draft JSON"
                         onPress={() => void copyDraft()}
                       />
@@ -1467,13 +1547,98 @@ export function StudioRoom({ wide, onMode }: Props) {
                       </Text>
                     ) : null}
                     <Text style={styles.composerHint}>
-                      Draft state is pending review; copy the JSON into a
-                      TextureSpec workflow when it is ready. The sentence editor
-                      is untouched.
+                      Draft state is pending review. Apply draft builds a separate
+                      TextureSpec draft below; the sentence editor is untouched.
                     </Text>
                   </>
                 )}
               </View>
+
+              {textureDraft ? (
+                <View style={[styles.card, styles.resultCard]}>
+                  <View style={styles.resultHeader}>
+                    <Text style={[type.section, styles.cardLabel]}>
+                      TextureSpec draft
+                    </Text>
+                    <Text style={styles.actionLabel}>
+                      {textureDraftSummary(textureDraft)}
+                    </Text>
+                  </View>
+                  <Text style={styles.hint}>
+                    Converted from the Gemini notes, not from the sentence editor.
+                    Notes are pending review and pitch is literal MIDI; nothing is
+                    registered or published.
+                  </Text>
+
+                  {textureDraft.warnings.length ? (
+                    <View style={styles.warningList}>
+                      <Text style={[type.section, styles.blockLabel]}>
+                        Conversion warnings
+                      </Text>
+                      {textureDraft.warnings.map((warning, index) => (
+                        <Text key={`texture-warning:${index}`} style={styles.warningText}>
+                          {warning}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  <Text selectable style={styles.codeBlock}>
+                    {valueLines(textureDraftJson(textureDraft), 160).join('\n')}
+                  </Text>
+
+                  <View style={styles.actions}>
+                    <ActionButton
+                      label="Validate TextureSpec"
+                      onPress={() => void validateTextureDraft()}
+                      primary
+                      busy={textureValidation.kind === 'running'}
+                      disabled={textureValidation.kind === 'running'}
+                    />
+                    <ActionButton
+                      label="Copy TextureSpec JSON"
+                      onPress={() => void copyTextureDraft()}
+                    />
+                    <ActionButton
+                      label="Clear TextureSpec draft"
+                      onPress={resetTextureDraft}
+                    />
+                  </View>
+
+                  {textureValidation.kind === 'running' ? (
+                    <View style={styles.loadingRow}>
+                      <ActivityIndicator color={palette.data} />
+                      <Text style={styles.loadingText}>Validating texture spec…</Text>
+                    </View>
+                  ) : textureValidation.kind === 'failure' ? (
+                    <>
+                      <Text style={styles.failureTitle}>
+                        {textureValidation.message}
+                      </Text>
+                      <ErrorList errors={textureValidation.errors} />
+                    </>
+                  ) : textureValidation.kind === 'done' ? (
+                    <>
+                      <View style={styles.badgeRow}>
+                        <Badge
+                          ok={textureValidation.data.ok}
+                          label={
+                            textureValidation.data.ok
+                              ? 'TEXTURE SPEC OK'
+                              : 'TEXTURE SPEC ERRORS'
+                          }
+                        />
+                      </View>
+                      <ErrorList errors={textureValidation.data.errors} />
+                    </>
+                  ) : (
+                    <Text style={styles.composerHint}>
+                      Validate runs the offline TextureSpec parser/validator. It
+                      does not render, register, or publish.
+                    </Text>
+                  )}
+                </View>
+              ) : null}
 
               <ResultPanel
                 result={result}
@@ -1510,6 +1675,9 @@ export function StudioRoom({ wide, onMode }: Props) {
                 </Text>
                 <Text selectable style={styles.endpoint}>
                   POST {studioSentenceUrl('validate')}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  POST {studioTextureValidateUrl()}
                 </Text>
                 <Text selectable style={styles.endpoint}>
                   POST {studioSentenceUrl('preview')}

@@ -3,6 +3,7 @@ import {
   buildAudioBody,
   buildAudioHashBody,
   buildPreviewBody,
+  buildTextureValidateBody,
   buildValidateBody,
   emptyStudioQuota,
   normalizeAccessResponse,
@@ -16,6 +17,7 @@ import {
   normalizePublishedSpecResponse,
   normalizeRollbackResponse,
   normalizeSpecsResponse,
+  normalizeTextureValidateResponse,
   normalizeUploadResponse,
   normalizeValidateResponse,
   parseRetryAfter,
@@ -37,6 +39,8 @@ import {
   describeRequestFailure,
   draftJson,
   draftNoteRows,
+  draftToTextureSpec,
+  draftVoice,
   durationLabel,
   examplesToSamples,
   findSample,
@@ -66,8 +70,11 @@ import {
   publishedSpecTitle,
   rollbackLabel,
   sampleText,
+  scientificPitchToMidi,
   shortId,
   textStats,
+  textureDraftJson,
+  textureDraftSummary,
   uploadMetaLabel,
   valueLines,
 } from './spec';
@@ -1010,7 +1017,336 @@ equal(draftJsonParsed.notes[1]?.conflict, true);
 equal('sounding_pitch' in (draftJsonParsed.notes[1] ?? {}), false);
 deepEqual(draftJsonParsed.warnings, ['low contrast']);
 
+// ---------------------------------------------------------------------------
+// Phase 1 back half: Gemini draft -> TextureSpec draft.
+// ---------------------------------------------------------------------------
+
+equal(scientificPitchToMidi('E3'), 52);
+equal(scientificPitchToMidi('E4'), 64);
+equal(scientificPitchToMidi('C4'), 60);
+equal(scientificPitchToMidi('F#4'), 66);
+equal(scientificPitchToMidi('Bb2'), 46);
+equal(scientificPitchToMidi('not-a-pitch'), null);
+equal(scientificPitchToMidi('C10'), null);
+
+equal(draftVoice('upper'), 1);
+equal(draftVoice('middle'), 2);
+equal(draftVoice('lower'), 3);
+equal(draftVoice('bass'), 3);
+equal(draftVoice('4'), 4);
+equal(draftVoice('5'), 1);
+equal(draftVoice('constructor'), 1);
+equal(draftVoice(null), 1);
+
+const textureSource = normalizeAnalyzeResponse({
+  ok: true,
+  measures: [{ index: 1, meter: '3/4', key: 'A minor' }],
+  notes: [
+    {
+      measure: 1,
+      beat: 0,
+      duration_beats: 1.5,
+      voice_hint: 'upper',
+      written_pitch: 'E4',
+      sounding_pitch: 'E3',
+      string: 1,
+      fret: 0,
+      confidence: 0.91,
+      conflict: false,
+      review: 'pending',
+      articulation: ['accent'],
+    },
+    {
+      bar: 4,
+      beat: 2.5,
+      duration_beats: 0.5,
+      voice_hint: 'lower',
+      written_pitch: 'A4',
+      confidence: 0.5,
+      conflict: true,
+      review: 'edited',
+    },
+    {
+      measure: 1,
+      beat: 1.5,
+      duration_beats: 1.5,
+      voice_hint: '4',
+      sounding_pitch: 'F#3',
+    },
+    {
+      measure: 1,
+      beat: 0,
+      duration_beats: 1,
+      written_pitch: 'not-a-pitch',
+    },
+    { measure: 1, duration_beats: 1, written_pitch: 'E4' },
+    { beat: 0, duration_beats: 1, written_pitch: 'E4' },
+  ],
+  warnings: ['low contrast'],
+});
+// Draft normalization assigns pending when a note has no explicit review.
+equal(textureSource.notes[2]?.review, 'pending');
+
+const texture = draftToTextureSpec(textureSource);
+equal(texture.eventCount, 3);
+equal(texture.skipped, 3);
+equal(texture.meter, '3/4');
+equal(texture.warnings.length, 4);
+equal(texture.warnings[0], 'low contrast');
+equal(texture.warnings[1], 'Note 4 skipped: cannot parse pitch not-a-pitch.');
+equal(texture.warnings[2], 'Note 5 skipped: missing beat.');
+equal(texture.warnings[3], 'Note 6 skipped: missing measure/bar.');
+equal(textureDraftSummary(texture), '3 events · 3/4 · 3 skipped · 4 warnings');
+
+deepEqual(texture.spec, {
+  id: 'gemini_draft',
+  composer: 'unknown',
+  kind: 'pattern',
+  level: 'texture',
+  parent: null,
+  runtime: 'code',
+  status: 'draft',
+  meter_variants: [
+    {
+      meter: {
+        id: '3/4',
+        beats: 3,
+        beat_type: 4,
+        eighths_per_bar: 6,
+        strong_eighths: [0],
+        subbar_breaks: [4],
+        extra_weights: [[4, 0.8]],
+      },
+      materializer: 'grid',
+      transform: 'none',
+      unsupported: false,
+      reason: null,
+      sentences: [],
+    },
+  ],
+  authored: {
+    events: [
+      {
+        bar: 0,
+        beat: 0,
+        duration_beats: 1.5,
+        voice: 1,
+        pitch: { kind: 'literal_midi', value: 52 },
+        staff: 1,
+        tie: 'none',
+        slur: 'none',
+        accent: true,
+        tenuto: false,
+        staccato: false,
+        conflict: false,
+        review: 'pending',
+        string: 1,
+        fret: 0,
+        written_pitch: 'E4',
+        sounding_pitch: 'E3',
+        confidence: 0.91,
+      },
+      {
+        bar: 4,
+        beat: 2.5,
+        duration_beats: 0.5,
+        voice: 3,
+        pitch: { kind: 'literal_midi', value: 69 },
+        staff: 1,
+        tie: 'none',
+        slur: 'none',
+        accent: false,
+        tenuto: false,
+        staccato: false,
+        conflict: true,
+        review: 'edited',
+        written_pitch: 'A4',
+        confidence: 0.5,
+      },
+      {
+        bar: 0,
+        beat: 1.5,
+        duration_beats: 1.5,
+        voice: 4,
+        pitch: { kind: 'literal_midi', value: 54 },
+        staff: 1,
+        tie: 'none',
+        slur: 'none',
+        accent: false,
+        tenuto: false,
+        staccato: false,
+        conflict: false,
+        review: 'pending',
+        sounding_pitch: 'F#3',
+      },
+    ],
+  },
+});
+
+// Options only change the identity/materializer, never the placement rules.
+const texture44 = draftToTextureSpec(
+  normalizeAnalyzeResponse({
+    ok: true,
+    measures: [{ index: 1, meter: '4/4' }],
+    notes: [{ measure: 1, beat: 0, duration_beats: 1, written_pitch: 'E4' }],
+  }),
+  { id: 'page_1', composer: 'villa', materializer: 'grid_4_4' },
+);
+equal(texture44.spec.id, 'page_1');
+equal(texture44.spec.composer, 'villa');
+deepEqual(
+  (texture44.spec.meter_variants as Array<Record<string, unknown>>)[0]?.meter,
+  {
+    id: '4/4',
+    beats: 4,
+    beat_type: 4,
+    eighths_per_bar: 8,
+    strong_eighths: [0, 4],
+    subbar_breaks: [4],
+    extra_weights: [],
+  },
+);
+equal(
+  (texture44.spec.meter_variants as Array<Record<string, unknown>>)[0]?.materializer,
+  'grid_4_4',
+);
+
+// 6/8 is the third supported meter; 5/4 produces a partial spec plus warning.
+const texture68 = draftToTextureSpec(
+  normalizeAnalyzeResponse({
+    ok: true,
+    measures: [{ index: 1, meter: '6/8' }],
+    notes: [{ measure: 1, beat: 0, duration_beats: 1, sounding_pitch: 'E3' }],
+  }),
+);
+equal(texture68.meter, '6/8');
+deepEqual(
+  (texture68.spec.meter_variants as Array<Record<string, unknown>>)[0]?.meter,
+  {
+    id: '6/8',
+    beats: 6,
+    beat_type: 8,
+    eighths_per_bar: 6,
+    strong_eighths: [0, 3],
+    subbar_breaks: [3],
+    extra_weights: [],
+  },
+);
+
+const unsupportedMeter = draftToTextureSpec(
+  normalizeAnalyzeResponse({
+    ok: true,
+    measures: [{ index: 1, meter: '5/4' }],
+    notes: [{ measure: 1, beat: 0, duration_beats: 1, sounding_pitch: 'E3' }],
+  }),
+);
+equal(unsupportedMeter.meter, null);
+deepEqual(unsupportedMeter.spec.meter_variants, []);
+equal(unsupportedMeter.eventCount, 1);
+equal(
+  unsupportedMeter.warnings.some((warning) =>
+    warning.includes('Unsupported meter "5/4"'),
+  ),
+  true,
+);
+equal(textureDraftSummary(unsupportedMeter), '1 event · no meter · 1 warning');
+
+const emptyDraft = draftToTextureSpec(
+  normalizeAnalyzeResponse({
+    ok: true,
+    measures: [{ index: 1, meter: '4/4' }],
+  }),
+);
+equal(emptyDraft.eventCount, 0);
+equal(
+  emptyDraft.warnings.some((warning) => warning.includes('Draft has no notes')),
+  true,
+);
+equal(textureDraftSummary(emptyDraft), '0 events · 4/4 · 1 warning');
+
+const noMeasureDraft = draftToTextureSpec(
+  normalizeAnalyzeResponse({
+    ok: true,
+    notes: [{ bar: 2, beat: 0, duration_beats: 1, sounding_pitch: 'E3' }],
+  }),
+);
+equal(noMeasureDraft.meter, null);
+equal(
+  noMeasureDraft.warnings.some((warning) =>
+    warning.includes('No meter on the first measure'),
+  ),
+  true,
+);
+equal((noMeasureDraft.spec.authored as { events: unknown[] }).events.length, 1);
+
+// A fallback bar is opt-in; without it a note with no measure/bar is skipped.
+const fallbackBar = draftToTextureSpec(
+  normalizeAnalyzeResponse({
+    ok: true,
+    measures: [{ index: 1, meter: '4/4' }],
+    notes: [{ beat: 0, duration_beats: 1, sounding_pitch: 'E3' }],
+  }),
+  { fallbackBar: 7 },
+);
+equal(
+  ((fallbackBar.spec.authored as { events: Array<{ bar: number }> }).events[0]).bar,
+  7,
+);
+
+// Fret without a string is dropped instead of shipping an invalid event.
+const droppedFret = draftToTextureSpec(
+  normalizeAnalyzeResponse({
+    ok: true,
+    measures: [{ index: 1, meter: '4/4' }],
+    notes: [{ measure: 1, beat: 0, duration_beats: 1, sounding_pitch: 'E3', fret: 3 }],
+  }),
+);
+const droppedFretEvent = (
+  droppedFret.spec.authored as { events: Array<Record<string, unknown>> }
+).events[0]!;
+equal('fret' in droppedFretEvent, false);
+equal(
+  droppedFret.warnings.some((warning) => warning.includes('fret without string')),
+  true,
+);
+
+const invalidReview = draftToTextureSpec({
+  ...textureSource,
+  review: 'approved',
+  notes: [{ ...textureSource.notes[0]!, review: 'approved' }],
+});
+equal(
+  (invalidReview.spec.authored as { events: Array<{ review: string }> }).events[0]?.review,
+  'pending',
+);
+
+const textureJson = JSON.parse(textureDraftJson(texture)) as {
+  authored: { events: Array<Record<string, unknown>> };
+};
+equal(textureJson.authored.events.length, 3);
+equal(textureJson.authored.events[0]?.duration_beats, 1.5);
+
+// Texture validate body wraps the spec; the response normalizer accepts the
+// documented shape, FastAPI's string detail, and an ok flag without errors.
+deepEqual(buildTextureValidateBody({ id: 'page_1' }), { spec: { id: 'page_1' } });
+deepEqual(
+  normalizeTextureValidateResponse({
+    ok: false,
+    errors: [{ path: 'authored.events[0].review', message: 'unknown value' }],
+  }),
+  {
+    ok: false,
+    errors: [{ path: 'authored.events[0].review', message: 'unknown value' }],
+  },
+);
+deepEqual(normalizeTextureValidateResponse({ ok: true }), { ok: true, errors: [] });
+deepEqual(normalizeTextureValidateResponse({ detail: 'invalid spec' }), {
+  ok: false,
+  errors: [{ path: '$', message: 'invalid spec' }],
+});
+
 // Session errors map to friendly copy; other statuses keep the generic path.
+
 equal(parseRetryAfter('12'), 12);
 equal(parseRetryAfter('1.6'), 2);
 equal(parseRetryAfter('later'), null);

@@ -1026,3 +1026,330 @@ export function draftJson(draft: StudioAnalyzeDraft): string {
   );
 }
 
+/* ------------------------------------------------------------------------- *
+ * Phase 1 front half: Gemini draft notes -> TextureSpec draft.
+ *
+ * This is a pure conversion. It never validates remotely, renders, registers,
+ * or publishes; the panel can show a partial spec plus warnings when the draft
+ * lacks a meter or a parseable pitch.
+ * ------------------------------------------------------------------------- */
+
+/** One of the three meters the Phase 0 materializer table understands. */
+export type TextureMeterId = '3/4' | '4/4' | '6/8';
+
+type MeterTemplate = {
+  beats: number;
+  beat_type: number;
+  eighths_per_bar: number;
+  strong_eighths: number[];
+  subbar_breaks: number[];
+  extra_weights: Array<[number, number]>;
+};
+
+/**
+ * The exact six `form.Meter` values for the supported meters, copied from
+ * `app.sonify.form` (`METER_34`, `METER_44`, `METER_68`).
+ */
+const TEXTURE_METERS: Record<TextureMeterId, MeterTemplate> = {
+  '3/4': {
+    beats: 3,
+    beat_type: 4,
+    eighths_per_bar: 6,
+    strong_eighths: [0],
+    subbar_breaks: [4],
+    extra_weights: [[4, 0.8]],
+  },
+  '4/4': {
+    beats: 4,
+    beat_type: 4,
+    eighths_per_bar: 8,
+    strong_eighths: [0, 4],
+    subbar_breaks: [4],
+    extra_weights: [],
+  },
+  '6/8': {
+    beats: 6,
+    beat_type: 8,
+    eighths_per_bar: 6,
+    strong_eighths: [0, 3],
+    subbar_breaks: [3],
+    extra_weights: [],
+  },
+};
+
+const VOICE_HINTS: Record<string, number> = {
+  upper: 1,
+  top: 1,
+  lead: 1,
+  melody: 1,
+  soprano: 1,
+  middle: 2,
+  mid: 2,
+  inner: 2,
+  support: 2,
+  alto: 2,
+  lower: 3,
+  low: 3,
+  bass: 3,
+  tenor: 3,
+  'upper middle': 4,
+  'upper-middle': 4,
+  upper_middle: 4,
+  preludio: 4,
+};
+
+const TIE_VALUES = new Set(['none', 'start', 'stop', 'continue', 'next_bar']);
+const REVIEW_VALUES = new Set(['pending', 'accepted', 'edited']);
+const PITCH_CLASS: Record<string, number> = {
+  C: 0,
+  D: 2,
+  E: 4,
+  F: 5,
+  G: 7,
+  A: 9,
+  B: 11,
+};
+
+export type DraftToTextureSpecOptions = {
+  /** Defaults to `gemini_draft`. */
+  id?: string;
+  /** Defaults to `unknown`; a non-empty composer is required by the schema. */
+  composer?: string;
+  /** Declarative materializer label; defaults to `grid`. */
+  materializer?: string;
+  /** Used only when a note has neither `measure` nor `bar`. */
+  fallbackBar?: number;
+};
+
+export type TextureSpecDraft = {
+  spec: Record<string, unknown>;
+  warnings: string[];
+  eventCount: number;
+  skipped: number;
+  meter: string | null;
+};
+
+/** Scientific pitch (`E3`, `F#4`, `Bb2`) -> MIDI, or null when unparseable. */
+export function scientificPitchToMidi(value: string): number | null {
+  const match = /^([A-Ga-g])([#b♯♭]{0,2})(-?\d+)$/.exec(value.trim());
+  if (!match) return null;
+  let midi = (Number(match[3]) + 1) * 12 + PITCH_CLASS[match[1].toUpperCase()];
+  for (const accidental of match[2]) {
+    midi += accidental === '#' || accidental === '♯' ? 1 : -1;
+  }
+  return Number.isInteger(midi) && midi >= 0 && midi <= 127 ? midi : null;
+}
+
+/**
+ * Map Gemini's free-text voice hint onto the guitar schema's 1..4 voices:
+ * 1 lead, 2 support, 3 bass/low, 4 Preludio upper middle. Anything else
+ * defaults to 1 (lead) instead of inventing a voice.
+ */
+export function draftVoice(value: string | null | undefined): number {
+  if (!value) return 1;
+  const key = value.trim().toLowerCase();
+  if (/^[1-4]$/.test(key)) return Number(key);
+  return Object.prototype.hasOwnProperty.call(VOICE_HINTS, key)
+    ? VOICE_HINTS[key]!
+    : 1;
+}
+
+function textureMeterId(value: string | null | undefined): TextureMeterId | null {
+  if (!value) return null;
+  const key = value.replace(/\s+/g, '');
+  return Object.prototype.hasOwnProperty.call(TEXTURE_METERS, key)
+    ? (key as TextureMeterId)
+    : null;
+}
+
+function textureBar(note: StudioAnalysisNote, fallbackBar?: number): number | null {
+  if (note.measure != null && Number.isInteger(note.measure) && note.measure > 0) {
+    return note.measure - 1;
+  }
+  if (note.bar != null && Number.isInteger(note.bar) && note.bar >= 0) {
+    return note.bar;
+  }
+  if (fallbackBar != null && Number.isInteger(fallbackBar) && fallbackBar >= 0) {
+    return fallbackBar;
+  }
+  return null;
+}
+
+function textureTie(value: string | null): string {
+  const key = value?.trim().toLowerCase() ?? 'none';
+  return TIE_VALUES.has(key) ? key : 'none';
+}
+
+function textureReview(note: StudioAnalysisNote, draft: StudioAnalyzeDraft): string {
+  const value = note.review ?? draft.review ?? 'pending';
+  return REVIEW_VALUES.has(value) ? value : 'pending';
+}
+
+function textureArticulation(note: StudioAnalysisNote, name: string): boolean {
+  return note.articulation.some((item) => item.trim().toLowerCase() === name);
+}
+
+/**
+ * Convert one Gemini draft into a bounded `TextureSpec` mapping.
+ *
+ * Rules:
+ * - `bar = measure - 1`, falling back to the note's own `bar`, then
+ *   `options.fallbackBar`. Notes with no placement are skipped with a warning.
+ * - Pitch is `literal_midi` from `sounding_pitch` (else `written_pitch`); a note
+ *   whose pitch cannot be parsed is skipped rather than given a fake MIDI value.
+ * - `voice_hint` maps upper->1, middle->2, lower/bass->3, `4`->4, default 1.
+ * - `review` comes from the note/draft and defaults to `pending` (fail closed).
+ * - One meter variant comes from the first measure; only 3/4, 4/4, and 6/8 are
+ *   supported. An unknown meter leaves `meter_variants` empty and warns.
+ */
+export function draftToTextureSpec(
+  draft: StudioAnalyzeDraft,
+  options: DraftToTextureSpecOptions = {},
+): TextureSpecDraft {
+  const warnings = draft.warnings.slice();
+  const events: Array<Record<string, unknown>> = [];
+  let skipped = 0;
+
+  draft.notes.forEach((note, index) => {
+    const label = `Note ${index + 1}`;
+    const bar = textureBar(note, options.fallbackBar);
+    if (bar == null) {
+      skipped += 1;
+      warnings.push(`${label} skipped: missing measure/bar.`);
+      return;
+    }
+    if (note.beat == null || !Number.isFinite(note.beat) || note.beat < 0) {
+      skipped += 1;
+      warnings.push(`${label} skipped: missing beat.`);
+      return;
+    }
+    if (
+      note.durationBeats == null ||
+      !Number.isFinite(note.durationBeats) ||
+      note.durationBeats <= 0
+    ) {
+      skipped += 1;
+      warnings.push(`${label} skipped: missing duration.`);
+      return;
+    }
+
+    const sourcePitch = note.soundingPitch ?? note.writtenPitch;
+    const midi = sourcePitch ? scientificPitchToMidi(sourcePitch) : null;
+    if (midi == null) {
+      skipped += 1;
+      warnings.push(
+        `${label} skipped: ${sourcePitch ? `cannot parse pitch ${sourcePitch}` : 'no written/sounding pitch'}.`,
+      );
+      return;
+    }
+
+    let string = note.string;
+    let fret = note.fret;
+    if (string != null && (!Number.isInteger(string) || string < 1 || string > 6)) {
+      warnings.push(`${label}: string ${string} is outside 1..6; dropped.`);
+      string = null;
+      fret = null;
+    } else if (fret != null && string == null) {
+      warnings.push(`${label}: fret without string; dropped.`);
+      fret = null;
+    }
+    if (fret != null && (!Number.isInteger(fret) || fret < 0)) {
+      warnings.push(`${label}: fret ${fret} is negative; dropped.`);
+      fret = null;
+    }
+
+    const event: Record<string, unknown> = {
+      bar,
+      beat: note.beat,
+      duration_beats: note.durationBeats,
+      voice: draftVoice(note.voiceHint),
+      pitch: { kind: 'literal_midi', value: midi },
+      staff: 1,
+      tie: textureTie(note.tie),
+      slur: 'none',
+      accent: textureArticulation(note, 'accent'),
+      tenuto: textureArticulation(note, 'tenuto'),
+      staccato: textureArticulation(note, 'staccato'),
+      conflict: note.conflict,
+      review: textureReview(note, draft),
+    };
+    if (string != null) event.string = string;
+    if (fret != null) event.fret = fret;
+    if (note.writtenPitch) event.written_pitch = note.writtenPitch;
+    if (note.soundingPitch) event.sounding_pitch = note.soundingPitch;
+    if (note.confidence != null && Number.isFinite(note.confidence)) {
+      event.confidence = note.confidence;
+    }
+    events.push(event);
+  });
+
+  if (draft.notes.length === 0) {
+    warnings.push('Draft has no notes; authored.events is empty.');
+  }
+
+  const firstMeasure = draft.measures[0];
+  const meterId = textureMeterId(firstMeasure?.meter);  const meterVariants: Array<Record<string, unknown>> = [];
+  if (meterId) {
+    const meter = TEXTURE_METERS[meterId];
+    meterVariants.push({
+      meter: {
+        id: meterId,
+        beats: meter.beats,
+        beat_type: meter.beat_type,
+        eighths_per_bar: meter.eighths_per_bar,
+        strong_eighths: [...meter.strong_eighths],
+        subbar_breaks: [...meter.subbar_breaks],
+        extra_weights: meter.extra_weights.map(([eighth, weight]) => [eighth, weight]),
+      },
+      materializer: options.materializer ?? 'grid',
+      transform: 'none',
+      unsupported: false,
+      reason: null,
+      sentences: [],
+    });
+  } else if (firstMeasure?.meter) {
+    warnings.push(
+      `Unsupported meter "${firstMeasure.meter}" on the first measure (supported: 3/4, 4/4, 6/8); meter_variants is empty.`,
+    );
+  } else {
+    warnings.push('No meter on the first measure; meter_variants is empty.');
+  }
+
+  return {
+    spec: {
+      id: options.id ?? 'gemini_draft',
+      composer: options.composer ?? 'unknown',
+      kind: 'pattern',
+      level: 'texture',
+      parent: null,
+      runtime: 'code',
+      status: 'draft',
+      meter_variants: meterVariants,
+      authored: { events },
+    },
+    warnings,
+    eventCount: events.length,
+    skipped,
+    meter: meterId,
+  };
+}
+
+/** `3 events · 3/4 · 1 skipped · 1 warning` for the draft panel header. */
+export function textureDraftSummary(draft: TextureSpecDraft): string {
+  const parts = [
+    `${draft.eventCount} ${draft.eventCount === 1 ? 'event' : 'events'}`,
+    draft.meter ?? 'no meter',
+  ];
+  if (draft.skipped) parts.push(`${draft.skipped} skipped`);
+  if (draft.warnings.length) {
+    parts.push(
+      `${draft.warnings.length} ${draft.warnings.length === 1 ? 'warning' : 'warnings'}`,
+    );
+  }
+  return parts.join(' · ');
+}
+
+/** Pretty JSON for the read-only TextureSpec draft panel. */
+export function textureDraftJson(draft: TextureSpecDraft): string {
+  return JSON.stringify(draft.spec, null, 2);
+}
