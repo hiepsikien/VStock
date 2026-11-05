@@ -988,7 +988,7 @@ Quy tắc:
 
 ### 6.9. Micro-velocity contour (optional, authored)
 
-> **Trạng thái code:** **một phần**. `app/studio/micro_velocity.py` có data model + parse/validate + relative applier + pinned checker; `app/sonify/micro_velocity_contours.py` đã bóc tách Tremolo 4/4–3/4, Etude1, Etude11, Galop1/2 với zero-diff golden; `SentenceSpec.Slot`/`TextureSpec`/`AuthoredEvent` đã parse/round-trip `microVelocity`/`velocityOffset`; preview Torroba/Sor trả `microVelocity: [{slot, contour}]`; UI có `velocity.ts`/`VelocityLane.tsx` + `velocitySpec.ts` (slot selector, save-to-spec). **Chưa wire** vào `render_patterned_voices` (writer integration + pinned checks là bước tiếp theo). Schema dưới đây là contract Sprint 9.
+> **Trạng thái code:** **phần lớn**. `app/studio/micro_velocity.py` có data model + parse/validate + relative applier + pinned checker; `app/sonify/micro_velocity_contours.py` đã bóc tách Tremolo 4/4–3/4, Etude1, Etude11, Galop1/2, Cathedral; `SentenceSpec.Slot`/`TextureSpec`/`AuthoredEvent` đã parse/round-trip `microVelocity`/`velocityOffset`; preview trả `microVelocity: [{slot, contour}]`; UI có velocity lane + slot selector + save-to-spec. Writer integration **đã có sau flag `VSTOCK_MICRO_VELOCITY_WRITERS`** (default off) cho Tremolo/Etude1/Etude11/Galop1/2; flag off byte-identical. **Chưa wire**: Cathedral writer path, slot/texture override, preview áp contour vào notes. Schema dưới đây là contract hiện tại.
 
 Mỗi figure/pattern/sentence có thể mang **offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối. Không khai báo = offset 0 cho mọi nốt, kể cả thumb. Offset 0 phải cho **NoteEvent byte-identical** với code hiện tại.
 
@@ -1839,6 +1839,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 28. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp **trừ attack `pinned`** do absolute writer (snap/stab/fan/trim); Studio click figure → velocity lane và cho sửa.
 29. **Extraction zero-diff:** Tremolo 4/4–3/4, Galop 1/2, Etude1, Etude11, **Cathedral Preludio** phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”. Cathedral dùng rule context `canto_at`/`raw_at`/`beats_per_bar`, không lưu offset bịa.
+30. **Writer zero-diff:** `VSTOCK_MICRO_VELOCITY_WRITERS` default off; off byte-identical. On: Tremolo 4/4–3/4, Etude1, Etude11, Galop1/2 apply extracted contours before the wave and pinned checks after the last absolute writer; every NoteEvent/golden digest identical. Cathedral writer path and slot/texture overrides remain open.
 
 ---
 
