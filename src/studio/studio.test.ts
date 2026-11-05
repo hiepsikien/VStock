@@ -5,6 +5,7 @@ import {
   buildPreviewBody,
   buildTextureValidateBody,
   buildValidateBody,
+  cropField,
   emptyStudioQuota,
   normalizeAccessResponse,
   normalizeAnalyzeResponse,
@@ -33,8 +34,14 @@ import {
   byteSizeLabel,
   checkSpecShape,
   checkSpecText,
+  clampCropRect,
   confidenceBand,
   confidenceLabel,
+  containRect,
+  cropForUpload,
+  cropHandleAt,
+  cropRectBetween,
+  cropSizeLabel,
   defaultSampleForPattern,
   describeRequestFailure,
   draftJson,
@@ -51,7 +58,9 @@ import {
   measureLines,
   meterLabel,
   metersForPattern,
+  moveCropRect,
   nextPublishedList,
+  normalizeCropRect,
   normalizeErrorPath,
   noteBarLabel,
   noteBeatLabel,
@@ -68,6 +77,7 @@ import {
   publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
+  resizeCropRect,
   rollbackLabel,
   sampleText,
   scientificPitchToMidi,
@@ -951,9 +961,126 @@ deepEqual(buildAnalyzeBody('up_1', { composer: 'Villa' }), {
   uploadId: 'up_1',
   metadata: { composer: 'Villa' },
 });
-deepEqual(buildAnalyzeBody('up_1', undefined, { x: 1 }), {
+deepEqual(buildAnalyzeBody('up_1', undefined, { x: 10, y: 20, w: 100, h: 50 }), {
   uploadId: 'up_1',
-  crop: { x: 1 },
+  crop: { x: 10, y: 20, w: 100, h: 50 },
+});
+deepEqual(
+  buildAnalyzeBody(
+    'up_1',
+    { composer: 'Villa' },
+    { x: 10, y: 20, w: 100, h: 50 },
+  ),
+  {
+    uploadId: 'up_1',
+    crop: { x: 10, y: 20, w: 100, h: 50 },
+    metadata: { composer: 'Villa' },
+  },
+);
+// Absent / empty / too-small / non-finite crops are omitted entirely.
+deepEqual(buildAnalyzeBody('up_1', undefined, null), { uploadId: 'up_1' });
+deepEqual(buildAnalyzeBody('up_1', undefined, { x: 0, y: 0, w: 0, h: 0 }), {
+  uploadId: 'up_1',
+});
+deepEqual(buildAnalyzeBody('up_1', undefined, { x: 0, y: 0, w: 8, h: 80 }), {
+  uploadId: 'up_1',
+});
+deepEqual(
+  buildAnalyzeBody('up_1', undefined, {
+    x: Number.NaN,
+    y: 0,
+    w: 100,
+    h: 80,
+  }),
+  { uploadId: 'up_1' },
+);
+
+// Crop geometry: clamp, round, min-size, drag/move/resize, and serialization.
+deepEqual(clampCropRect({ x: -10, y: -5, w: 200, h: 120 }, { width: 100, height: 100 }), {
+  x: 0,
+  y: 0,
+  w: 100,
+  h: 100,
+});
+deepEqual(clampCropRect({ x: 90, y: 90, w: 50, h: 50 }, { width: 100, height: 100 }), {
+  x: 50,
+  y: 50,
+  w: 50,
+  h: 50,
+});
+deepEqual(
+  normalizeCropRect({ x: 10.4, y: 20.6, w: 100.2, h: 50.7 }, { width: 200, height: 200 }),
+  { x: 10, y: 21, w: 100, h: 51 },
+);
+equal(
+  normalizeCropRect({ x: 0, y: 0, w: 8, h: 200 }, { width: 200, height: 200 }),
+  null,
+);
+equal(
+  normalizeCropRect({ x: 0, y: 0, w: 16, h: 16 }, { width: 200, height: 200 })?.w,
+  16,
+);
+equal(
+  normalizeCropRect({ x: 0, y: 0, w: 100, h: 100 }, { width: 0, height: 0 }),
+  null,
+);
+deepEqual(
+  cropRectBetween({ x: 50, y: 60 }, { x: 10, y: 20 }, { width: 100, height: 100 }),
+  { x: 10, y: 20, w: 40, h: 40 },
+);
+deepEqual(
+  cropRectBetween({ x: 10, y: 20 }, { x: 50, y: 60 }, { width: 100, height: 100 }),
+  { x: 10, y: 20, w: 40, h: 40 },
+);
+deepEqual(
+  moveCropRect({ x: 10, y: 10, w: 40, h: 40 }, 100, -5, { width: 80, height: 80 }),
+  { x: 40, y: 5, w: 40, h: 40 },
+);
+deepEqual(
+  resizeCropRect({ x: 10, y: 10, w: 40, h: 40 }, 'se', 20, 10, {
+    width: 100,
+    height: 100,
+  }),
+  { x: 10, y: 10, w: 60, h: 50 },
+);
+deepEqual(
+  resizeCropRect({ x: 10, y: 10, w: 40, h: 40 }, 'nw', -20, -10, {
+    width: 100,
+    height: 100,
+  }),
+  { x: 0, y: 0, w: 50, h: 50 },
+);
+equal(cropHandleAt({ x: 10, y: 10, w: 50, h: 40 }, { x: 11, y: 11 }, 8), 'nw');
+equal(cropHandleAt({ x: 10, y: 10, w: 50, h: 40 }, { x: 59, y: 12 }, 8), 'ne');
+equal(cropHandleAt({ x: 10, y: 10, w: 50, h: 40 }, { x: 30, y: 30 }, 8), 'inside');
+equal(cropHandleAt({ x: 10, y: 10, w: 50, h: 40 }, { x: 100, y: 100 }, 8), null);
+equal(cropSizeLabel({ x: 0, y: 0, w: 900, h: 420 }), '900 × 420 px');
+deepEqual(cropField({ x: 1.4, y: 2.6, w: 100.2, h: 50.5 }), {
+  x: 1,
+  y: 3,
+  w: 100,
+  h: 51,
+});
+equal(cropField({ x: 0, y: 0, w: 4, h: 4 }), null);
+equal(cropField(null), null);
+
+const cropRect = { x: 10, y: 20, w: 100, h: 50 };
+deepEqual(cropForUpload({ uploadId: 'up_1', rect: cropRect }, 'up_1'), cropRect);
+equal(cropForUpload({ uploadId: 'up_1', rect: cropRect }, 'up_2'), null);
+equal(cropForUpload(null, 'up_1'), null);
+equal(cropForUpload({ uploadId: 'up_1', rect: cropRect }, null), null);
+
+deepEqual(containRect({ width: 1000, height: 500 }, { width: 300, height: 300 }), {
+  left: 0,
+  top: 75,
+  width: 300,
+  height: 150,
+});
+deepEqual(containRect({ width: 0, height: 0 }, { width: 300, height: 300 }), {
+  left: 0,
+  top: 0,
+  width: 0,
+  height: 0,
 });
 
 // Confidence buckets drive the table colour and the label.

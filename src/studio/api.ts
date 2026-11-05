@@ -22,6 +22,7 @@ import {
   normalizeValidateResponse,
   parseRetryAfter,
   studioSessionError,
+  type CropRect,
   type StudioAccess,
   type StudioAnalyzeDraft,
   type StudioDeleteUpload,
@@ -38,6 +39,7 @@ import {
 import { studioSessionHeaders } from './sessionStorage';
 
 export type {
+  CropRect,
   StudioAccess,
   StudioAnalysisMeasure,
   StudioAnalysisNote,
@@ -278,15 +280,21 @@ export async function deleteStudioUpload(
  * `POST /analyze` for one uploaded image. The response is a TextureSpec note
  * draft; it is never loaded into the SentenceSpec editor automatically.
  */
+export type StudioAnalyzeOptions = {
+  metadata?: Record<string, unknown>;
+  /** Source-image pixel rectangle; omit to analyze the whole image. */
+  crop?: CropRect | null;
+  signal?: AbortSignal;
+};
+
 export async function analyzeStudioImage(
   uploadId: string,
-  metadata?: Record<string, unknown>,
-  signal?: AbortSignal,
+  options: StudioAnalyzeOptions = {},
 ): Promise<StudioAnalyzeDraft> {
   const body = await postStudioUrl(
     studioAnalyzeUrl(),
-    buildAnalyzeBody(uploadId, metadata),
-    signal,
+    buildAnalyzeBody(uploadId, options.metadata, options.crop),
+    options.signal,
   );
   return normalizeAnalyzeResponse(body);
 }
