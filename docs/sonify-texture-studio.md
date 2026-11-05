@@ -188,7 +188,7 @@ Revision 1 để mở “renderer hiện tại **hoặc** interpreter chung”. 
 
 - **Phase 0/1**: spec là **authoring source + test fixture**. Runtime vẫn là code hiện tại. Spec không được `guitar_patterns.py` đọc.
 - **Phase 2**: chỉ pattern có `runtime: "interpreter"` mới được runtime đọc. Mọi pattern còn lại giữ `runtime: "code"`.
-- **Phase 2 proof:** `app/sonify/texture_interpreter.py` + `app/sonify/textures/chord_melody_phase2.json` render **một bar `chord_melody`** từ `TextureSpec` sau flag `VSTOCK_TEXTURE_INTERPRETER` (default off); context/digest khác fallback code.
+- **Phase 2 proof:** `app/sonify/texture_interpreter.py` + `app/sonify/textures/chord_melody_phase2.json` render **một bar `chord_melody`** từ `TextureSpec`; spec được resolve qua `texture_registry.load_default()` (id/pattern/meter/digest), sau flag `VSTOCK_TEXTURE_INTERPRETER` (default off); thiếu/hỏng/bị registry bỏ → fallback code.
 - **Phase 3**: mới cân nhắc chuyển thêm pattern từ `code` sang `interpreter`.
 
 Lý do: renderer hiện tại chứa nhiều quyết định tay phải không thể biểu diễn bằng grid/events đơn giản. Nếu Phase 0 đã buộc runtime đọc spec, dự án sẽ thành một cuộc viết lại lớn trước khi có bằng chứng.
@@ -1119,7 +1119,7 @@ figure writer (level gốc)
 
 ### 7.2. Phase 2: `texture_registry.py`
 
-> **Trạng thái code:** `backend/app/sonify/texture_registry.py` **đã có** (lazy, fail-soft, schema allowlist, `renderer_version` gate, duplicate/skip report). `backend/app/sonify/textures/chord_melody_phase2.json` là proof spec interpreter một bar; chưa có spec production khác. Runtime vẫn đọc `SENTENCE_SPECS` code-backed; interpreter chỉ chạy sau flag `VSTOCK_TEXTURE_INTERPRETER` (default off).
+> **Trạng thái code:** `texture_registry.py` **đã có** (lazy, fail-soft, allowlist, `renderer_version`, duplicate/skip). `textures/chord_melody_phase2.json` là proof spec một bar và **được interpreter đọc qua registry**; chưa có spec production khác. Runtime vẫn đọc `SENTENCE_SPECS` code-backed; interpreter chỉ chạy sau `VSTOCK_TEXTURE_INTERPRETER` (default off).
 
 Thêm loader:
 
