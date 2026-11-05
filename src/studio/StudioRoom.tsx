@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -10,29 +11,46 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getApiBaseUrl } from '../api/client';
+import { absoluteApiUrl, getApiBaseUrl } from '../api/client';
 import { palette, TOUCH_TARGET } from '../musicalize/palette';
 import { TopBar, type RoomMode } from '../musicalize/TopBar';
 import { type } from '../musicalize/type';
 import {
+  analyzeStudioImage,
   fetchPublishedSpec,
   fetchPublishedSpecs,
   fetchSentenceExamples,
+  fetchStudioAccess,
   previewSentenceSpec,
   publishSentenceSpec,
   requestSentenceAudio,
   rollbackSentenceSpec,
+  studioAccessUrl,
+  studioAnalyzeUrl,
   studioSentenceUrl,
+  studioUploadsUrl,
+  uploadStudioImage,
   validateSentenceSpec,
+  type StudioAccess,
+  type StudioAnalyzeDraft,
+  type StudioAnalysisNote,
   type StudioError,
   type StudioPreviewResponse,
   type StudioPublishedSpec,
+  type StudioUpload,
   type StudioValidateResponse,
 } from './api';
 import { resolveAudioUrl } from './protocol';
+import { sessionLabel } from './session';
+import { studioSessionId } from './sessionStorage';
 import {
   DEFAULT_SAMPLE,
   SAMPLES,
+  accessReasonLabel,
+  accessSummary,
+  byteSizeLabel,
+  draftJson,
+  draftNoteRows,
   examplesToSamples,
   checkSpecText,
   defaultSampleForPattern,
@@ -41,6 +59,8 @@ import {
   findSample,
   fixtureText as sampleFixtureText,
   fixtureTextForSpec,
+  imageSizeError,
+  measureLines,
   meterLabel,
   metersForPattern,
   nextPublishedList,
@@ -60,6 +80,7 @@ import {
   sampleText,
   shortId,
   textStats,
+  uploadMetaLabel,
   valueLines,
   type PublishedListState,
   type StudioSample,
@@ -134,6 +155,49 @@ type CatalogState = {
   note: string | null;
 };
 
+type AccessState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; access: StudioAccess }
+  | { kind: 'error'; message: string };
+
+type UploadState =
+  | { kind: 'idle' }
+  | { kind: 'uploading'; filename: string }
+  | { kind: 'ready'; upload: StudioUpload }
+  | { kind: 'error'; message: string; errors: StudioError[] };
+
+type AnalyzeState =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | { kind: 'ready'; draft: StudioAnalyzeDraft }
+  | { kind: 'error'; message: string; errors: StudioError[] };
+
+const CONFIDENCE_COLOR = {
+  high: palette.data,
+  medium: palette.playhead,
+  low: palette.sound,
+  unknown: palette.textFaint,
+} as const;
+
+/** Resolve the relative media URL the upload/analyze endpoints may return. */
+function mediaUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  if (/^(https?:|blob:|data:)/i.test(raw)) return raw;
+  return absoluteApiUrl(raw);
+}
+
+/**
+ * Media elements cannot send `X-Studio-Session`, so the upload response also
+ * carries a short-lived token. Append it when the server did not bake it into
+ * the URL already.
+ */
+function uploadImageUri(upload: StudioUpload | null): string | null {
+  const base = mediaUrl(upload?.url ?? null);
+  if (!base) return null;
+  if (!upload?.token || /[?&]t=/.test(base)) return base;
+  return `${base}${base.includes('?') ? '&' : '?'}t=${encodeURIComponent(upload.token)}`;
+}
+
 const DEFAULT_STUDIO_SAMPLE = DEFAULT_SAMPLE;
 const DEFAULT_SELECTION: Selection = {
   key: DEFAULT_STUDIO_SAMPLE.key,
@@ -184,6 +248,14 @@ export function StudioRoom({ wide, onMode }: Props) {
   const [loadingSpecId, setLoadingSpecId] = useState<string | null>(null);
   const [rollbackState, setRollbackState] = useState<RollbackState>({ kind: 'idle' });
   const [confirmingRollbackId, setConfirmingRollbackId] = useState<string | null>(null);
+  const [access, setAccess] = useState<AccessState>({ kind: 'loading' });
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const [upload, setUpload] = useState<UploadState>({ kind: 'idle' });
+  const [draftState, setDraftState] = useState<AnalyzeState>({ kind: 'idle' });
+  const [showDraftJson, setShowDraftJson] = useState(false);
+  const [copyNote, setCopyNote] = useState<string | null>(null);
 
   const inFlight = useRef<AbortController | null>(null);
   const examplesController = useRef<AbortController | null>(null);
@@ -192,6 +264,10 @@ export function StudioRoom({ wide, onMode }: Props) {
   const specDetailController = useRef<AbortController | null>(null);
   const rollbackController = useRef<AbortController | null>(null);
   const audioController = useRef<AbortController | null>(null);
+  const accessController = useRef<AbortController | null>(null);
+  const uploadController = useRef<AbortController | null>(null);
+  const analyzeController = useRef<AbortController | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
   const audioPlayer = useRef<HTMLAudioElement | null>(null);
   const audioRunId = useRef(0);
   const runId = useRef(0);
@@ -260,10 +336,61 @@ export function StudioRoom({ wide, onMode }: Props) {
       specDetailController.current?.abort();
       rollbackController.current?.abort();
       audioController.current?.abort();
+      accessController.current?.abort();
+      uploadController.current?.abort();
+      analyzeController.current?.abort();
+      if (
+        previewUrlRef.current &&
+        typeof URL !== 'undefined' &&
+        typeof URL.revokeObjectURL === 'function'
+      ) {
+        try {
+          URL.revokeObjectURL(previewUrlRef.current);
+        } catch {
+          // The blob URL may already be gone.
+        }
+        previewUrlRef.current = null;
+      }
       stopPlayer();
     },
     [stopPlayer],
   );
+
+  // Capability gate + quota. The editor keeps working if this fails; only the
+  // upload/analyze panel depends on `enabled`.
+  useEffect(() => {
+    const controller = new AbortController();
+    accessController.current = controller;
+    void (async () => {
+      try {
+        const next = await fetchStudioAccess(controller.signal);
+        if (controller.signal.aborted) return;
+        setAccess({ kind: 'ready', access: next });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setAccess({ kind: 'error', message: describeRequestFailure(error) });
+      } finally {
+        if (accessController.current === controller) accessController.current = null;
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
+  // One session id per install/browser. The panel shows a short form so a
+  // support report can name the namespace without leaking the full token.
+  useEffect(() => {
+    let alive = true;
+    void studioSessionId()
+      .then((id) => {
+        if (alive) setSessionId(id);
+      })
+      .catch(() => {
+        if (alive) setSessionId(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // The API examples are the palette. Embedded Torroba/Sor samples only fill in
   // when the endpoint is missing, so the hand-copied list cannot silently drift.
@@ -431,6 +558,158 @@ export function StudioRoom({ wide, onMode }: Props) {
     },
     [fixtureJson, resetAudio, specText],
   );
+
+  const pickFile = useCallback(
+    (file: File | null) => {
+      if (
+        previewUrlRef.current &&
+        typeof URL !== 'undefined' &&
+        typeof URL.revokeObjectURL === 'function'
+      ) {
+        try {
+          URL.revokeObjectURL(previewUrlRef.current);
+        } catch {
+          // Nothing to release.
+        }
+        previewUrlRef.current = null;
+      }
+      setSelectedFile(null);
+      setSelectedPreview(null);
+      setDraftState({ kind: 'idle' });
+      setShowDraftJson(false);
+      setCopyNote(null);
+
+      if (!file) {
+        setUpload({ kind: 'idle' });
+        return;
+      }
+      if (access.kind === 'loading' || (access.kind === 'ready' && !access.access.enabled)) {
+        setUpload({
+          kind: 'error',
+          message:
+            access.kind === 'ready'
+              ? 'Studio is disabled on this server; the sentence editor still works.'
+              : 'Checking Studio access before upload…',
+          errors: [],
+        });
+        return;
+      }
+
+      const mime = file.type.toLowerCase();
+      if (mime && !mime.startsWith('image/')) {
+        setUpload({
+          kind: 'error',
+          message: `Chỉ nhận file ảnh (${file.type}).`,
+          errors: [],
+        });
+        return;
+      }
+      const maxMb = access.kind === 'ready' ? access.access.quota.maxImageMb : 0;
+      const tooBig = imageSizeError(file.size, maxMb);
+      if (tooBig) {
+        setUpload({ kind: 'error', message: tooBig, errors: [] });
+        return;
+      }
+
+      let preview: string | null = null;
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        try {
+          preview = URL.createObjectURL(file);
+          previewUrlRef.current = preview;
+        } catch {
+          preview = null;
+        }
+      }
+      setSelectedFile(file);
+      setSelectedPreview(preview);
+      setUpload({ kind: 'idle' });
+    },
+    [access],
+  );
+
+  const uploadSelected = useCallback(async () => {
+    if (!selectedFile) return;
+    uploadController.current?.abort();
+    const controller = new AbortController();
+    uploadController.current = controller;
+    setUpload({ kind: 'uploading', filename: selectedFile.name || 'image' });
+    setDraftState({ kind: 'idle' });
+    setShowDraftJson(false);
+    setCopyNote(null);
+    try {
+      const data = await uploadStudioImage(selectedFile, {
+        filename: selectedFile.name || undefined,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (!data.ok || !data.id) {
+        setUpload({
+          kind: 'error',
+          message: data.errors[0]?.message ?? 'Upload failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      setUpload({ kind: 'ready', upload: data });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setUpload({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (uploadController.current === controller) uploadController.current = null;
+    }
+  }, [selectedFile]);
+
+  const analyzeUpload = useCallback(async () => {
+    if (upload.kind !== 'ready' || !upload.upload.id) return;
+    analyzeController.current?.abort();
+    const controller = new AbortController();
+    analyzeController.current = controller;
+    setDraftState({ kind: 'running' });
+    setShowDraftJson(false);
+    setCopyNote(null);
+    try {
+      const draft = await analyzeStudioImage(upload.upload.id, undefined, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!draft.ok && draft.notes.length === 0 && draft.errors.length > 0) {
+        setDraftState({
+          kind: 'error',
+          message: draft.errors[0]?.message ?? 'Analyze failed.',
+          errors: draft.errors,
+        });
+        return;
+      }
+      setDraftState({ kind: 'ready', draft });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setDraftState({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (analyzeController.current === controller) analyzeController.current = null;
+    }
+  }, [upload]);
+
+  const copyDraft = useCallback(async () => {
+    if (draftState.kind !== 'ready') return;
+    const text = draftJson(draftState.draft);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopyNote('Draft JSON copied.');
+        return;
+      }
+    } catch {
+      // Fall through to the selectable block.
+    }
+    setCopyNote('Clipboard unavailable — select the read-only JSON instead.');
+    setShowDraftJson(true);
+  }, [draftState]);
 
   const playAudio = useCallback(async () => {
     if (!previewSnapshot) return;
@@ -651,6 +930,22 @@ export function StudioRoom({ wide, onMode }: Props) {
       result.kind === 'failure');
   const stats = textStats(specText);
 
+  const accessLoading = access.kind === 'loading';
+  const uploadEnabled =
+    access.kind === 'ready' ? access.access.enabled : access.kind === 'error';
+  const uploadBusy = upload.kind === 'uploading';
+  const analyzeBusy = draftState.kind === 'running';
+  const uploaded = upload.kind === 'ready' ? upload.upload : null;
+  const canUpload = uploadEnabled && selectedFile !== null && !uploadBusy;
+  const canAnalyze = uploadEnabled && Boolean(uploaded?.id) && !analyzeBusy;
+  const previewUri = uploadImageUri(uploaded) ?? selectedPreview;
+  const accessNote =
+    access.kind === 'ready'
+      ? accessSummary(access.access)
+      : access.kind === 'loading'
+        ? 'checking Studio access…'
+        : `access check failed · ${access.message}`;
+
   const catalogPatterns = patternIds(samples);
   const patternChoices = catalogPatterns.includes(selection.pattern)
     ? catalogPatterns
@@ -680,17 +975,140 @@ export function StudioRoom({ wide, onMode }: Props) {
               <View style={styles.devBadge}>
                 <Text style={styles.devBadgeText}>DEV</Text>
               </View>
+              <Text numberOfLines={1} style={styles.sessionText}>
+                {sessionLabel(sessionId)} · {accessNote}
+              </Text>
             </View>
             <Text style={[type.displayNarrow, styles.title]}>Sentence lab</Text>
             <Text style={styles.subtitle}>
               Edit one sentence spec, validate it against the registry, preview the
               plan and render hash, then play the short preview WAV and publish a
-              version. The JSON editor remains the source of truth.
+              version. The JSON editor remains the source of truth. The image
+              panel above is a separate front half: upload a score photo, ask
+              Gemini for a TextureSpec note draft, and review it here without
+              overwriting the sentence JSON.
             </Text>
           </View>
 
           <View style={[styles.columns, wide && styles.columnsWide]}>
             <View style={[styles.column, wide && styles.columnWide]}>
+              <View style={styles.card}>
+                <View style={styles.resultHeader}>
+                  <Text style={[type.section, styles.cardLabel]}>Import ảnh</Text>
+                  <Text style={styles.actionLabel}>Gemini</Text>
+                </View>
+                <Text style={styles.cardTitle}>Score photo → draft notes</Text>
+                <Text style={styles.hint}>
+                  Upload one page (PNG, JPEG, WebP). The server stores it under
+                  this session and returns a TextureSpec note draft. It never
+                  replaces the SentenceSpec JSON below.
+                </Text>
+
+                {access.kind === 'ready' && !access.access.enabled ? (
+                  <View style={styles.noticeBox}>
+                    <Text style={styles.noticeTitle}>
+                      Studio disabled · {accessReasonLabel(access.access.reason)}
+                    </Text>
+                    <Text style={styles.noticeText}>
+                      Upload and Analyze are turned off. The sentence JSON editor
+                      below still works.
+                    </Text>
+                  </View>
+                ) : access.kind === 'error' ? (
+                  <View style={styles.noticeBox}>
+                    <Text style={styles.noticeTitle}>Access check failed</Text>
+                    <Text style={styles.noticeText}>
+                      {access.message} — upload stays enabled and the server
+                      enforces session quota.
+                    </Text>
+                  </View>
+                ) : null}
+
+                {Platform.OS === 'web' ? (
+                  <View style={styles.importRow}>
+                    {React.createElement('input', {
+                      type: 'file',
+                      accept: 'image/png,image/jpeg,image/webp',
+                      disabled: !uploadEnabled || uploadBusy || accessLoading,
+                      'aria-label': 'Choose a score image',
+                      onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+                        pickFile(event.target.files?.[0] ?? null),
+                      style: { color: palette.textMuted, fontSize: 12, maxWidth: '100%' },
+                    })}
+                    <Text numberOfLines={1} style={styles.fileName}>
+                      {selectedFile
+                        ? `${selectedFile.name || 'image'} · ${byteSizeLabel(selectedFile.size)}`
+                        : 'No file selected'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.noticeText}>
+                    Image import is web-only in this pass. Use the JSON editor
+                    below on native.
+                  </Text>
+                )}
+
+                {previewUri ? (
+                  <Image
+                    source={{ uri: previewUri }}
+                    style={styles.imagePreview}
+                    resizeMode="contain"
+                    accessibilityLabel="Selected score image preview"
+                  />
+                ) : null}
+
+                <View style={styles.actions}>
+                  <ActionButton
+                    label="Upload ảnh"
+                    primary
+                    onPress={() => void uploadSelected()}
+                    disabled={!canUpload}
+                    busy={uploadBusy}
+                  />
+                  <ActionButton
+                    label="Analyze"
+                    onPress={() => void analyzeUpload()}
+                    disabled={!canAnalyze}
+                    busy={analyzeBusy}
+                  />
+                  {uploadBusy || analyzeBusy ? (
+                    <ActivityIndicator color={palette.data} size="small" />
+                  ) : null}
+                </View>
+
+                {upload.kind === 'ready' ? (
+                  <View style={styles.uploadMeta}>
+                    <Text selectable style={styles.metaText}>
+                      {uploadMetaLabel(upload.upload)}
+                    </Text>
+                    <Text selectable style={styles.metaText}>
+                      upload {shortId(upload.upload.id ?? '', 12)} ·{' '}
+                      {upload.upload.mime ?? 'unknown mime'}
+                    </Text>
+                  </View>
+                ) : upload.kind === 'uploading' ? (
+                  <Text style={styles.composerHint}>
+                    Uploading {upload.filename}…
+                  </Text>
+                ) : upload.kind === 'error' ? (
+                  <View style={styles.publishStatus}>
+                    <Text style={styles.publishFailure}>{upload.message}</Text>
+                    <ErrorList errors={upload.errors} />
+                  </View>
+                ) : (
+                  <Text style={styles.composerHint}>
+                    {uploadEnabled
+                      ? 'Pick a score photo, upload it, then Analyze.'
+                      : 'Upload and Analyze are disabled until access is known.'}
+                  </Text>
+                )}
+
+                <Text style={styles.composerHint}>
+                  Draft review state starts at pending. Nothing is published from
+                  this panel.
+                </Text>
+              </View>
+
               <View style={styles.card}>
                 <Text style={[type.section, styles.cardLabel]}>
                   {catalog.source === 'api' ? 'API example' : 'Embedded template'}
@@ -848,6 +1266,118 @@ export function StudioRoom({ wide, onMode }: Props) {
             </View>
 
             <View style={[styles.column, wide && styles.columnWide]}>
+              <View style={[styles.card, styles.resultCard]}>
+                <View style={styles.resultHeader}>
+                  <Text style={[type.section, styles.cardLabel]}>Gemini draft</Text>
+                  <Text style={styles.actionLabel}>TextureSpec notes</Text>
+                </View>
+
+                {draftState.kind === 'idle' ? (
+                  <>
+                    <Text style={styles.cardTitle}>Nothing analyzed yet</Text>
+                    <Text style={styles.hint}>
+                      Upload a score image on the left, then Analyze. The draft is
+                      read-only here: it is a TextureSpec note list, not one
+                      SentenceSpec, so it must not be loaded into the editor
+                      automatically.
+                    </Text>
+                  </>
+                ) : draftState.kind === 'running' ? (
+                  <View style={styles.loadingRow}>
+                    <ActivityIndicator color={palette.data} />
+                    <Text style={styles.loadingText}>
+                      Reading the image with Gemini…
+                    </Text>
+                  </View>
+                ) : draftState.kind === 'error' ? (
+                  <>
+                    <Text style={styles.failureTitle}>{draftState.message}</Text>
+                    <ErrorList errors={draftState.errors} />
+                    <Text style={styles.hint}>
+                      Fix the upload or try again. The sentence editor is
+                      unaffected.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.badgeRow}>
+                      <Badge
+                        ok={draftState.draft.ok}
+                        label={draftState.draft.ok ? 'DRAFT OK' : 'ANALYZE FAILED'}
+                      />
+                      {draftState.draft.cached ? <Badge ok label="CACHED" /> : null}
+                      {draftState.draft.partial ? (
+                        <Badge ok={false} label="PARTIAL" />
+                      ) : null}
+                    </View>
+                    {draftState.draft.errors.length ? (
+                      <ErrorList errors={draftState.draft.errors} />
+                    ) : null}
+                    {draftState.draft.partial ? (
+                      <Text style={styles.catalogWarning}>
+                        Partial draft: skipped{' '}
+                        {draftState.draft.skippedChecks.length
+                          ? draftState.draft.skippedChecks.join(', ')
+                          : 'some checks'}{' '}
+                        — no render context yet.
+                      </Text>
+                    ) : null}
+                    {draftState.draft.warnings.length ? (
+                      <View style={styles.warningList}>
+                        <Text style={[type.section, styles.blockLabel]}>
+                          Warnings
+                        </Text>
+                        {draftState.draft.warnings.map((warning, index) => (
+                          <Text key={`warning:${index}`} style={styles.warningText}>
+                            {warning}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    <ResultBlock
+                      label="Measures"
+                      lines={measureLines(draftState.draft.measures)}
+                      empty="No measures returned."
+                    />
+
+                    <View style={styles.block}>
+                      <View style={styles.blockHeader}>
+                        <Text style={[type.section, styles.blockLabel]}>Notes</Text>
+                        <Text style={styles.blockCount}>
+                          {draftState.draft.notes.length}
+                        </Text>
+                      </View>
+                      <DraftNotesTable notes={draftState.draft.notes} />
+                    </View>
+
+                    <View style={styles.actions}>
+                      <ActionButton
+                        label="Copy draft JSON"
+                        onPress={() => void copyDraft()}
+                      />
+                      <ActionButton
+                        label={showDraftJson ? 'Hide draft JSON' : 'Show draft JSON'}
+                        onPress={() => setShowDraftJson((open) => !open)}
+                      />
+                    </View>
+                    {copyNote ? (
+                      <Text style={styles.composerHint}>{copyNote}</Text>
+                    ) : null}
+                    {showDraftJson ? (
+                      <Text selectable style={styles.codeBlock}>
+                        {valueLines(draftJson(draftState.draft), 120).join('\n')}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.composerHint}>
+                      Draft state is pending review; copy the JSON into a
+                      TextureSpec workflow when it is ready. The sentence editor
+                      is untouched.
+                    </Text>
+                  </>
+                )}
+              </View>
+
               <ResultPanel
                 result={result}
                 stale={stale}
@@ -869,6 +1399,15 @@ export function StudioRoom({ wide, onMode }: Props) {
               />
               <View style={styles.endpoints}>
                 <Text style={styles.endpointLabel}>Endpoints</Text>
+                <Text selectable style={styles.endpoint}>
+                  GET {studioAccessUrl()}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  POST {studioUploadsUrl()}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  POST {studioAnalyzeUrl()}
+                </Text>
                 <Text selectable style={styles.endpoint}>
                   GET {studioSentenceUrl('examples')}
                 </Text>
@@ -985,6 +1524,62 @@ function Badge({ ok, label }: { ok: boolean; label: string }) {
       <Text style={[styles.badgeText, ok ? styles.badgeTextPass : styles.badgeTextFail]}>
         {label}
       </Text>
+    </View>
+  );
+}
+
+/** Compact draft table; confidence is coloured by band. */
+function DraftNotesTable({ notes }: { notes: StudioAnalysisNote[] }) {
+  const rows = draftNoteRows(notes);
+  if (!notes.length) {
+    return <Text style={styles.empty}>No notes in the draft.</Text>;
+  }
+  return (
+    <View style={styles.table}>
+      <View style={[styles.tableRow, styles.tableHead]}>
+        <Text style={[styles.th, styles.colBar]}>Bar</Text>
+        <Text style={[styles.th, styles.colBeat]}>Beat</Text>
+        <Text style={[styles.th, styles.colVoice]}>Voice</Text>
+        <Text style={[styles.th, styles.colPitch]}>Pitch</Text>
+        <Text style={[styles.th, styles.colConf]}>Conf</Text>
+        <Text style={[styles.th, styles.colConflict]}>Confl</Text>
+      </View>
+      {rows.map((row) => (
+        <View key={`note:${row.index}`} style={styles.tableRow}>
+          <Text style={[styles.td, styles.colBar]}>{row.bar}</Text>
+          <Text style={[styles.td, styles.colBeat]}>{row.beat}</Text>
+          <Text numberOfLines={1} style={[styles.td, styles.colVoice]}>
+            {row.voice}
+          </Text>
+          <Text numberOfLines={1} style={[styles.td, styles.colPitch]}>
+            {row.pitch}
+            {row.position ? ` · ${row.position}` : ''}
+          </Text>
+          <Text
+            style={[
+              styles.td,
+              styles.colConf,
+              { color: CONFIDENCE_COLOR[row.band] },
+            ]}
+          >
+            {row.confidence}
+          </Text>
+          <Text
+            style={[
+              styles.td,
+              styles.colConflict,
+              row.conflict ? styles.conflictCell : null,
+            ]}
+          >
+            {row.conflict ? 'yes' : '—'}
+          </Text>
+        </View>
+      ))}
+      {notes.length > rows.length ? (
+        <Text style={styles.composerHint}>
+          … {notes.length - rows.length} more notes
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -2012,6 +2607,153 @@ const styles = StyleSheet.create({
     fontFamily: type.sans.fontFamily,
     fontSize: 12,
     lineHeight: 17,
+  },
+  sessionText: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  noticeBox: {
+    gap: 4,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.playhead,
+    backgroundColor: palette.surface,
+  },
+  noticeTitle: {
+    color: palette.playhead,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  noticeText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  importRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  fileName: {
+    flex: 1,
+    minWidth: 160,
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  imagePreview: {
+    width: '100%',
+    height: 180,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.background,
+  },
+  uploadMeta: {
+    gap: 2,
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: palette.background,
+  },
+  metaText: {
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  warningList: {
+    gap: 4,
+    padding: 8,
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: palette.playhead,
+    backgroundColor: palette.surface,
+  },
+  warningText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
+  },
+  tableHead: {
+    borderTopWidth: 0,
+    backgroundColor: palette.surface,
+  },
+  th: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 13,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  td: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  conflictCell: {
+    color: palette.sound,
+    fontWeight: '700',
+  },
+  colBar: {
+    flex: 0.7,
+  },
+  colBeat: {
+    flex: 0.7,
+  },
+  colVoice: {
+    flex: 1,
+  },
+  colPitch: {
+    flex: 1.8,
+  },
+  colConf: {
+    flex: 0.8,
+    textAlign: 'right',
+  },
+  colConflict: {
+    flex: 0.8,
+    textAlign: 'right',
   },
   endpoints: {
     gap: 4,

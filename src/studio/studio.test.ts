@@ -1,8 +1,12 @@
 import {
+  buildAnalyzeBody,
   buildAudioBody,
   buildAudioHashBody,
   buildPreviewBody,
   buildValidateBody,
+  emptyStudioQuota,
+  normalizeAccessResponse,
+  normalizeAnalyzeResponse,
   normalizeAudioResponse,
   normalizeErrors,
   normalizeExamplesResponse,
@@ -11,27 +15,44 @@ import {
   normalizePublishedSpecResponse,
   normalizeRollbackResponse,
   normalizeSpecsResponse,
+  normalizeUploadResponse,
   normalizeValidateResponse,
+  parseRetryAfter,
   resolveAudioUrl,
+  studioSessionError,
 } from './protocol';
 import {
   DEFAULT_SAMPLE,
   PATTERNS,
   SAMPLES,
+  accessReasonLabel,
+  accessSummary,
+  byteSizeLabel,
   checkSpecShape,
   checkSpecText,
+  confidenceBand,
+  confidenceLabel,
   defaultSampleForPattern,
   describeRequestFailure,
+  draftJson,
+  draftNoteRows,
   durationLabel,
   examplesToSamples,
   findSample,
   fixtureForSpec,
   fixtureText,
+  imageSizeError,
   jsonErrorLocation,
+  measureLines,
   meterLabel,
   metersForPattern,
   nextPublishedList,
   normalizeErrorPath,
+  noteBarLabel,
+  noteBeatLabel,
+  notePitchLabel,
+  notePositionLabel,
+  noteVoiceLabel,
   notesLines,
   parseJsonObject,
   patternCatalogHint,
@@ -46,8 +67,18 @@ import {
   sampleText,
   shortId,
   textStats,
+  uploadMetaLabel,
   valueLines,
 } from './spec';
+import {
+  STUDIO_SESSION_HEADER,
+  STUDIO_SESSION_KEY,
+  loadStudioSession,
+  newStudioSession,
+  normalizeStudioSession,
+  sessionHeader,
+  sessionLabel,
+} from './session';
 
 function equal<T>(actual: T, expected: T) {
   if (actual !== expected) {
@@ -638,4 +669,374 @@ deepEqual(nextPublishedList(listState, { kind: 'failure', message: 'down' }), {
   error: 'down',
 });
 
-console.log('studio tests passed');
+// ---------------------------------------------------------------------------
+// Phase 1 front half: access, upload, analyze, session.
+// ---------------------------------------------------------------------------
+
+// Access: documented shape, snake_case quota aliases, and the disabled gate.
+const access = normalizeAccessResponse({
+  enabled: true,
+  reason: 'open_beta',
+  quota: {
+    uploadsPerDay: 20,
+    analysesPerDay: 100,
+    specsPerDay: 50,
+    maxImageMb: 20,
+    previewsConcurrent: 1,
+  },
+});
+deepEqual(access, {
+  ok: true,
+  enabled: true,
+  reason: 'open_beta',
+  seats: null,
+  quota: {
+    uploadsPerDay: 20,
+    analysesPerDay: 100,
+    specsPerDay: 50,
+    maxImageMb: 20,
+    previewsConcurrent: 1,
+  },
+  errors: [],
+});
+equal(accessSummary(access), 'Open beta · 20 uploads/day · max 20 MB');
+equal(accessReasonLabel('open_beta'), 'Open beta');
+equal(accessReasonLabel('entitled'), 'Entitled');
+equal(accessReasonLabel('disabled'), 'Disabled');
+equal(accessReasonLabel('new_value'), 'new_value');
+
+deepEqual(
+  normalizeAccessResponse({
+    enabled: false,
+    reason: 'disabled',
+    seats: 3,
+    quota: { uploads_per_day: 5, max_image_mb: 8, previews_concurrent: 2 },
+  }),
+  {
+    ok: false,
+    enabled: false,
+    reason: 'disabled',
+    seats: 3,
+    quota: {
+      uploadsPerDay: 5,
+      analysesPerDay: 0,
+      specsPerDay: 0,
+      maxImageMb: 8,
+      previewsConcurrent: 2,
+    },
+    errors: [],
+  },
+);
+equal(accessSummary(normalizeAccessResponse({ enabled: false, reason: 'disabled' })), 'Studio disabled · Disabled');
+
+// `enabled` may be omitted; `reason` then decides. An empty/broken body is
+// treated as disabled rather than guessing open.
+equal(normalizeAccessResponse({ reason: 'open_beta' }).enabled, true);
+equal(normalizeAccessResponse({ reason: 'disabled' }).enabled, false);
+equal(normalizeAccessResponse({}).enabled, false);
+equal(normalizeAccessResponse({}).reason, 'unknown');
+deepEqual(emptyStudioQuota(), {
+  uploadsPerDay: 0,
+  analysesPerDay: 0,
+  specsPerDay: 0,
+  maxImageMb: 0,
+  previewsConcurrent: 0,
+});
+const accessFailure = normalizeAccessResponse({ detail: 'studio access unavailable' });
+equal(accessFailure.enabled, false);
+deepEqual(accessFailure.errors, [
+  { path: '$', message: 'studio access unavailable' },
+]);
+let accessThrew = false;
+try {
+  normalizeAccessResponse(null);
+} catch {
+  accessThrew = true;
+}
+equal(accessThrew, true);
+
+// Upload: documented shape, aliases, and FastAPI's string detail.
+deepEqual(
+  normalizeUploadResponse({
+    ok: true,
+    id: 'up_1',
+    sha256: 'abcdef0123456789abcdef0123456789',
+    filename: 'score.png',
+    mime: 'image/png',
+    url: '/v1/musicalize/studio/uploads/up_1',
+    token: 'tok',
+    width: 900,
+    height: 420,
+  }),
+  {
+    ok: true,
+    id: 'up_1',
+    sha256: 'abcdef0123456789abcdef0123456789',
+    filename: 'score.png',
+    mime: 'image/png',
+    url: '/v1/musicalize/studio/uploads/up_1',
+    token: 'tok',
+    width: 900,
+    height: 420,
+    errors: [],
+  },
+);
+deepEqual(
+  normalizeUploadResponse({
+    upload_id: 'up_2',
+    sha: 'sha2',
+    name: 'page.jpg',
+    mime_type: 'image/jpeg',
+  }),
+  {
+    ok: true,
+    id: 'up_2',
+    sha256: 'sha2',
+    filename: 'page.jpg',
+    mime: 'image/jpeg',
+    url: null,
+    token: null,
+    width: null,
+    height: null,
+    errors: [],
+  },
+);
+const uploadFailure = normalizeUploadResponse({ detail: 'file too large' });
+equal(uploadFailure.ok, false);
+equal(uploadFailure.id, null);
+deepEqual(uploadFailure.errors, [{ path: '$', message: 'file too large' }]);
+equal(uploadMetaLabel(normalizeUploadResponse({ id: 'up', width: 10, height: 20, sha256: '0123456789abcdef' })), 'up · 10×20 · sha 0123456789…');
+equal(uploadMetaLabel(normalizeUploadResponse({})), '');
+
+deepEqual(byteSizeLabel(512), '512 B');
+deepEqual(byteSizeLabel(2048), '2 KB');
+deepEqual(byteSizeLabel(1.5 * 1024 * 1024), '1.5 MB');
+deepEqual(byteSizeLabel(0), '—');
+equal(imageSizeError(512 * 1024, 1), null);
+equal(imageSizeError(2 * 1024 * 1024, 0), null);
+equal(imageSizeError(2 * 1024 * 1024, 1), 'Ảnh 2.0 MB vượt giới hạn 1 MB.');
+
+// Analyze: notes accept camelCase and snake_case; bar falls back to measure.
+const draft = normalizeAnalyzeResponse({
+  ok: true,
+  measures: [{ index: 1, meter: '3/4', key: 'A minor' }, { meter: '' }],
+  notes: [
+    {
+      measure: 1,
+      beat: 0,
+      duration_beats: 1.5,
+      voice_hint: 'upper',
+      written_pitch: 'E4',
+      sounding_pitch: 'E3',
+      string: 1,
+      fret: 0,
+      confidence: 0.91,
+      conflict: false,
+      review: 'pending',
+    },
+    { bar: 4, beat: 2.5, writtenPitch: 'A4', confidence: 91, conflict: true },
+    { garbage: true },
+  ],
+  warnings: ['low contrast'],
+  cached: true,
+  partial: true,
+  skipped_checks: ['pitch', 'playable'],
+});
+equal(draft.ok, true);
+equal(draft.measures.length, 1);
+equal(draft.measures[0]?.meter, '3/4');
+equal(draft.notes.length, 2);
+deepEqual(draft.notes[0], {
+  measure: 1,
+  bar: null,
+  beat: 0,
+  durationBeats: 1.5,
+  voiceHint: 'upper',
+  writtenPitch: 'E4',
+  soundingPitch: 'E3',
+  string: 1,
+  fret: 0,
+  confidence: 0.91,
+  conflict: false,
+  review: 'pending',
+  tie: null,
+  articulation: [],
+});
+equal(draft.notes[1]?.bar, 4);
+equal(draft.notes[1]?.confidence, 0.91);
+equal(draft.notes[1]?.conflict, true);
+deepEqual(draft.warnings, ['low contrast']);
+equal(draft.cached, true);
+equal(draft.partial, true);
+deepEqual(draft.skippedChecks, ['pitch', 'playable']);
+
+deepEqual(normalizeAnalyzeResponse({ warnings: [{ message: 'faint tab' }] }).warnings, [
+  'faint tab',
+]);
+deepEqual(normalizeAnalyzeResponse({}).notes, []);
+equal(normalizeAnalyzeResponse({}).ok, true);
+let analyzeThrew = false;
+try {
+  normalizeAnalyzeResponse(null);
+} catch {
+  analyzeThrew = true;
+}
+equal(analyzeThrew, true);
+
+deepEqual(buildAnalyzeBody('up_1'), { uploadId: 'up_1' });
+deepEqual(buildAnalyzeBody('up_1', {}), { uploadId: 'up_1' });
+deepEqual(buildAnalyzeBody('up_1', { composer: 'Villa' }), {
+  uploadId: 'up_1',
+  metadata: { composer: 'Villa' },
+});
+deepEqual(buildAnalyzeBody('up_1', undefined, { x: 1 }), {
+  uploadId: 'up_1',
+  crop: { x: 1 },
+});
+
+// Confidence buckets drive the table colour and the label.
+equal(confidenceBand(0.91), 'high');
+equal(confidenceBand(0.85), 'high');
+equal(confidenceBand(0.6), 'medium');
+equal(confidenceBand(0.59), 'low');
+equal(confidenceBand(null), 'unknown');
+equal(confidenceBand(Number.NaN), 'unknown');
+equal(confidenceLabel(0.915), '92%');
+equal(confidenceLabel(1.4), '100%');
+equal(confidenceLabel(null), '—');
+
+const draftNote = draft.notes[0]!;
+equal(noteBarLabel(draftNote), '1');
+equal(noteBeatLabel(draftNote), '0');
+equal(noteBeatLabel(draft.notes[1]!), '2.50');
+equal(noteVoiceLabel(draftNote), 'upper');
+equal(noteVoiceLabel({ ...draftNote, voiceHint: null }), '—');
+equal(notePitchLabel(draftNote), 'E4 (E3)');
+equal(notePitchLabel({ ...draftNote, soundingPitch: 'E4' }), 'E4');
+equal(notePositionLabel(draftNote), 's1f0');
+equal(notePositionLabel({ ...draftNote, fret: null }), '');
+
+const rows = draftNoteRows(draft.notes);
+equal(rows.length, 2);
+deepEqual(rows[0], {
+  index: 0,
+  bar: '1',
+  beat: '0',
+  voice: 'upper',
+  pitch: 'E4 (E3)',
+  position: 's1f0',
+  confidence: '91%',
+  band: 'high',
+  conflict: false,
+  review: 'pending',
+});
+equal(rows[1]?.bar, '4');
+equal(rows[1]?.conflict, true);
+equal(draftNoteRows(draft.notes, 1).length, 1);
+
+deepEqual(measureLines(draft.measures), ['m1 · 3/4 · A minor']);
+equal(measureLines([]).length, 0);
+equal(
+  measureLines([{ index: null, meter: null, key: null }])[0],
+  'm1',
+);
+
+const draftJsonText = draftJson(draft);
+const draftJsonParsed = JSON.parse(draftJsonText) as {
+  notes: Array<Record<string, unknown>>;
+  measures: unknown[];
+  warnings: string[];
+};
+equal(draftJsonParsed.notes.length, 2);
+equal(draftJsonParsed.notes[0]?.written_pitch, 'E4');
+equal(draftJsonParsed.notes[0]?.duration_beats, 1.5);
+equal(draftJsonParsed.notes[1]?.bar, 4);
+equal(draftJsonParsed.notes[1]?.conflict, true);
+equal('sounding_pitch' in (draftJsonParsed.notes[1] ?? {}), false);
+deepEqual(draftJsonParsed.warnings, ['low contrast']);
+
+// Session errors map to friendly copy; other statuses keep the generic path.
+equal(parseRetryAfter('12'), 12);
+equal(parseRetryAfter('1.6'), 2);
+equal(parseRetryAfter('later'), null);
+equal(parseRetryAfter(null), null);
+equal(studioSessionError(401, null)?.includes('Reload the page'), true);
+equal(studioSessionError(403, null)?.includes('Reload the page'), true);
+equal(studioSessionError(428, null)?.includes('Reload the page'), true);
+equal(studioSessionError(429, 30), 'Studio quota reached. Try again in 30s.');
+equal(studioSessionError(429, null), 'Studio quota reached. Try again later.');
+equal(studioSessionError(500, 30), null);
+
+// Session id shape, validation, and stable load through an injected store.
+const shape = /^st_[a-z0-9]{16,}$/;
+if (!shape.test(newStudioSession())) throw new Error('session shape is wrong');
+const ids = new Set(Array.from({ length: 50 }, () => newStudioSession()));
+equal(ids.size, 50);
+equal(normalizeStudioSession('  st_abcdef123456  '), 'st_abcdef123456');
+equal(normalizeStudioSession('short'), null);
+equal(normalizeStudioSession('has space in it'), null);
+equal(normalizeStudioSession(42), null);
+deepEqual(sessionHeader('st_abcdef123456'), {
+  [STUDIO_SESSION_HEADER]: 'st_abcdef123456',
+});
+deepEqual(sessionHeader(null), {});
+deepEqual(sessionHeader('bad'), {});
+equal(sessionLabel('st_abcdef123456'), 'st_abcdef1…');
+equal(sessionLabel(null), 'no session');
+
+type FakeStore = {
+  value: string | null;
+  writes: Array<{ key: string; value: string }>;
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+};
+
+function fakeStore(initial: string | null, failRead = false, failWrite = false): FakeStore {
+  const store: FakeStore = {
+    value: initial,
+    writes: [],
+    async getItem(key: string) {
+      if (failRead) throw new Error('read failed');
+      equal(key, STUDIO_SESSION_KEY);
+      return store.value;
+    },
+    async setItem(key: string, value: string) {
+      if (failWrite) throw new Error('write failed');
+      equal(key, STUDIO_SESSION_KEY);
+      store.writes.push({ key, value });
+      store.value = value;
+    },
+  };
+  return store;
+}
+
+async function sessionPersistenceTests(): Promise<void> {
+  const existing = 'st_existing123456';
+  const reused = fakeStore(existing);
+  equal(await loadStudioSession(reused), existing);
+  equal(reused.writes.length, 0);
+
+  const fresh = fakeStore(null);
+  const created = await loadStudioSession(fresh);
+  if (!shape.test(created)) throw new Error('created session shape is wrong');
+  equal(fresh.writes.length, 1);
+  equal(fresh.writes[0]?.value, created);
+  equal(await loadStudioSession(fresh), created);
+
+  const brokenRead = fakeStore(null, true);
+  const fromBrokenRead = await loadStudioSession(brokenRead);
+  if (!shape.test(fromBrokenRead)) throw new Error('broken-read session shape is wrong');
+
+  const brokenWrite = fakeStore(null, false, true);
+  const fromBrokenWrite = await loadStudioSession(brokenWrite);
+  if (!shape.test(fromBrokenWrite)) throw new Error('broken-write session shape is wrong');
+}
+
+void sessionPersistenceTests()
+  .then(() => {
+    console.log('studio tests passed');
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

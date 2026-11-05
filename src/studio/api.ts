@@ -1,9 +1,12 @@
 import { getApiBaseUrl } from '../api/client';
 import {
+  buildAnalyzeBody,
   buildAudioBody,
   buildAudioHashBody,
   buildPreviewBody,
   buildValidateBody,
+  normalizeAccessResponse,
+  normalizeAnalyzeResponse,
   normalizeAudioResponse,
   normalizeErrors,
   normalizeExamplesResponse,
@@ -12,7 +15,12 @@ import {
   normalizePublishedSpecResponse,
   normalizeRollbackResponse,
   normalizeSpecsResponse,
+  normalizeUploadResponse,
   normalizeValidateResponse,
+  parseRetryAfter,
+  studioSessionError,
+  type StudioAccess,
+  type StudioAnalyzeDraft,
   type StudioAudioResponse,
   type StudioExamplesResponse,
   type StudioPreviewResponse,
@@ -20,10 +28,16 @@ import {
   type StudioPublishedSpec,
   type StudioPublishedSpecDetail,
   type StudioRollbackResponse,
+  type StudioUpload,
   type StudioValidateResponse,
 } from './protocol';
+import { studioSessionHeaders } from './sessionStorage';
 
 export type {
+  StudioAccess,
+  StudioAnalysisMeasure,
+  StudioAnalysisNote,
+  StudioAnalyzeDraft,
   StudioAudioResponse,
   StudioError,
   StudioExample,
@@ -32,7 +46,9 @@ export type {
   StudioPublishResponse,
   StudioPublishedSpec,
   StudioPublishedSpecDetail,
+  StudioQuota,
   StudioRollbackResponse,
+  StudioUpload,
   StudioValidateResponse,
 } from './protocol';
 
@@ -82,6 +98,31 @@ export function studioSentenceRollbackUrl(id: string): string {
   return `${studioSentenceSpecUrl(id)}/rollback`;
 }
 
+/**
+ * Phase 1 Studio endpoints (parallel backend workstream). `/access` gates the
+ * upload/analyze panel; the other two live under the same prefix as the table
+ * in docs §11.3. Override the prefix in one place with
+ * `EXPO_PUBLIC_MUSICALIZE_STUDIO_PREFIX`.
+ */
+export const DEFAULT_MUSICALIZE_STUDIO_PREFIX = '/v1/musicalize/studio';
+
+export const MUSICALIZE_STUDIO_PREFIX = (
+  process.env.EXPO_PUBLIC_MUSICALIZE_STUDIO_PREFIX ??
+  DEFAULT_MUSICALIZE_STUDIO_PREFIX
+).replace(/\/+$/, '');
+
+export function studioAccessUrl(): string {
+  return `${getApiBaseUrl()}${MUSICALIZE_STUDIO_PREFIX}/access`;
+}
+
+export function studioUploadsUrl(): string {
+  return `${getApiBaseUrl()}${MUSICALIZE_STUDIO_PREFIX}/uploads`;
+}
+
+export function studioAnalyzeUrl(): string {
+  return `${getApiBaseUrl()}${MUSICALIZE_STUDIO_PREFIX}/analyze`;
+}
+
 function truncate(text: string, limit = 240): string {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
@@ -99,12 +140,24 @@ async function readStudioResponse(res: Response, text: string): Promise<unknown>
   if (!res.ok) {
     const errors = normalizeErrors(parsed);
     if (errors.length) return { ok: false, errors };
+    const sessionMessage = studioSessionError(
+      res.status,
+      parseRetryAfter(res.headers.get('retry-after')),
+    );
+    if (sessionMessage) throw new Error(sessionMessage);
     throw new Error(
       `Studio API ${res.status}: ${truncate(text) || res.statusText || 'request failed'}`,
     );
   }
 
   return parsed;
+}
+
+/** Session header on every Studio call (docs §11.3: all but `/access`). */
+async function studioHeaders(
+  extra: Record<string, string> = {},
+): Promise<Record<string, string>> {
+  return { ...(await studioSessionHeaders()), ...extra };
 }
 
 async function postStudioUrl(
@@ -114,7 +167,7 @@ async function postStudioUrl(
 ): Promise<unknown> {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: await studioHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(body),
     signal,
   });
@@ -135,8 +188,74 @@ async function getStudio(
 ): Promise<unknown> {
   // Published versions and examples must not come from a stale HTTP cache
   // right after a publish/refresh.
-  const res = await fetch(url, { signal, cache: 'no-store' });
+  const res = await fetch(url, {
+    headers: await studioHeaders(),
+    signal,
+    cache: 'no-store',
+  });
   return readStudioResponse(res, await res.text());
+}
+
+/** Capability gate + per-session quota for the Studio. */
+export async function fetchStudioAccess(
+  signal?: AbortSignal,
+): Promise<StudioAccess> {
+  return normalizeAccessResponse(await getStudio(studioAccessUrl(), signal));
+}
+
+/** The browser's File/Blob; native pickers are out of scope in this pass. */
+export type StudioUploadOptions = {
+  /** Overrides `File.name` (useful when a canvas blob has no name). */
+  filename?: string;
+  signal?: AbortSignal;
+};
+
+function uploadFilename(file: Blob): string {
+  if (typeof File !== 'undefined' && file instanceof File && file.name.trim()) {
+    return file.name;
+  }
+  return 'spectrum.png';
+}
+
+/**
+ * `POST /uploads` as multipart field `file` plus `X-Studio-Session`.
+ * The browser sets the multipart boundary, so no `content-type` header here.
+ */
+export async function uploadStudioImage(
+  file: Blob,
+  options: StudioUploadOptions = {},
+): Promise<StudioUpload> {
+  if (typeof FormData === 'undefined') {
+    throw new Error('Image upload needs a browser File/FormData runtime.');
+  }
+  const form = new FormData() as unknown as {
+    append(name: string, value: Blob, filename?: string): void;
+  };
+  form.append('file', file, options.filename ?? uploadFilename(file));
+  const res = await fetch(studioUploadsUrl(), {
+    method: 'POST',
+    headers: await studioSessionHeaders(),
+    body: form as unknown as BodyInit,
+    signal: options.signal,
+  });
+  return normalizeUploadResponse(await readStudioResponse(res, await res.text()));
+}
+
+/**
+ * `POST /analyze` for one uploaded image. The response is a TextureSpec note
+ * draft; it is never loaded into the SentenceSpec editor automatically.
+ */
+export async function analyzeStudioImage(
+  uploadId: string,
+  metadata?: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<StudioAnalyzeDraft> {
+  const body = await postStudioUrl(
+    studioAnalyzeUrl(),
+    buildAnalyzeBody(uploadId, metadata),
+    signal,
+  );
+  return normalizeAnalyzeResponse(body);
 }
 
 /** Validate one spec mapping. Returns contract errors instead of throwing. */
