@@ -271,8 +271,16 @@ def test_media_token_valid_expired_and_wrong_resource() -> None:
         studio_session.verify_media_token(token, "upload-1", now=expires_at + 1)
     assert expired.value.code == "expired"
 
+    # Mutate the first signature character, not the last: base64 ignores the
+    # low padding bits of the final character, so a last-character change can
+    # decode to the same bytes and make this assertion flaky.
+    signature_start = token.index(".") + 1
+    replacement = "A" if token[signature_start] != "A" else "B"
+    tampered_token = (
+        token[:signature_start] + replacement + token[signature_start + 1 :]
+    )
     with pytest.raises(studio_session.TokenError) as tampered:
-        studio_session.verify_media_token(token[:-1] + "x", "upload-1", now=1001)
+        studio_session.verify_media_token(tampered_token, "upload-1", now=1001)
     assert tampered.value.code == "bad_signature"
 
     with pytest.raises(studio_session.TokenError) as other:
