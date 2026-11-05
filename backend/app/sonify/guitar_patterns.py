@@ -3389,6 +3389,20 @@ def render_patterned_voices(
         return [], [], [], 2
     _TRACE_OWNED.set([])
     _TRACE_SUPPRESS.set(set())
+    # Feature-gated *La Catedral* period. Off by default, so this branch is not
+    # taken and the existing Barrios path below stays byte-identical. On, it
+    # replaces the movement only when a 12-bar 4/4 plan covers every bar; every
+    # other case falls through to the same path.
+    if ctx.ensemble == "barrios":
+        from app.sonify.guitar_barrios_period import (
+            barrios_period_enabled,
+            render_period,
+        )
+
+        if barrios_period_enabled():
+            period = render_period(ctx)
+            if period is not None:
+                return period
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
     lead: list[NoteEvent] = []
