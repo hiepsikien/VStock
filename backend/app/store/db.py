@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS studio_sentence_specs (
     payload TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'published',
     created_at TEXT NOT NULL,
+    rollback_of TEXT,
     UNIQUE(pattern, meter, version)
 );
 
@@ -127,6 +128,10 @@ _FUNDAMENTALS_EXTRA_COLUMNS = (
     ("dividend_yield", "REAL"),
 )
 
+# Nullable lineage column: old rows read as "not a rollback" and new writes stay
+# additive, so `ALTER TABLE ... ADD COLUMN` is enough on an existing database.
+_STUDIO_SENTENCE_SPEC_EXTRA_COLUMNS = (("rollback_of", "TEXT"),)
+
 
 async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
     cursor = await db.execute("PRAGMA table_info(fundamentals)")
@@ -134,6 +139,14 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
     for col, col_type in _FUNDAMENTALS_EXTRA_COLUMNS:
         if col not in existing:
             await db.execute(f"ALTER TABLE fundamentals ADD COLUMN {col} {col_type}")
+
+    cursor = await db.execute("PRAGMA table_info(studio_sentence_specs)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for col, col_type in _STUDIO_SENTENCE_SPEC_EXTRA_COLUMNS:
+        if col not in existing:
+            await db.execute(
+                f"ALTER TABLE studio_sentence_specs ADD COLUMN {col} {col_type}"
+            )
     await db.commit()
 
 

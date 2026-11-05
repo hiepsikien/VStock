@@ -37,7 +37,12 @@ class PublishResponse(BaseModel):
     pattern: str | None = None
     meter: str | None = None
     version: int | None = None
+    rollbackOf: str | None = None
     errors: list[SpecErrorOut] = Field(default_factory=list)
+
+
+class RollbackResponse(PublishResponse):
+    """`rollbackOf` names the source version the new version copies."""
 
 
 class PublishedSpecSummary(BaseModel):
@@ -47,6 +52,7 @@ class PublishedSpecSummary(BaseModel):
     version: int
     status: str
     createdAt: str
+    rollbackOf: str | None = None
 
 
 class SpecsResponse(BaseModel):
@@ -123,3 +129,45 @@ async def get_sentence_spec(
     if record is None:
         raise HTTPException(status_code=404, detail="published spec not found")
     return PublishedSpecResponse(**record)
+
+
+@router.post(
+    "/sentence/specs/{spec_id}/rollback",
+    response_model=RollbackResponse,
+    response_model_exclude_none=True,
+    response_model_exclude_defaults=True,
+)
+async def rollback_sentence_spec(
+    spec_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> RollbackResponse:
+    """Republish an old version as the next version; never mutate the old row."""
+    record = await publish.get_spec(db, spec_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="published spec not found")
+
+    # The stored payload passed validation when it was published, but family
+    # rules can tighten later, so re-parse and re-validate before copying it.
+    try:
+        spec = parse_spec(record["payload"])
+    except _PARSE_ERRORS as exc:
+        return RollbackResponse(ok=False, errors=[_spec_error(exc)])
+
+    errors = [
+        SpecErrorOut(path=error.path, message=error.message)
+        for error in dispatch.validate(spec)
+    ]
+    if errors:
+        return RollbackResponse(ok=False, errors=errors)
+
+    new_record = await publish.rollback_spec(db, spec, spec_id)
+    if new_record is None:  # pragma: no cover - the row was just read
+        raise HTTPException(status_code=404, detail="published spec not found")
+    return RollbackResponse(
+        ok=True,
+        id=new_record["id"],
+        pattern=new_record["pattern"],
+        meter=new_record["meter"],
+        version=new_record["version"],
+        rollbackOf=new_record["rollbackOf"],
+    )
