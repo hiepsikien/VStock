@@ -296,7 +296,7 @@ def test_rollback_rejects_a_stored_payload_that_fails_family_validation(
 
     data = _rollback(client, "legacy-unknown-family")
     assert data["ok"] is False
-    assert data["errors"][0]["path"] == "spec.pattern"
+    assert data["errors"][0]["path"] == "pattern"
     assert "unknown pattern" in data["errors"][0]["message"]
 
     # Nothing was appended; the rejected source remains the only row.
