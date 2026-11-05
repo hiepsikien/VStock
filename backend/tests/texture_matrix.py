@@ -1,15 +1,18 @@
 """Deterministic builders for the Phase 0 selection and render matrices.
 
-The two fixtures are golden artifacts, not runtime inputs:
+The three fixtures are golden artifacts, not runtime inputs:
 
 * `sentence_selection_matrix.json` records what `plan_sentence`/`plan_run` pick
   for every registered `(pattern, meter)` over one bounded grid, plus one row
   per Villa/Barrios/Brouwer candidate from its preview plan.
+* `pattern_selection_matrix.json` drives the pattern-level chooser
+  (`_select_body` or the real `_patterns` path) with one deterministic witness
+  per `(ensemble, pattern)` in `PROFILES`, plus the frame-path `pedal` id.
 * `render_matrix.json` renders one canonical selection per registered
   archetype and per candidate through the real Studio preview path. Notes are
   never hand-built here.
 
-Both builders are pure functions of the committed code. The tests compare the
+All builders are pure functions of the committed code. The tests compare the
 committed JSON with a fresh build; there is no `--update` path on purpose, so a
 drift must be reviewed and committed by hand.
 """
@@ -20,6 +23,10 @@ import importlib
 from typing import Any, Mapping
 
 from app.sonify import sentence_specs
+from app.sonify.form import FormSection
+from app.sonify.guitar_patterns import _patterns, _select_body
+from app.sonify.guitar_wave import PROFILES
+from app.sonify.params import DEFAULT_PARAMS, compose_params
 from app.sonify.sentence_specs import SENTENCE_SPECS, SentenceSpec
 from app.studio import barrios_preview, brouwer_preview, preview, villa_preview
 from app.studio.barrios_preview import preview_barrios_period
@@ -27,12 +34,16 @@ from app.studio.brouwer_preview import preview_brouwer_sentence
 from app.studio.candidates import barrios_cathedral_spec, villa_candidate_spec
 from app.studio.candidates.brouwer import brouwer_aba_spec
 from app.studio.villa_preview import preview_villa_sentence
+from tests.guitar_fixture import meter_named, pattern_case
 
 MATRIX_VERSION = 1
 FIXTURE_VERSION = 1
 RENDERER_VERSION = 1
 SELECTION_KIND = "sentence-selection"
+PATTERN_SELECTION_KIND = "pattern-selection"
 RENDER_KIND = "sentence-render"
+PATTERN_MATRIX_VERSION = 1
+PATTERN_PHASE = "current"
 
 LENGTHS = tuple(range(1, 13))
 NS = (0, 1, 2, 3)
@@ -209,6 +220,311 @@ def selection_payload() -> dict[str, Any]:
         "grid": _grid_axes(),
         "rows": _registered_rows(),
         "candidates": _candidate_rows(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# pattern selection matrix
+
+# The witness grid is walked in this exact order; the first input that makes
+# the real chooser return a profile id becomes that id's row. Reordering an
+# axis rewrites the fixture, which is a review event, not a silent update.
+PATTERN_METERS = ("3/4", "4/4", "6/8")
+PATTERN_MOODS: tuple[str | None, ...] = ("calm", "rally", "selloff", "volatile", None)
+PATTERN_BANDS = ("mf", "p", "f")
+PATTERN_BPMS = (96, 84, 108, 72, 60, 120)
+PATTERN_FIRST_BODY = (True, False)
+PATTERN_PREVIOUS = ((), ("tremolo", "tremolo"))
+PATTERN_REL_SPANS = (0.02, 0.004)
+PATTERN_BARS = 8
+PATTERN_DRIVERS = ("select_body", "patterns")
+PATTERN_SECTION_VARIANTS = ("none", "trio", "bridge", "framed", "pedal")
+
+# `pedal` is the frame path, not an ensemble-owned body row. The star keeps it
+# out of the PROFILES pair coverage while still recording a real `_patterns`
+# hit; the id itself is in `_FAMILY`, so leaving it out would be dead data.
+FRAME_ENSEMBLE = "*"
+PROBE_PATTERN = "probe"
+
+# An id in `PROFILES` that no selection rule can emit. The dead-code test
+# requires a reason here; the row records the deterministic probe it ran and
+# the pattern that probe actually selected, so the gap stays inspectable.
+PATTERN_UNREACHABLE_REASONS = {
+    "sonatina": (
+        "no Torroba selector emits sonatina: TORROBA_PRIMARY_RULES and "
+        "TORROBA_CONTRAST_RULES never return it, and the technique knob in "
+        "_dominant_pattern returns castillo/torroba_tremolo/danza. The only "
+        "sonatina returns are naming fallbacks in _owning_pattern, "
+        "_fallback_body_pattern, and headline_id, not selection. Its sentence "
+        "specs belong to the sentence-level matrix."
+    ),
+}
+
+
+def _section_row(section: FormSection) -> dict[str, Any]:
+    return {
+        "start": section.start,
+        "end": section.end,
+        "kind": section.kind,
+        "regime_slot": section.regime_slot,
+        "bridge": bool(section.bridge),
+        "trio": bool(section.trio),
+    }
+
+
+def _section_from_row(row: Mapping[str, Any]) -> FormSection:
+    return FormSection(
+        int(row["start"]),
+        int(row["end"]),
+        str(row["kind"]),
+        int(row["regime_slot"]),
+        bridge=bool(row["bridge"]),
+        trio=bool(row["trio"]),
+    )
+
+
+def _variant(
+    name: str, bars: int, first_body: bool
+) -> tuple[dict | None, list[dict] | None]:
+    """One form variant, as JSON-able rows: a single section or a whole form."""
+    slot = 0 if first_body else 1
+    if name == "none":
+        return None, None
+    if name == "trio":
+        return _section_row(FormSection(0, bars, "phrase", slot, trio=True)), None
+    if name == "bridge":
+        return _section_row(FormSection(0, bars, "phrase", slot, bridge=True)), None
+    if name == "framed":
+        return None, [
+            _section_row(FormSection(0, 1, "intro", 0)),
+            _section_row(FormSection(1, bars, "phrase", slot)),
+        ]
+    if name == "pedal":
+        return None, [_section_row(FormSection(0, bars, "intro", slot))]
+    raise AssertionError(f"unknown pattern-matrix section variant {name!r}")
+
+
+def _pattern_inputs(ensemble: str):
+    """Deterministic candidate inputs for one ensemble, in witness order.
+
+    A single phrase is enough: the phrase selector reads `first_body`,
+    `previous`, and the section beside the context, and the macro selector
+    reads the framed form. `sections=` is only used with the full `_patterns`
+    path; `section=` only with `_select_body`, mirroring production.
+    """
+    for driver in PATTERN_DRIVERS:
+        for meter in PATTERN_METERS:
+            for mood in PATTERN_MOODS:
+                for band in PATTERN_BANDS:
+                    for bpm in PATTERN_BPMS:
+                        for first_body in PATTERN_FIRST_BODY:
+                            for previous in PATTERN_PREVIOUS:
+                                for rel_span in PATTERN_REL_SPANS:
+                                    for variant in PATTERN_SECTION_VARIANTS:
+                                        if driver == "select_body" and variant in {
+                                            "framed",
+                                            "pedal",
+                                        }:
+                                            continue
+                                        if driver == "patterns" and variant not in {
+                                            "framed",
+                                            "pedal",
+                                        }:
+                                            continue
+                                        section, sections = _variant(
+                                            variant, PATTERN_BARS, first_body
+                                        )
+                                        yield {
+                                            "ensemble": ensemble,
+                                            "pattern": PROBE_PATTERN,
+                                            "driver": driver,
+                                            "meter": meter,
+                                            "mood": mood,
+                                            "band": band,
+                                            "bpm": bpm,
+                                            "bars": PATTERN_BARS,
+                                            "first_body": first_body,
+                                            "previous": list(previous),
+                                            "section": section,
+                                            "sections": sections,
+                                            "rel_span": rel_span,
+                                        }
+
+
+def _ctx_from_input(row: Mapping[str, Any]):
+    section = (
+        _section_from_row(row["section"]) if row["section"] is not None else None
+    )
+    sections = (
+        [_section_from_row(item) for item in row["sections"]]
+        if row["sections"] is not None
+        else None
+    )
+    return pattern_case(
+        str(row["pattern"]),
+        meter_named(str(row["meter"])),
+        ensemble=str(row["ensemble"]),
+        mood=row["mood"],
+        band=str(row["band"]),
+        bpm=int(row["bpm"]),
+        bars=int(row["bars"]),
+        first_body=bool(row["first_body"]),
+        previous=[str(item) for item in row["previous"]],
+        section=section,
+        sections=sections,
+        rel_span=float(row["rel_span"]),
+    )
+
+
+def run_pattern_input(row: Mapping[str, Any]) -> tuple[str, str]:
+    """Run one matrix row through the real chooser; return `(selected, ctx_kind)`.
+
+    `select_body` is the per-phrase selector and takes the three selection
+    inputs explicitly. `patterns` is the renderer's dispatcher, so a framed
+    row reaches `_assign_macro`/`_dominant_pattern_auto` unchanged.
+    """
+    data = row["input"]
+    driver = row["driver"]
+    ctx, phrases = _ctx_from_input(data)
+    if driver == "select_body":
+        section = ctx.section(phrases[0].start // max(ctx.epb, 1))
+        selected = _select_body(
+            ctx,
+            phrases[0],
+            first_body=bool(data["first_body"]),
+            previous=[str(item) for item in data["previous"]],
+            section=section,
+        )
+    elif driver == "patterns":
+        chosen = _patterns(ctx)
+        if len(chosen) != 1:
+            raise AssertionError(
+                f"pattern matrix expects one phrase, got {len(chosen)} selections"
+            )
+        selected = chosen[0]
+    else:
+        raise AssertionError(f"unknown pattern-matrix driver {driver!r}")
+    return selected, ctx.kind
+
+
+def _run_probe(probe: Mapping[str, Any]) -> tuple[str, str]:
+    """Run a flat candidate input by wrapping it in the matrix row shape."""
+    return run_pattern_input({"driver": probe["driver"], "input": probe})
+
+
+def _pattern_witnesses(ensemble: str) -> dict[str, tuple[dict[str, Any], str]]:
+    """First deterministic input that selects each id, for one ensemble."""
+    found: dict[str, tuple[dict[str, Any], str]] = {}
+    for probe in _pattern_inputs(ensemble):
+        selected, kind = _run_probe(probe)
+        found.setdefault(selected, (probe, kind))
+    return found
+
+
+def _pattern_row(
+    probe: Mapping[str, Any],
+    *,
+    target: str,
+    selected: str | None,
+    ctx_kind: str,
+    expected_empty: bool,
+    observed: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "phase": PATTERN_PHASE,
+        "driver": str(probe["driver"]),
+        "input": {
+            **{key: value for key, value in probe.items() if key != "driver"},
+            "pattern": target,
+        },
+        "ctx_kind": ctx_kind,
+        "selected_pattern": selected,
+        "selected_sentence": None,
+        "expected_empty": expected_empty,
+    }
+    if expected_empty:
+        row["observed_pattern"] = observed
+        row["reason"] = reason
+    return row
+
+
+def _pattern_rows() -> list[dict[str, Any]]:
+    witnesses: dict[str, dict[str, tuple[dict[str, Any], str]]] = {}
+    rows: list[dict[str, Any]] = []
+    for ensemble, pattern in sorted(PROFILES):
+        if ensemble not in witnesses:
+            witnesses[ensemble] = _pattern_witnesses(ensemble)
+        found = witnesses[ensemble]
+        if pattern in found:
+            probe, kind = found[pattern]
+            rows.append(
+                _pattern_row(
+                    probe,
+                    target=pattern,
+                    selected=pattern,
+                    ctx_kind=kind,
+                    expected_empty=False,
+                )
+            )
+            continue
+        reason = PATTERN_UNREACHABLE_REASONS.get(pattern)
+        if reason is None:
+            raise AssertionError(
+                f"{(ensemble, pattern)} has no witness and no expected_empty reason"
+            )
+        canonical = next(_pattern_inputs(ensemble))
+        observed, kind = _run_probe(canonical)
+        rows.append(
+            _pattern_row(
+                canonical,
+                target=pattern,
+                selected=None,
+                ctx_kind=kind,
+                expected_empty=True,
+                observed=observed,
+                reason=reason,
+            )
+        )
+
+    frame = _pattern_witnesses(FRAME_ENSEMBLE)
+    if "pedal" not in frame:
+        raise AssertionError("the frame path no longer selects pedal")
+    probe, kind = frame["pedal"]
+    rows.append(
+        _pattern_row(
+            probe,
+            target="pedal",
+            selected="pedal",
+            ctx_kind=kind,
+            expected_empty=False,
+        )
+    )
+    rows.sort(key=lambda row: (row["input"]["ensemble"], row["input"]["pattern"]))
+    return rows
+
+
+def pattern_payload() -> dict[str, Any]:
+    """The exact JSON body for `pattern_selection_matrix.json`."""
+    with compose_params(DEFAULT_PARAMS):
+        rows = _pattern_rows()
+    return {
+        "version": PATTERN_MATRIX_VERSION,
+        "kind": PATTERN_SELECTION_KIND,
+        "phase": PATTERN_PHASE,
+        "grid": {
+            "drivers": list(PATTERN_DRIVERS),
+            "meters": list(PATTERN_METERS),
+            "moods": list(PATTERN_MOODS),
+            "bands": list(PATTERN_BANDS),
+            "bpms": list(PATTERN_BPMS),
+            "first_body": list(PATTERN_FIRST_BODY),
+            "previous": [list(item) for item in PATTERN_PREVIOUS],
+            "rel_span": list(PATTERN_REL_SPANS),
+            "bars": PATTERN_BARS,
+            "sections": list(PATTERN_SECTION_VARIANTS),
+        },
+        "rows": rows,
     }
 
 
