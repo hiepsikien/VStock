@@ -3403,6 +3403,18 @@ def render_patterned_voices(
             period = render_period(ctx)
             if period is not None:
                 return period
+    from app.sonify.micro_velocity_writer import (
+        apply_etude1,
+        apply_etude11,
+        apply_tremolo,
+        begin_occurrences,
+        check_occurrences,
+        reset_occurrences,
+        writers_enabled,
+    )
+
+    micro_velocity_writers = writers_enabled()
+    micro_velocity_token = begin_occurrences() if micro_velocity_writers else None
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
     lead: list[NoteEvent] = []
@@ -3423,6 +3435,16 @@ def render_patterned_voices(
             ctx.mid_high,
             phrases,
         )
+        if micro_velocity_writers:
+            rebuilt = apply_tremolo(
+                trem_lead,
+                trem_inner,
+                trem_bass,
+                meter_kind=ctx.kind,
+                bars=tremolo_bars,
+            )
+            if rebuilt is not None:
+                trem_lead, trem_inner, trem_bass = rebuilt
     else:
         trem_lead, trem_inner, trem_bass = (), (), ()
     rendered: set[int] = set()
@@ -3511,6 +3533,8 @@ def render_patterned_voices(
             part_lead, part_support, part_low = _render_etude1_bar(
                 ctx, bar, phrase_here, _leaving_pattern(ctx, bar, patterns)
             )
+            if micro_velocity_writers and ctx.kind == "4/4":
+                part_support = apply_etude1(part_support, origin_bar=bar)
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -3518,6 +3542,13 @@ def render_patterned_voices(
             part_lead, part_support, part_low = _render_etude11_bar(
                 ctx, bar, phrase_here, _leaving_pattern(ctx, bar, patterns)
             )
+            if micro_velocity_writers and ctx.kind == "4/4":
+                part_support = apply_etude11(
+                    part_support,
+                    origin_bar=bar,
+                    hairpin_at=_etude11_hairpin_at(part_lead),
+                    band_at=lambda event: ctx.band(event.bar),
+                )
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -3879,6 +3910,11 @@ def render_patterned_voices(
     from app.sonify.guitar_wave import _apply_fans
 
     lead, support, low = _apply_fans(ctx, lead, support, low, patterns)
+    if micro_velocity_writers:
+        try:
+            check_occurrences([*lead, *support, *low])
+        finally:
+            reset_occurrences(micro_velocity_token)
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Bach's mordent, bariolage, and scale runs are sixteenth figures. When any
     # voice asks for that grid, the engraving stays at division 4.
@@ -3911,6 +3947,28 @@ def render_patterned_voices(
         _fill(low, musical_bars, epb, 3),
         divisions,
     )
+
+
+def _etude11_hairpin_at(lead: list[NoteEvent]):
+    """The written lead level at each quarter, keyed for the Étude No. 11 rule.
+
+    The rule reads `hairpin` at the quarter's first attack. Only accented lead
+    attacks on a whole beat are that level; the half-beat echo is `hairpin - 8`
+    and must not be mistaken for it.
+    """
+    written = {
+        int(round(event.beat)): event.velocity
+        for event in lead
+        if event.midi is not None
+        and event.velocity is not None
+        and event.accent
+        and abs(event.beat - round(event.beat)) <= 1e-9
+    }
+
+    def hairpin_at(event: NoteEvent) -> int | None:
+        return written.get(int(math.floor(event.beat + 1e-9)))
+
+    return hairpin_at
 
 
 def _leaving_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> bool:
