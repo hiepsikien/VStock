@@ -2,10 +2,12 @@ import {
   buildAnalyzeBody,
   buildAudioBody,
   buildAudioHashBody,
+  buildJobBody,
   buildPreviewBody,
   buildTextureValidateBody,
   buildValidateBody,
   cropField,
+  DEFAULT_JOB_RETRY_SEC,
   emptyStudioQuota,
   normalizeAccessResponse,
   normalizeAnalyzeResponse,
@@ -13,6 +15,8 @@ import {
   normalizeAudioResponse,
   normalizeErrors,
   normalizeExamplesResponse,
+  normalizeJobAcceptedResponse,
+  normalizeJobPollResponse,
   normalizePreviewResponse,
   normalizePublishResponse,
   normalizePublishedSpecResponse,
@@ -21,6 +25,7 @@ import {
   normalizeTextureValidateResponse,
   normalizeUploadResponse,
   normalizeValidateResponse,
+  nextJobPollDelayMs,
   parseRetryAfter,
   resolveAudioUrl,
   studioSessionError,
@@ -1501,6 +1506,104 @@ deepEqual(sessionHeader(null), {});
 deepEqual(sessionHeader('bad'), {});
 equal(sessionLabel('st_abcdef123456'), 'st_abcdef1…');
 equal(sessionLabel(null), 'no session');
+
+// Phase 1 job queue: 202 accepted, 409 pending with Retry-After, 200 done.
+deepEqual(buildJobBody('validate', DEFAULT_SAMPLE.spec), {
+  kind: 'validate',
+  spec: DEFAULT_SAMPLE.spec,
+});
+deepEqual(buildJobBody('preview', DEFAULT_SAMPLE.spec, { length: 4 }), {
+  kind: 'preview',
+  spec: DEFAULT_SAMPLE.spec,
+  fixture: { length: 4 },
+});
+
+deepEqual(
+  normalizeJobAcceptedResponse({ ok: true, jobId: 'job_abc', status: 'queued' }),
+  { jobId: 'job_abc', status: 'queued' },
+);
+deepEqual(
+  normalizeJobAcceptedResponse({ job_id: 'job_snake', status: 'running' }),
+  { jobId: 'job_snake', status: 'running' },
+);
+let acceptedThrew = false;
+try {
+  normalizeJobAcceptedResponse({ ok: true });
+} catch {
+  acceptedThrew = true;
+}
+equal(acceptedThrew, true);
+
+deepEqual(
+  normalizeJobPollResponse({ ok: false, jobId: 'job_abc', status: 'running' }, 409, 2),
+  { kind: 'pending', jobId: 'job_abc', status: 'running', retryAfterSec: 2 },
+);
+deepEqual(
+  normalizeJobPollResponse({ ok: false, jobId: 'job_abc', status: 'queued' }, 409),
+  {
+    kind: 'pending',
+    jobId: 'job_abc',
+    status: 'queued',
+    retryAfterSec: DEFAULT_JOB_RETRY_SEC,
+  },
+);
+
+const doneJob = normalizeJobPollResponse(
+  {
+    ok: true,
+    jobId: 'job_abc',
+    status: 'ok',
+    result: {
+      ok: true,
+      errors: [],
+      plan: [{ start: 0 }],
+      row: ['x'],
+      notes: [],
+      renderHash: 'sha256:abc',
+      matrix: [],
+    },
+  },
+  200,
+);
+if (!doneJob || doneJob.kind !== 'done' || !doneJob.result) {
+  throw new Error('expected a completed job result');
+}
+equal(doneJob.result.renderHash, 'sha256:abc');
+deepEqual(doneJob.result.plan, [{ start: 0 }]);
+deepEqual(doneJob.errors, []);
+
+deepEqual(
+  normalizeJobPollResponse(
+    {
+      ok: false,
+      jobId: 'job_abc',
+      status: 'error',
+      errors: [{ path: 'preview', message: 'boom' }],
+    },
+    200,
+  ),
+  {
+    kind: 'done',
+    jobId: 'job_abc',
+    status: 'error',
+    result: null,
+    errors: [{ path: 'preview', message: 'boom' }],
+  },
+);
+equal(normalizeJobPollResponse({}, 200), null);
+equal(
+  normalizeJobPollResponse({ ok: true, jobId: 'job_abc', status: 'weird' }, 200),
+  null,
+);
+
+// Backoff starts at 300 ms, doubles to a 5 s cap, and honours Retry-After.
+equal(nextJobPollDelayMs(0), 300);
+equal(nextJobPollDelayMs(1), 600);
+equal(nextJobPollDelayMs(2), 1200);
+equal(nextJobPollDelayMs(4), 4800);
+equal(nextJobPollDelayMs(99), 4800);
+equal(nextJobPollDelayMs(0, 2), 2000);
+equal(nextJobPollDelayMs(3, 99), 5000);
 
 type FakeStore = {
   value: string | null;

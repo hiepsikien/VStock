@@ -3,6 +3,7 @@ import {
   buildAnalyzeBody,
   buildAudioBody,
   buildAudioHashBody,
+  buildJobBody,
   buildPreviewBody,
   buildTextureValidateBody,
   buildValidateBody,
@@ -12,6 +13,8 @@ import {
   normalizeErrors,
   normalizeDeleteUploadResponse,
   normalizeExamplesResponse,
+  normalizeJobAcceptedResponse,
+  normalizeJobPollResponse,
   normalizePreviewResponse,
   normalizePublishResponse,
   normalizePublishedSpecResponse,
@@ -28,6 +31,9 @@ import {
   type StudioDeleteUpload,
   type StudioAudioResponse,
   type StudioExamplesResponse,
+  type StudioJobAccepted,
+  type StudioJobKind,
+  type StudioJobPoll,
   type StudioPreviewResponse,
   type StudioPublishResponse,
   type StudioPublishedSpec,
@@ -48,6 +54,12 @@ export type {
   StudioError,
   StudioExample,
   StudioExamplesResponse,
+  StudioJobAccepted,
+  StudioJobDone,
+  StudioJobKind,
+  StudioJobPending,
+  StudioJobPoll,
+  StudioJobStatus,
   StudioPreviewResponse,
   StudioPublishResponse,
   StudioPublishedSpec,
@@ -112,6 +124,24 @@ export function studioTextureValidateUrl(): string {
 /** Roll back to a published version by creating a new version from its payload. */
 export function studioSentenceRollbackUrl(id: string): string {
   return `${studioSentenceSpecUrl(id)}/rollback`;
+}
+
+/**
+ * Pollable validate/preview jobs (Phase 1). Separate prefix from the sentence
+ * contract: `POST /v1/studio/jobs`, `GET /v1/studio/jobs/{id}`.
+ */
+export const DEFAULT_STUDIO_JOBS_PREFIX = '/v1/studio/jobs';
+
+export const STUDIO_JOBS_PREFIX = (
+  process.env.EXPO_PUBLIC_STUDIO_JOBS_PREFIX ?? DEFAULT_STUDIO_JOBS_PREFIX
+).replace(/\/+$/, '');
+
+export function studioJobsUrl(): string {
+  return `${getApiBaseUrl()}${STUDIO_JOBS_PREFIX}`;
+}
+
+export function studioJobUrl(id: string): string {
+  return `${studioJobsUrl()}/${encodeURIComponent(id)}`;
 }
 
 /**
@@ -332,6 +362,68 @@ export async function previewSentenceSpec(
 ): Promise<StudioPreviewResponse> {
   const body = await postStudio('preview', buildPreviewBody(spec, fixture), signal);
   return normalizePreviewResponse(body);
+}
+
+/**
+ * Enqueue one validate/preview job on the global Studio worker. The response is
+ * a 202 with the job id; use `fetchStudioJob` to poll it.
+ */
+export async function submitStudioJob(
+  kind: StudioJobKind,
+  spec: Record<string, unknown>,
+  fixture: Record<string, unknown> = {},
+  signal?: AbortSignal,
+): Promise<StudioJobAccepted> {
+  const body = await postStudioUrl(
+    studioJobsUrl(),
+    buildJobBody(kind, spec, fixture),
+    signal,
+  );
+  return normalizeJobAcceptedResponse(body);
+}
+
+/**
+ * One poll of a Studio job. 409 stays a value (`kind: "pending"`) so callers
+ * can back off; 404 and other failures throw.
+ */
+export async function fetchStudioJob(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<StudioJobPoll> {
+  const res = await fetch(studioJobUrl(jobId), {
+    headers: await studioHeaders(),
+    signal,
+    cache: 'no-store',
+  });
+  const raw = await res.text();
+  let parsed: unknown = null;
+  if (raw.trim()) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (res.status === 404) {
+    throw new Error('Studio job was not found or has expired. Run the preview again.');
+  }
+  if (res.status !== 200 && res.status !== 409) {
+    // Reuse the shared error path for 401/403/429/5xx so session/quota copy
+    // stays consistent with the synchronous endpoints.
+    await readStudioResponse(res, raw);
+    throw new Error(`Studio API ${res.status}: unexpected job response.`);
+  }
+
+  const poll = normalizeJobPollResponse(
+    parsed,
+    res.status,
+    parseRetryAfter(res.headers.get('retry-after')),
+  );
+  if (!poll) {
+    throw new Error(`Studio API ${res.status}: unexpected job response.`);
+  }
+  return poll;
 }
 
 /** Load the authored examples palette. Falls back to embedded samples upstream. */

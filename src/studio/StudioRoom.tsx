@@ -21,6 +21,7 @@ import {
   fetchPublishedSpec,
   fetchPublishedSpecs,
   fetchSentenceExamples,
+  fetchStudioJob,
   deleteStudioUpload,
   fetchStudioAccess,
   previewSentenceSpec,
@@ -29,9 +30,11 @@ import {
   rollbackSentenceSpec,
   studioAccessUrl,
   studioAnalyzeUrl,
+  studioJobsUrl,
   studioSentenceUrl,
   studioTextureValidateUrl,
   studioUploadsUrl,
+  submitStudioJob,
   uploadStudioImage,
   validateSentenceSpec,
   validateTextureSpec,
@@ -44,7 +47,7 @@ import {
   type StudioUpload,
   type StudioValidateResponse,
 } from './api';
-import { resolveAudioUrl } from './protocol';
+import { nextJobPollDelayMs, resolveAudioUrl } from './protocol';
 import { sessionLabel } from './session';
 import { studioSessionId } from './sessionStorage';
 import {
@@ -142,6 +145,19 @@ type PreviewSnapshot = {
   fixture: Record<string, unknown>;
   renderHash: string | null;
 };
+
+/** Polling state for the queued preview path; direct Preview ignores it. */
+type QueuedJobState =
+  | { kind: 'idle' }
+  | {
+      kind: 'waiting';
+      jobId: string;
+      status: 'queued' | 'running';
+      elapsedMs: number;
+    };
+
+/** 120 polls with the 5 s backoff cap stops before a ten-minute wait. */
+const MAX_JOB_POLLS = 120;
 
 type AudioState =
   | { kind: 'idle' }
@@ -282,6 +298,25 @@ function msLabel(ms: number): string {
   return `${Math.max(1, Math.round(ms))} ms`;
 }
 
+/** Abortable poll delay; unmount/editor changes reject instead of polling. */
+function waitForJobPoll(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error('aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, Math.max(0, ms));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function selectionForSample(sample: StudioSample): Selection {
   return {
     key: sample.key,
@@ -309,6 +344,7 @@ export function StudioRoom({ wide, onMode }: Props) {
   const [result, setResult] = useState<StudioResult>({ kind: 'idle' });
   const [dirty, setDirty] = useState(false);
   const [previewSnapshot, setPreviewSnapshot] = useState<PreviewSnapshot | null>(null);
+  const [queuedJob, setQueuedJob] = useState<QueuedJobState>({ kind: 'idle' });
   const [audio, setAudio] = useState<AudioState>({ kind: 'idle' });
   const [publishState, setPublishState] = useState<PublishState>({ kind: 'idle' });
   const [published, setPublished] = useState<PublishedListState>({
@@ -362,6 +398,8 @@ export function StudioRoom({ wide, onMode }: Props) {
     Platform.OS === 'web' && uploaded !== null && previewUri !== null && imageBounds !== null;
 
   const inFlight = useRef<AbortController | null>(null);
+  const queueController = useRef<AbortController | null>(null);
+  const queueRunId = useRef(0);
   const examplesController = useRef<AbortController | null>(null);
   const specsController = useRef<AbortController | null>(null);
   const publishController = useRef<AbortController | null>(null);
@@ -412,11 +450,19 @@ export function StudioRoom({ wide, onMode }: Props) {
     setAudio({ kind: 'idle' });
   }, [stopPlayer]);
 
+  const cancelQueuedJob = useCallback(() => {
+    queueRunId.current += 1;
+    queueController.current?.abort();
+    queueController.current = null;
+    setQueuedJob({ kind: 'idle' });
+  }, []);
+
   const applyEditor = useCallback(
     (nextSpecText: string, nextFixtureText: string, nextSelection: Selection) => {
       inFlight.current?.abort();
       inFlight.current = null;
       runId.current += 1;
+      cancelQueuedJob();
       resetAudio();
       setSelection(nextSelection);
       setSpecText(nextSpecText);
@@ -425,7 +471,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       setPreviewSnapshot(null);
       setDirty(false);
     },
-    [resetAudio],
+    [cancelQueuedJob, resetAudio],
   );
 
   const applySample = useCallback(
@@ -438,6 +484,7 @@ export function StudioRoom({ wide, onMode }: Props) {
   useEffect(
     () => () => {
       inFlight.current?.abort();
+      queueController.current?.abort();
       examplesController.current?.abort();
       specsController.current?.abort();
       publishController.current?.abort();
@@ -621,6 +668,7 @@ export function StudioRoom({ wide, onMode }: Props) {
   const run = useCallback(
     async (action: RunAction) => {
       engagedRef.current = true;
+      cancelQueuedJob();
       const checked = checkSpecText(specText);
       if (!checked.ok) {
         setResult({
@@ -700,7 +748,7 @@ export function StudioRoom({ wide, onMode }: Props) {
         if (inFlight.current === controller) inFlight.current = null;
       }
     },
-    [fixtureJson, resetAudio, specText],
+    [cancelQueuedJob, fixtureJson, resetAudio, specText],
   );
 
   const resetTextureDraft = useCallback(() => {
@@ -815,6 +863,130 @@ export function StudioRoom({ wide, onMode }: Props) {
       window.removeEventListener('pointercancel', onUp);
     };
   }, [cropDrag, cropPointFromClient, imageBounds, uploaded?.id]);
+  /**
+   * Queue the same preview through `POST /v1/studio/jobs` and poll until the
+   * single worker finishes. Direct Preview above stays the fast path.
+   */
+  const runQueued = useCallback(async () => {
+    engagedRef.current = true;
+    cancelQueuedJob();
+    const checked = checkSpecText(specText);
+    if (!checked.ok) {
+      setResult({
+        kind: 'failure',
+        action: 'preview',
+        message: 'Fix the spec JSON before sending it.',
+        errors: checked.errors,
+        sent: false,
+      });
+      return;
+    }
+
+    const parsed = parseJsonObject(fixtureJson, 'Fixture');
+    if (!parsed.ok) {
+      setResult({
+        kind: 'failure',
+        action: 'preview',
+        message: 'Fix the preview fixture before sending it.',
+        errors: prefixErrorPaths(parsed.errors, 'fixture'),
+        sent: false,
+      });
+      return;
+    }
+    const fixture = parsed.value;
+
+    resetAudio();
+    setPreviewSnapshot(null);
+    inFlight.current?.abort();
+    inFlight.current = null;
+    const controller = new AbortController();
+    queueController.current = controller;
+    const id = ++queueRunId.current;
+    const startedAt = Date.now();
+    const startedSpec = specText;
+    const startedFixture = fixtureJson;
+    setResult({ kind: 'running', action: 'preview' });
+    setQueuedJob({ kind: 'waiting', jobId: '', status: 'queued', elapsedMs: 0 });
+
+    try {
+      const accepted = await submitStudioJob(
+        'preview',
+        checked.spec,
+        fixture,
+        controller.signal,
+      );
+      if (id !== queueRunId.current) return;
+      setQueuedJob({
+        kind: 'waiting',
+        jobId: accepted.jobId,
+        status: accepted.status,
+        elapsedMs: Date.now() - startedAt,
+      });
+
+      let attempt = 0;
+      let poll = await fetchStudioJob(accepted.jobId, controller.signal);
+      while (poll.kind === 'pending') {
+        if (id !== queueRunId.current) return;
+        setQueuedJob({
+          kind: 'waiting',
+          jobId: accepted.jobId,
+          status: poll.status,
+          elapsedMs: Date.now() - startedAt,
+        });
+        if (attempt >= MAX_JOB_POLLS) {
+          throw new Error('Studio job is still queued. Try the direct Preview.');
+        }
+        await waitForJobPoll(
+          nextJobPollDelayMs(attempt, poll.retryAfterSec),
+          controller.signal,
+        );
+        if (id !== queueRunId.current) return;
+        attempt += 1;
+        poll = await fetchStudioJob(accepted.jobId, controller.signal);
+      }
+      if (id !== queueRunId.current) return;
+
+      setQueuedJob({ kind: 'idle' });
+      if (poll.status === 'error' || !poll.result) {
+        setResult({
+          kind: 'failure',
+          action: 'preview',
+          message: 'The queued preview job failed on the Studio worker.',
+          errors: poll.errors,
+          sent: true,
+        });
+        return;
+      }
+
+      const data = poll.result;
+      setResult({ kind: 'preview', data, elapsedMs: Date.now() - startedAt });
+      if (data.ok) {
+        setPreviewSnapshot({
+          spec: checked.spec,
+          fixture,
+          renderHash: data.renderHash,
+        });
+      }
+      if (
+        specTextRef.current === startedSpec &&
+        fixtureJsonRef.current === startedFixture
+      ) {
+        setDirty(false);
+      }
+    } catch (error) {
+      if (controller.signal.aborted || id !== queueRunId.current) return;
+      setQueuedJob({ kind: 'idle' });
+      setResult({
+        kind: 'failure',
+        action: 'preview',
+        message: describeRequestFailure(error),
+        errors: [],
+        sent: true,
+      });
+    } finally {
+      if (queueController.current === controller) queueController.current = null;
+    }
+  }, [cancelQueuedJob, fixtureJson, resetAudio, specText]);
 
   const pickFile = useCallback(
     (file: File | null) => {
@@ -1738,7 +1910,13 @@ export function StudioRoom({ wide, onMode }: Props) {
                     primary
                     onPress={() => void run('preview')}
                     disabled={running || publishing}
-                    busy={result.kind === 'running' && result.action === 'preview'}
+                    busy={result.kind === 'running' && result.action === 'preview' && queuedJob.kind === 'idle'}
+                  />
+                  <ActionButton
+                    label="Queued preview"
+                    onPress={() => void runQueued()}
+                    disabled={running || publishing}
+                    busy={queuedJob.kind === 'waiting'}
                   />
                   <ActionButton
                     label="Publish"
@@ -2011,6 +2189,7 @@ export function StudioRoom({ wide, onMode }: Props) {
 
               <ResultPanel
                 result={result}
+                job={queuedJob}
                 stale={stale}
                 audio={audio}
                 audioSupported={Platform.OS === 'web'}
@@ -2050,6 +2229,12 @@ export function StudioRoom({ wide, onMode }: Props) {
                 </Text>
                 <Text selectable style={styles.endpoint}>
                   POST {studioSentenceUrl('preview')}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  POST {studioJobsUrl()}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  GET {studioJobsUrl()}/{'<id>'}
                 </Text>
                 <Text selectable style={styles.endpoint}>
                   POST {studioSentenceUrl('audio')}
@@ -2335,6 +2520,7 @@ function AudioControls({
 
 function ResultPanel({
   result,
+  job,
   stale,
   audio,
   audioSupported,
@@ -2342,6 +2528,7 @@ function ResultPanel({
   onPlayAudio,
 }: {
   result: StudioResult;
+  job: QueuedJobState;
   stale: boolean;
   audio: AudioState;
   audioSupported: boolean;
@@ -2371,9 +2558,28 @@ function ResultPanel({
         <View style={styles.loadingRow}>
           <ActivityIndicator color={palette.data} />
           <Text style={styles.loadingText}>
-            {result.action === 'validate' ? 'Validating spec…' : 'Rendering preview…'}
+            {job.kind === 'waiting'
+              ? job.status === 'running'
+                ? 'Rendering preview on the Studio worker…'
+                : 'Queued for the Studio worker…'
+              : result.action === 'validate'
+                ? 'Validating spec…'
+                : 'Rendering preview…'}
           </Text>
         </View>
+        {job.kind === 'waiting' ? (
+          <>
+            <Text style={styles.hint}>
+              {job.jobId
+                ? `Job ${shortId(job.jobId)} · ${msLabel(job.elapsedMs)}`
+                : 'Submitting job…'}
+            </Text>
+            <Text style={styles.hint}>
+              Polling the job endpoint with Retry-After and backoff. Direct
+              Preview still works while this is queued.
+            </Text>
+          </>
+        ) : null}
       </View>
     );
   }

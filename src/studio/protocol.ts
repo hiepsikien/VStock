@@ -24,6 +24,16 @@
  *
  *   POST /v1/studio/texture/validate  body = { spec }
  *        -> { ok, errors: [{ path, message }] }
+ * Phase 1 jobs, on `/v1/studio/jobs`:
+ *
+ *   POST /v1/studio/jobs         body = { kind: "validate"|"preview", spec, fixture? }
+ *        -> 202 { ok, jobId, status: "queued" }
+ *   GET  /v1/studio/jobs/{id}    -> 409 + Retry-After while queued/running
+ *                                -> 200 { ok, jobId, status: "ok", result }
+ *                                -> 200 { ok: false, jobId, status: "error", errors }
+ *                                -> 404 when unknown or expired
+ *
+ * `ok` on the job response is job-level; `result.ok` is the spec result.
  *
  * `rollbackOf` is optional on summaries (and absent for ordinary publishes):
  * it names the published version a rollback row was copied from.
@@ -46,6 +56,39 @@ export type StudioPreviewResponse = StudioValidateResponse & {
   renderHash: string | null;
   matrix: unknown;
 };
+
+/** Validate/preview can run synchronously or through the global job queue. */
+export type StudioJobKind = 'validate' | 'preview';
+export type StudioJobStatus = 'queued' | 'running' | 'ok' | 'error';
+
+export type StudioJobAccepted = {
+  jobId: string;
+  status: 'queued' | 'running';
+};
+
+export type StudioJobPending = {
+  kind: 'pending';
+  jobId: string;
+  status: 'queued' | 'running';
+  /** Seconds from the server's `Retry-After`; at least the default. */
+  retryAfterSec: number;
+};
+
+export type StudioJobDone = {
+  kind: 'done';
+  jobId: string;
+  status: 'ok' | 'error';
+  /** Set for `status: "ok"`; `null` when the renderer raised. */
+  result: StudioPreviewResponse | null;
+  errors: StudioError[];
+};
+
+export type StudioJobPoll = StudioJobPending | StudioJobDone;
+
+/** Used when a 409 omits `Retry-After`; the queue worker is a single thread. */
+export const DEFAULT_JOB_RETRY_SEC = 1;
+export const JOB_POLL_BASE_MS = 300;
+export const JOB_POLL_MAX_MS = 5000;
 
 /** One authoring example served by `GET /sentence/examples`. */
 export type StudioExample = {
@@ -161,6 +204,19 @@ export function buildAudioHashBody(renderHash: string): { renderHash: string } {
   return { renderHash };
 }
 
+/** Body for `POST /v1/studio/jobs`; validate has no fixture in the contract. */
+export function buildJobBody(
+  kind: StudioJobKind,
+  spec: Record<string, unknown>,
+  fixture: Record<string, unknown> = {},
+): {
+  kind: StudioJobKind;
+  spec: Record<string, unknown>;
+  fixture?: Record<string, unknown>;
+} {
+  return kind === 'validate' ? { kind, spec } : { kind, spec, fixture };
+}
+
 function errorMessage(item: unknown): string {
   if (typeof item === 'string') return item;
   if (!isRecord(item)) return String(item);
@@ -229,6 +285,103 @@ export function normalizePreviewResponse(body: unknown): StudioPreviewResponse {
     renderHash: hash,
     matrix: body.matrix ?? null,
   };
+}
+
+/** Parse the 202 answer from `POST /v1/studio/jobs`. */
+export function normalizeJobAcceptedResponse(body: unknown): StudioJobAccepted {
+  if (!isRecord(body)) {
+    throw new Error('Studio job API returned a non-object response.');
+  }
+  const jobId = text(body.jobId) ?? text(body.job_id);
+  if (!jobId) {
+    throw new Error('Studio job API did not return a job id.');
+  }
+  return {
+    jobId,
+    status: body.status === 'running' ? 'running' : 'queued',
+  };
+}
+
+/**
+ * Parse one poll answer. `null` means the status was neither 200 nor 409, or
+ * the body did not match either shape; `api.ts` turns that into an error.
+ */
+export function normalizeJobPollResponse(
+  body: unknown,
+  httpStatus: number,
+  retryAfterSec: number | null = null,
+): StudioJobPoll | null {
+  if (!isRecord(body)) return null;
+  const jobId = text(body.jobId) ?? text(body.job_id);
+  if (!jobId) return null;
+
+  if (httpStatus === 409) {
+    return {
+      kind: 'pending',
+      jobId,
+      status: body.status === 'running' ? 'running' : 'queued',
+      retryAfterSec:
+        typeof retryAfterSec === 'number' && retryAfterSec > 0
+          ? retryAfterSec
+          : DEFAULT_JOB_RETRY_SEC,
+    };
+  }
+  if (httpStatus !== 200) return null;
+
+  // A 200 with a pending state is not in the contract, but treating it as
+  // pending keeps a proxy/timeout retry from looking like a completed job.
+  if (body.status === 'queued' || body.status === 'running') {
+    return {
+      kind: 'pending',
+      jobId,
+      status: body.status,
+      retryAfterSec:
+        typeof retryAfterSec === 'number' && retryAfterSec > 0
+          ? retryAfterSec
+          : DEFAULT_JOB_RETRY_SEC,
+    };
+  }
+
+  if (body.status === 'error') {
+    return {
+      kind: 'done',
+      jobId,
+      status: 'error',
+      result: null,
+      errors: normalizeErrors(body),
+    };
+  }
+
+  if (body.status !== 'ok' || !isRecord(body.result)) return null;
+  return {
+    kind: 'done',
+    jobId,
+    status: 'ok',
+    result: normalizePreviewResponse(body.result),
+    errors: [],
+  };
+}
+
+/**
+ * Client-side poll delay: exponential backoff from 300 ms, never shorter than
+ * the server's `Retry-After`, capped at 5 s.
+ */
+export function nextJobPollDelayMs(
+  attempt: number,
+  retryAfterSec: number | null = null,
+): number {
+  const steps = Number.isFinite(attempt) && attempt > 0 ? Math.floor(attempt) : 0;
+  const backoff = Math.min(
+    JOB_POLL_MAX_MS,
+    JOB_POLL_BASE_MS * 2 ** Math.min(steps, 4),
+  );
+  const server =
+    typeof retryAfterSec === 'number' &&
+    Number.isFinite(retryAfterSec) &&
+    retryAfterSec > 0
+      ? retryAfterSec * 1000
+      : 0;
+  return Math.min(JOB_POLL_MAX_MS, Math.max(backoff, server));
 }
 
 /** Parse the examples list, dropping entries that cannot load into the editor. */
