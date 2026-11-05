@@ -6,21 +6,26 @@
  * `accent`, `staccato`, ties/slurs) and an optional authored contour, then
  * produces display rows, extents and labels.
  *
- * Contract seam while the backend contour API is not built:
+ * Contract seam:
  *
  *   The API returns `microVelocity` as a slot list:
- *   `[{ slot, start, bars, contour }]`, where `contour` stays slot-relative
- *   and `start` is the slot's resolved preview bar origin. `velocitySlotContours()`
- *   keeps every slot for the Studio selector;
- *   `normalizeVelocityContour()` remains the single-slot compatibility path
- *   (first slot carrying a contour). Both also accept a bare documented
- *   contour object or a plain array of offsets. A note may also carry
- *   `velocityOffset` / `pinned` / `pinnedLayer` for hand-authored specs.
+ *   `[{ slot, start, bars, tile, exact, cycle, contour }]`, where `contour`
+ *   stays slot-relative and `start` is the slot's resolved preview bar origin.
+ *   `tile` is the sentence's repeat period, `exact` marks a non-repeating span
+ *   and `cycle` marks a run-based tile. `velocitySlotContours()` keeps every
+ *   slot for the Studio selector; `normalizeVelocityContour()` remains the
+ *   single-slot compatibility path (first slot carrying a contour). Both also
+ *   accept a bare documented contour object or a plain array of offsets. A
+ *   note may also carry `velocityOffset` / `pinned` / `pinnedLayer` for
+ *   hand-authored specs.
  *
  * Coordinate notes:
  *   - Contour `bar`/`beat` are relative to the figure/slot that owns them.
- *     `options.barOffset` shifts the start bar and `options.barSpan` wraps a
- *     tiled figure. With neither, contour bars match preview bars 0-based.
+ *     Pass `options.slot` to map an authored slot (`start`, `bars`, `tile`,
+ *     `exact`) onto preview bars: an exact slot never wraps, and a repeating
+ *     slot wraps once per `tile` and only inside `[0, bars)` of that
+ *     occurrence. `options.barOffset`/`barSpan` remain the legacy figure
+ *     mapping; with none of them contour bars match preview bars 0-based.
  *   - `beat` is the 0-based quarter-note beat inside the bar. `0.25/0.5/0.75`
  *     are sixteenths and `1/3` is a triplet. Keys round to 6 decimals so a
  *     binary float from either side matches the same attack.
@@ -89,8 +94,33 @@ export type VelocitySlotContour = {
   start: number;
   /** Authored slot span in bars; 0 when the wire omitted it. */
   bars: number;
+  /**
+   * Sentence repeat period in bars, or `null` when the payload predates the
+   * field or the span carries no tile. Only used when `exact` is false.
+   */
+  tile: number | null;
+  /** True when the sentence span is exact and never repeats. */
+  exact: boolean;
+  /** True for a run-based cycle tile (informational). */
+  cycle: boolean;
   /** `null` when the slot has no authored contour. */
   contour: MicroVelocity | null;
+};
+
+/**
+ * One slot window used to map preview bars onto slot-relative contour bars.
+ *
+ * `start` is the slot's first occurrence. An `exact` slot covers
+ * `[start, start + bars)` only. A repeating slot covers `[start, start + bars)`
+ * in every tile, so a preview bar maps through `(bar - start) % tile` and only
+ * matches while that offset is inside `[0, bars)`. Bars outside every
+ * occurrence never match the contour.
+ */
+export type VelocityLaneSlot = {
+  start: number;
+  bars: number;
+  tile?: number | null;
+  exact?: boolean | null;
 };
 
 /** One preview note after normalisation. */
@@ -122,9 +152,12 @@ export type VelocityLaneRow = {
   key: string;
   lane: VelocityLaneId;
   note: VelocityLaneNote;
-  /** Preview bar (absolute when `barOffset` is supplied). */
+  /** Preview bar (always absolute, even inside a slot window). */
   bar: number;
-  /** Slot/figure-relative bar; contour entries are keyed by this value. */
+  /**
+   * Slot/figure-relative bar; contour entries are keyed by this value.
+   * Negative when the preview bar is outside every slot occurrence.
+   */
   contourBar: number;
   beat: number;
   voice: number;
@@ -151,9 +184,20 @@ export type VelocityLaneOptions = {
   includeThumb?: boolean;
   /** Include voice 4 when the notes use it (default true). */
   includeVoice4?: boolean;
-  /** Preview bar where the figure/slot starts. Default 0. */
+  /**
+   * Authored slot window. Takes precedence over the legacy `barOffset` /
+   * `barSpan` pair. Exact slots never wrap; repeating slots use `tile`.
+   */
+  slot?: VelocityLaneSlot | null;
+  /**
+   * Legacy figure origin. Prefer `slot`, which also bounds the occurrence.
+   * Default 0.
+   */
   barOffset?: number;
-  /** Figure length in bars; contour bars wrap modulo this. */
+  /**
+   * Legacy figure period; wraps unconditionally. Prefer `slot`, which only
+   * matches bars inside the authored span.
+   */
   barSpan?: number;
   /**
    * Simple flatten table for a rule contour, keyed by `noteKey(...)` or
@@ -366,13 +410,14 @@ function normalizeContourObject(value: unknown): MicroVelocity | null {
  * Accept the API slot list, the documented contour object, a plain offsets
  * array, or null, and return every selectable slot in wire order.
  *
- * `microVelocity` is served as `[{ slot, start, bars, contour }]`: `start` is
- * the resolved preview bar origin and `bars` the authored slot span. `contour`
- * coordinates stay slot-relative, so the lane maps them through `start`.
- * A bare contour object or a plain offsets array is the single-slot
- * compatibility path (slot 0, origin 0). Slot entries with a `null` contour
- * stay in the list so the selector can show that the slot exists but is
- * unauthored.
+ * `microVelocity` is served as
+ * `[{ slot, start, bars, tile, exact, cycle, contour }]`: `start` is the
+ * resolved preview bar origin, `bars` the authored slot span, and
+ * `tile`/`exact`/`cycle` describe the sentence repeat. `contour` coordinates
+ * stay slot-relative, so the lane maps them through the slot window. A bare
+ * contour object or a plain offsets array is the single-slot compatibility
+ * path (slot 0, origin 0). Slot entries with a `null` contour stay in the list
+ * so the selector can show that the slot exists but is unauthored.
  */
 export function velocitySlotContours(value: unknown): VelocitySlotContour[] {
   if (Array.isArray(value)) {
@@ -391,6 +436,9 @@ export function velocitySlotContours(value: unknown): VelocitySlotContour[] {
           slot,
           start: nonNegativeInteger(item.start) ?? 0,
           bars: nonNegativeInteger(item.bars) ?? 0,
+          tile: nonNegativeInteger(item.tile),
+          exact: item.exact === true,
+          cycle: item.cycle === true,
           contour: item.contour == null ? null : normalizeContourObject(item.contour),
         });
       });
@@ -402,12 +450,27 @@ export function velocitySlotContours(value: unknown): VelocitySlotContour[] {
         slot: 0,
         start: 0,
         bars: 0,
+        tile: null,
+        exact: false,
+        cycle: false,
         contour: { kind: 'offsets', notes: normalizeOffsets(value) },
       },
     ];
   }
   const contour = normalizeContourObject(value);
-  return contour ? [{ slot: 0, start: 0, bars: 0, contour }] : [];
+  return contour
+    ? [
+        {
+          slot: 0,
+          start: 0,
+          bars: 0,
+          tile: null,
+          exact: false,
+          cycle: false,
+          contour,
+        },
+      ]
+    : [];
 }
 
 /**
@@ -536,16 +599,43 @@ function ruleOffsetFor(
   return null;
 }
 
+/** Slot-relative bar; negative means the bar is outside every occurrence. */
 function relativeBar(
   bar: number,
-  barOffset: number,
-  barSpan: number | undefined,
+  options: VelocityLaneOptions,
 ): number {
+  const slot = options.slot;
+  if (slot) {
+    const relative = bar - slot.start;
+    // A bar before the slot's first occurrence can never wrap forward into it.
+    if (relative < 0) return relative;
+    // An omitted `bars` keeps the legacy "unbounded from the origin" mapping;
+    // the backend always sends it for a resolved slot.
+    const bars = Number.isFinite(slot.bars) ? Math.max(0, Math.trunc(slot.bars)) : 0;
+    const tile =
+      slot.exact === true ||
+      slot.tile == null ||
+      !Number.isFinite(slot.tile) ||
+      slot.tile <= 0
+        ? 0
+        : Math.trunc(slot.tile);
+    if (tile <= 0) {
+      // Exact or unknown span: never wrap past the authored slot.
+      return bars > 0 && relative >= bars ? -1 : relative;
+    }
+    // A whole-tile repeat maps back onto the authored slot coordinates, but
+    // only bars inside this occurrence's [0, bars) window match.
+    const local = relative % tile;
+    return bars > 0 && local >= bars ? -1 : local;
+  }
+
+  const barOffset = options.barOffset ?? 0;
+  const barSpan = options.barSpan;
   const relative = bar - barOffset;
   // A bar before the slot origin cannot belong to this slot, tiled or not:
   // never wrap it forward into the slot's coordinate range.
   if (relative < 0 || !barSpan || barSpan <= 0) return relative;
-  // A whole-tile repeat maps back onto the authored slot coordinates.
+  // Legacy figure mapping: a whole-tile repeat maps back onto the figure.
   return relative % barSpan;
 }
 
@@ -560,7 +650,6 @@ export function velocityLaneRows(
   options: VelocityLaneOptions = {},
 ): VelocityLaneRow[] {
   const lookup = buildLookup(contour);
-  const barOffset = options.barOffset ?? 0;
   const includeThumb = options.includeThumb !== false;
   const includeVoice4 = options.includeVoice4 !== false;
   const voiceFilter = options.voice ?? null;
@@ -579,7 +668,7 @@ export function velocityLaneRows(
 
   const rows: VelocityLaneRow[] = [];
   normalized.forEach((note, index) => {
-    const bar = relativeBar(note.bar, barOffset, options.barSpan);
+    const bar = relativeBar(note.bar, options);
     const position = thumbPositionKey(bar, note.beat);
     const thumb =
       note.voice === 3 &&
@@ -796,8 +885,8 @@ export function mergeVelocityEdits(
   for (const row of rows) {
     const edited = edits[row.key];
     if (edited == null || row.pinned) continue;
-    // A preview bar before the slot origin has no slot-relative coordinate;
-    // never write a negative bar into the spec.
+    // A preview bar outside the slot occurrence has no slot-relative
+    // coordinate; never write a negative bar into the spec.
     if (row.contourBar < 0) continue;
     const target = row.thumb ? thumb : notes;
     const key = noteKey(row.contourBar, row.beat, row.voice, row.finger);

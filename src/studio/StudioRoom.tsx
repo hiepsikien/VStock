@@ -2833,6 +2833,21 @@ function PreviewVelocityPanel({
   const activeSlotNumber = activeSlot?.slot ?? null;
   const slotOrigin = activeSlot?.start ?? 0;
   const slotBars = activeSlot?.bars ?? 0;
+  // The backend reports the sentence tile plus whether the span is exact, so
+  // the lane wraps only a genuinely repeating slot and never past a
+  // non-repeating slot's last bar.
+  const slotWindow = useMemo(
+    () =>
+      activeSlot == null
+        ? null
+        : {
+            start: activeSlot.start,
+            bars: activeSlot.bars,
+            tile: activeSlot.tile,
+            exact: activeSlot.exact,
+          },
+    [activeSlot],
+  );
 
   useEffect(() => {
     setSaveState({ kind: 'idle' });
@@ -2913,8 +2928,7 @@ function PreviewVelocityPanel({
             contour={contour}
             editable={contour != null}
             title="Preview velocity"
-            barOffset={slotOrigin}
-            barSpan={slotBars > 0 ? slotBars : undefined}
+            slot={slotWindow}
             onSaveContour={saveContour}
           />
           {saveState.kind === 'saved' ? (

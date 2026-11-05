@@ -19,6 +19,7 @@ import {
   type MicroVelocity,
   type VelocityLaneId,
   type VelocityLaneRow,
+  type VelocityLaneSlot,
 } from './velocity';
 
 /**
@@ -62,10 +63,11 @@ type Props = {
    * when the preview has no authored offsets.
    */
   editable?: boolean;
-  /** Preview bar where the figure/slot starts; contour bars are relative. */
-  barOffset?: number;
-  /** Figure length in bars for a tiled preview; contour bars wrap modulo. */
-  barSpan?: number;
+  /**
+   * Authored slot window (`start`, `bars`, `tile`, `exact`). Exact slots never
+   * wrap; repeating slots wrap once per tile and only inside the authored bars.
+   */
+  slot?: VelocityLaneSlot | null;
   /** Simple flatten table for a rule contour, keyed by `noteKey(...)`. */
   ruleOffsets?: Readonly<Record<string, number>>;
   /**
@@ -147,8 +149,7 @@ export function VelocityLane({
   contour = null,
   title,
   editable = true,
-  barOffset,
-  barSpan,
+  slot,
   ruleOffsets,
   onSaveContour,
 }: Props) {
@@ -170,11 +171,10 @@ export function VelocityLane({
   const allRows = useMemo(
     () =>
       velocityLaneRows(notes, contour, {
-        ...(barOffset == null ? {} : { barOffset }),
-        ...(barSpan == null ? {} : { barSpan }),
+        ...(slot == null ? {} : { slot }),
         ...(ruleOffsets == null ? {} : { ruleOffsets }),
       }),
-    [notes, contour, barOffset, barSpan, ruleOffsets],
+    [notes, contour, slot, ruleOffsets],
   );
   const hasThumb = allRows.some((row) => row.thumb);
   const hasVoice4 = allRows.some((row) => row.voice === 4);
@@ -198,6 +198,19 @@ export function VelocityLane({
   const canAfterLayers = hasAuthored && contour != null;
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
   const selectedInSlot = selected != null && selected.contourBar >= 0;
+  const selectedKeyText =
+    selected == null
+      ? ''
+      : selected.contourBar < 0
+        ? `outside slot · midi ${selected.note.midi ?? '—'}`
+        : `key ${noteKey(
+            selected.contourBar,
+            selected.beat,
+            selected.voice,
+            selected.finger,
+          )} · slot bar ${selected.contourBar + 1} · midi ${
+            selected.note.midi ?? '—'
+          }`;
   const editCount = Object.keys(edits).length;
   const ruleNeedsFlatten =
     contour?.kind === 'rule' && allRows.some((row) => row.needsRule);
@@ -460,7 +473,7 @@ export function VelocityLane({
                                 accessibilityRole="button"
                                 accessibilityLabel={`${velocityLaneLabel(row)} · ${
                                   row.pinned ? pinnedLabel(row) : `offset ${offset}`
-                                }${row.contourBar < 0 ? ' · before slot' : ''}`}
+                                }${row.contourBar < 0 ? ' · outside slot' : ''}`}
                                 accessibilityState={{ selected: selectedKey === row.key }}
                                 style={({ pressed }) => [
                                   styles.barSlot,
@@ -584,10 +597,7 @@ export function VelocityLane({
       {selected ? (
         <View style={styles.detail}>
           <Text style={styles.detailTitle}>{velocityLaneLabel(selected)}</Text>
-          <Text style={styles.detailKey}>
-            key {noteKey(selected.contourBar, selected.beat, selected.voice, selected.finger)} ·
-            slot bar {selected.contourBar + 1} · midi {selected.note.midi ?? '—'}
-          </Text>
+          <Text style={styles.detailKey}>{selectedKeyText}</Text>
           <Text style={styles.detailLine}>
             {selected.pinned
               ? pinnedLabel(selected)
@@ -628,8 +638,8 @@ export function VelocityLane({
           ) : null}
           {editMode && canEdit && !selected.pinned && !selectedInSlot ? (
             <Text style={styles.detailWarn}>
-              This bar is before the slot origin, so it has no slot-relative key
-              and cannot be saved into the contour.
+              This bar is outside the slot occurrence, so it has no slot-relative
+              key and cannot be saved into the contour.
             </Text>
           ) : null}
         </View>

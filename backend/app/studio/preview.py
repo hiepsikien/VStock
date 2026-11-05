@@ -124,9 +124,10 @@ class PreviewResult:
     render_hash: str | None = None
     matrix: tuple[dict[str, Any], ...] = ()
     # Authored slot contours, keyed by slot index, with the slot's resolved
-    # preview bar origin and authored span. Empty means "no contour", and
-    # `as_response` then omits the key entirely so existing preview JSON stays
-    # byte-identical.
+    # preview bar origin, authored span, and sentence repeat semantics
+    # (`tile`, `exact`, `cycle`) the lane needs to map preview bars. Empty
+    # means "no contour", and `as_response` then omits the key entirely so
+    # existing preview JSON stays byte-identical.
     micro_velocity: tuple[dict[str, Any], ...] = ()
 
     def as_response(self) -> dict[str, Any]:
@@ -844,12 +845,25 @@ def _slot_contours(
     `start`/`bars` describe the slot's origin and span in preview bars. The
     contour itself stays slot-relative (`bar: 0` is the slot's first bar), so a
     save writes relative bars, never absolute preview bars.
+
+    `tile`/`exact`/`cycle` describe how the sentence repeats. A slot can appear
+    once (`exact`) or once per tile (`tile` bars), so the lane must map preview
+    bars through the occurrence, not through a slot-bars modulo. `tile` is the
+    authored sentence period when known; `exact` is true for a non-repeating
+    span, and `cycle` marks a run-based (cell) tile. The contour stays
+    slot-relative in every case.
     """
+    span = spec.span
+    is_exact = span.exact or span.remainder == "exact"
+    tile = None if span.tile is None else int(span.tile)
     return tuple(
         {
             "slot": index,
             "start": _slot_origin(slot, length),
             "bars": int(slot.bars),
+            "tile": tile,
+            "exact": bool(is_exact),
+            "cycle": bool(span.cycle),
             "contour": canonical_micro_velocity_mapping(slot.micro_velocity),
         }
         for index, slot in enumerate(spec.slots)
