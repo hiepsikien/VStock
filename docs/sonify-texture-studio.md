@@ -254,18 +254,20 @@ Composer
 
 Năm movement, nhưng trong engine chúng là **pattern thuộc palette Villa**, không phải 5 movement của một piece. Cột nhịp là nhịp **cần đối chiếu lại với bản nhạc** trước khi khoá spec.
 
-| Movement | Nhịp thường gặp | Id đề xuất | Tên in đề xuất |
+| Movement | Nhịp engine (audit) | Id đề xuất | Tên in đề xuất |
 |---|---|---|---|
-| Mazurka-Choro | 3/4 | `suite_mazurka` | Mazurka-Choro |
-| Schottish-Choro | 2/4 (cần xác nhận) | `suite_schottish` | Schottish-Choro |
-| Valsa-Choro | 3/4 | `suite_valsa` | Valsa-Choro |
-| Gavotta-Choro | 4/4 (cần xác nhận chỗ bắt đầu) | `suite_gavotta` | Gavotta-Choro |
-| Choros No. 1 | 2/4 hoặc 4/4 (cần xác nhận) | `suite_choros1` | Choros No. 1 |
+| Mazurka-Choro | `METER_34` — chắc chắn | `suite_mazurka` | Mazurka-Choro |
+| Schottish-Choro | `METER_44` sau `fold: 2` từ 2/4 — **chưa chắc** | `suite_schottish` | Schottish-Choro |
+| Valsa-Choro | `METER_34` — chắc chắn | `suite_valsa` | Valsa-Choro |
+| Gavotta-Choro | `METER_44` — pickup/bar 0 **chưa chắc** | `suite_gavotta` | Gavotta-Choro |
+| Choros No. 1 | `METER_44` tạm — 2/4 vs 4/4 **chưa chốt** | `suite_choros1` | Choros No. 1 |
+
+Audit data-only: `backend/app/studio/villa_suite_audit.py` + `tests/test_villa_suite_audit.py`. Đề xuất movement đầu: **Mazurka-Choro 3/4**; chưa có candidate JSON/pattern registration.
 
 Quy tắc tên:
 
 - Dùng **tên đầy đủ của movement**, không dùng `Mazurka`, `Valsa`, `Gavotta` trần.
-- `PATTERN_NAMES` trong `src/sonify/program.ts` là `Set<string>`; `isPatternForm` chỉ kiểm **membership**. Trùng title giữa hai nhà là **vô hại**: Set collapse, không “nhận nhầm pattern của nhà khác”.
+- `PATTERN_NAMES` trong `src/sonify/program.ts` là `ReadonlySet<string>` derive từ registry `level=topic`; `isPatternForm` chỉ kiểm **membership**. Trùng title giữa hai nhà là **vô hại**: Set collapse, không “nhận nhầm pattern của nhà khác”.
 - Hiện đã có 4 title trùng toàn cục và chúng **hợp lệ**: `Cantabile` (classic/barrios), `Etude` (classic/villa/brouwer), `Prelude` (villa/bach/barrios), `Sarabande` (bach/brouwer). Không đổi tên các pattern đang chạy.
 - Lý do dùng tên đầy đủ `Mazurka-Choro`, `Valsa-Choro`, `Gavotta-Choro` là **thẩm mỹ + luật trong `docs/sonify-pattern-names.md`**, không phải vì TS nhận nhầm.
 - Test đúng: **coverage** (mọi pattern có title không rỗng) + **uniqueness theo ensemble** (trong cùng một palette không trùng).
@@ -645,7 +647,7 @@ Ví dụ:
 
 ### 5.2. Villa chưa có sentence registry
 
-> **Trạng thái code:** `villa_pattern` vẫn là bar-level. Đã có **candidate preview-only** `villa_arpeggio_aba` (`app/studio/candidates/`, `app/studio/villa_preview.py`) dùng `guitar_villa_figures`; chưa register, chưa có Suite pattern, chưa có sentence registry production.
+> **Trạng thái code:** `villa_pattern` vẫn là bar-level. Đã có **candidate preview-only** `villa_arpeggio_aba` (4/4) và **Suite audit data-only** trong `app/studio/villa_suite_audit.py` (đề xuất Mazurka-Choro 3/4). Chưa register, chưa có `suite_*` production pattern, chưa có candidate JSON/sentence registry.
 
 Trong code hiện tại:
 
