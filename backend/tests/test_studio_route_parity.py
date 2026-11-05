@@ -20,6 +20,8 @@ UI_ROUTES = {
     ("GET", "/v1/studio/sentence/specs"),
     ("GET", "/v1/studio/sentence/specs/{spec_id}"),
     ("POST", "/v1/studio/sentence/specs/{spec_id}/rollback"),
+    # TextureSpec draft validation for the Gemini note panel.
+    ("POST", "/v1/studio/texture/validate"),
     # Phase 1 vision/session calls made by the Studio UI.
     ("GET", "/v1/musicalize/studio/access"),
     ("POST", "/v1/musicalize/studio/uploads"),

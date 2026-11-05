@@ -4,6 +4,7 @@ import {
   buildAudioBody,
   buildAudioHashBody,
   buildPreviewBody,
+  buildTextureValidateBody,
   buildValidateBody,
   normalizeAccessResponse,
   normalizeAnalyzeResponse,
@@ -16,6 +17,7 @@ import {
   normalizePublishedSpecResponse,
   normalizeRollbackResponse,
   normalizeSpecsResponse,
+  normalizeTextureValidateResponse,
   normalizeUploadResponse,
   normalizeValidateResponse,
   parseRetryAfter,
@@ -66,6 +68,8 @@ export type {
  *   GET  {prefix}/specs             -> { ok, specs: [...] }
  *   GET  {prefix}/specs/{id}        -> summary + { payload }
  *
+ *   POST /v1/studio/texture/validate body = { spec } -> { ok, errors }
+ *
  * `plan` / `row` / `notes` / `matrix` are deliberately `unknown`: the UI formats
  * them defensively so the backend can keep them structured (spans, a selection
  * matrix, a note list) without this screen freezing the payload shape.
@@ -93,6 +97,14 @@ export function studioSentenceUrl(action: StudioSentenceAction): string {
 
 export function studioSentenceSpecUrl(id: string): string {
   return `${studioSentenceUrl('specs')}/${encodeURIComponent(id)}`;
+}
+
+export const STUDIO_TEXTURE_PREFIX = (
+  process.env.EXPO_PUBLIC_STUDIO_TEXTURE_PREFIX ?? '/v1/studio/texture'
+).replace(/\/+$/, '');
+
+export function studioTextureValidateUrl(): string {
+  return `${getApiBaseUrl()}${STUDIO_TEXTURE_PREFIX}/validate`;
 }
 
 /** Roll back to a published version by creating a new version from its payload. */
@@ -286,6 +298,22 @@ export async function validateSentenceSpec(
 ): Promise<StudioValidateResponse> {
   const body = await postStudio('validate', buildValidateBody(spec), signal);
   return normalizeValidateResponse(body);
+}
+
+/**
+ * Validate one TextureSpec draft mapping. No render, registry, or publish: the
+ * backend runs the offline texture validator only.
+ */
+export async function validateTextureSpec(
+  spec: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<StudioValidateResponse> {
+  const body = await postStudioUrl(
+    studioTextureValidateUrl(),
+    buildTextureValidateBody(spec),
+    signal,
+  );
+  return normalizeTextureValidateResponse(body);
 }
 
 /** Preview one spec with a fixture. The render hash keys the audio cache. */
