@@ -86,10 +86,22 @@ def test_ids_and_titles_are_unique_and_do_not_collide_with_patterns() -> None:
     # A promoted movement is now a production pattern on purpose; the rest of
     # the ledger must still stay out of the pattern table.
     known_titles = _known_titles()
-    promoted_titles = {"Mazurka-Choro"}
+    promoted_titles = {
+        "Mazurka-Choro",
+        "Valsa-Choro",
+        "Gavotta-Choro",
+        "Schottish-Choro",
+        "Choros No. 1",
+    }
     assert not (set(ids) - PROMOTED_MOVEMENT_IDS) & set(PATTERN_META)
     assert not (set(titles) - promoted_titles) & known_titles
-    assert PROMOTED_MOVEMENT_IDS == {"suite_mazurka"}
+    assert PROMOTED_MOVEMENT_IDS == {
+        "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
+    }
     assert set(ids) & set(PATTERN_META) == PROMOTED_MOVEMENT_IDS
     assert set(titles) & known_titles == promoted_titles
 
@@ -100,11 +112,11 @@ def test_validate_rejects_a_pattern_id_collision() -> None:
 
 
 def test_validate_rejects_a_pattern_title_collision() -> None:
-    # The first movement is promoted, so probe the title guard on a movement
-    # that is still unshipped.
-    collision = replace(SUITE_MOVEMENTS[1], title="Waltz")
+    # Every ledger movement is now promoted, so probe the title guard on an
+    # injected unshipped id.
+    collision = replace(SUITE_MOVEMENTS[0], id="suite_unshipped", title="Waltz")
     with pytest.raises(ValueError, match="collides with an existing pattern title"):
-        validate((SUITE_MOVEMENTS[0], collision, *SUITE_MOVEMENTS[2:]))
+        validate((collision, *SUITE_MOVEMENTS[1:]))
 
 
 def test_validate_rejects_a_duplicate_movement_id() -> None:
@@ -171,6 +183,10 @@ def test_coverage_keeps_empty_patterns_as_the_audit_finding() -> None:
     assert found["thumb_cantabile"] == ("suite_mazurka", "suite_valsa")
     assert found["etude1"] == ()
     assert found["etude11"] == ()
+    # The four newly promoted movement ids are real Villa rows but no movement
+    # names itself in the original overlap ledger.
+    for promoted in ("suite_valsa", "suite_gavotta", "suite_schottish", "suite_choros1"):
+        assert found[promoted] == ()
 
 
 # ---------------------------------------------------------------------------

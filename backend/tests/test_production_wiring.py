@@ -18,7 +18,11 @@ import app.sonify.guitar_barrios_period as barrios
 import app.sonify.guitar_brouwer_production as brouwer
 import app.sonify.guitar_patterns as patterns
 import app.sonify.guitar_scale_passages as scale_passages
+import app.sonify.guitar_suite_choros1 as suite_choros1
+import app.sonify.guitar_suite_gavotta as suite_gavotta
 import app.sonify.guitar_suite_mazurka as suite
+import app.sonify.guitar_suite_schottish as suite_schottish
+import app.sonify.guitar_suite_valsa as suite_valsa
 import app.sonify.guitar_villa_production as villa
 import app.sonify.guitar_wave as guitar_wave
 import app.sonify.micro_velocity_writer as micro_writer
@@ -141,9 +145,21 @@ def _spy_pen(monkeypatch, module, name: str) -> list[tuple[int, int]]:
     (
         (flags.VILLA_PRODUCTION_ENV, "villa", METER_44, 6, VILLA_OFF_DIGEST),
         (flags.SUITE_MAZURKA_ENV, "villa", METER_34, 8, SUITE_OFF_DIGEST),
+        (flags.SUITE_VALSA_ENV, "villa", METER_34, 8, SUITE_OFF_DIGEST),
+        (flags.SUITE_GAVOTTA_ENV, "villa", METER_44, 6, VILLA_OFF_DIGEST),
+        (flags.SUITE_SCHOTTISH_ENV, "villa", METER_44, 6, VILLA_OFF_DIGEST),
+        (flags.SUITE_CHOROS1_ENV, "villa", METER_44, 6, VILLA_OFF_DIGEST),
         (flags.BROUWER_PRODUCTION_ENV, "brouwer", METER_44, 6, BROUWER_OFF_DIGEST),
     ),
-    ids=("villa", "suite_mazurka", "brouwer"),
+    ids=(
+        "villa",
+        "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
+        "brouwer",
+    ),
 )
 def test_off_is_the_historical_render(
     monkeypatch, env, ensemble, meter, bars, baseline
@@ -458,6 +474,10 @@ def test_brouwer_env_auditions_without_the_context(monkeypatch) -> None:
 GATED_CASES = (
     (villa.use_villa_aba, "villa", METER_44, 6),
     (suite.use_suite_mazurka_aba, "villa", METER_34, 8),
+    (suite_valsa.use_suite_valsa_period, "villa", METER_34, 8),
+    (suite_gavotta.use_suite_gavotta_baab, "villa", METER_44, 8),
+    (suite_schottish.use_suite_schottish_abab, "villa", METER_44, 8),
+    (suite_choros1.use_suite_choros1_abba, "villa", METER_44, 8),
     (brouwer.use_brouwer_aba, "brouwer", METER_44, 6),
 )
 
@@ -465,7 +485,15 @@ GATED_CASES = (
 @pytest.mark.parametrize(
     ("context", "ensemble", "meter", "bars"),
     GATED_CASES,
-    ids=("villa", "suite_mazurka", "brouwer"),
+    ids=(
+        "villa",
+        "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
+        "brouwer",
+    ),
 )
 def test_on_runs_the_shared_production_tail(
     monkeypatch, context, ensemble, meter, bars
@@ -518,7 +546,15 @@ def test_on_runs_the_shared_production_tail(
 @pytest.mark.parametrize(
     ("context", "ensemble", "meter", "bars"),
     GATED_CASES,
-    ids=("villa", "suite_mazurka", "brouwer"),
+    ids=(
+        "villa",
+        "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
+        "brouwer",
+    ),
 )
 def test_on_is_deterministic(context, ensemble, meter, bars) -> None:
     with context(True):
@@ -578,6 +614,10 @@ def test_nested_contexts_remove_only_their_own_registration() -> None:
     contexts = (
         (villa.use_villa_aba, villa.VILLA_KEY),
         (suite.use_suite_mazurka_aba, suite.SUITE_MAZURKA_KEY),
+        (suite_valsa.use_suite_valsa_period, suite_valsa.SUITE_VALSA_KEY),
+        (suite_gavotta.use_suite_gavotta_baab, suite_gavotta.SUITE_GAVOTTA_KEY),
+        (suite_schottish.use_suite_schottish_abab, suite_schottish.SUITE_SCHOTTISH_KEY),
+        (suite_choros1.use_suite_choros1_abba, suite_choros1.SUITE_CHOROS1_KEY),
         (brouwer.use_brouwer_aba, brouwer.BROUWER_KEY),
     )
     for cm, key in contexts:
@@ -610,6 +650,10 @@ def test_barrios_period_still_delegates_and_renders_alongside_the_new_gates(
         barrios.use_barrios_period(True),
         villa.use_villa_aba(True),
         suite.use_suite_mazurka_aba(True),
+        suite_valsa.use_suite_valsa_period(True),
+        suite_gavotta.use_suite_gavotta_baab(True),
+        suite_schottish.use_suite_schottish_abab(True),
+        suite_choros1.use_suite_choros1_abba(True),
         brouwer.use_brouwer_aba(True),
     ):
         score = _render("barrios", METER_44, 12)
@@ -619,7 +663,35 @@ def test_barrios_period_still_delegates_and_renders_alongside_the_new_gates(
     assert barrios.BARRIOS_PERIOD_KEY not in specs.SENTENCE_SPECS
     assert villa.VILLA_KEY not in specs.SENTENCE_SPECS
     assert suite.SUITE_MAZURKA_KEY not in specs.SENTENCE_SPECS
+    assert suite_valsa.SUITE_VALSA_KEY not in specs.SENTENCE_SPECS
+    assert suite_gavotta.SUITE_GAVOTTA_KEY not in specs.SENTENCE_SPECS
+    assert suite_schottish.SUITE_SCHOTTISH_KEY not in specs.SENTENCE_SPECS
+    assert suite_choros1.SUITE_CHOROS1_KEY not in specs.SENTENCE_SPECS
     assert brouwer.BROUWER_KEY not in specs.SENTENCE_SPECS
+
+
+def test_suite_mazurka_keeps_precedence_when_new_gates_are_on(monkeypatch) -> None:
+    """The older flag must keep its 3/4 result even with Valsa enabled."""
+    calls = _spy_figure(monkeypatch, suite, "render_villa_figure")
+
+    with suite.use_suite_mazurka_aba(True):
+        mazurka_only = _digest(_render("villa", METER_34, 8))
+
+    with (
+        suite.use_suite_mazurka_aba(True),
+        suite_valsa.use_suite_valsa_period(True),
+        suite_gavotta.use_suite_gavotta_baab(True),
+        suite_schottish.use_suite_schottish_abab(True),
+        suite_choros1.use_suite_choros1_abba(True),
+    ):
+        everything = _digest(_render("villa", METER_34, 8))
+
+    assert everything == mazurka_only
+    assert len(calls) == 16  # 8 bars in each of the two renders
+    assert suite_valsa.SUITE_VALSA_KEY not in specs.SENTENCE_SPECS
+    assert suite_gavotta.SUITE_GAVOTTA_KEY not in specs.SENTENCE_SPECS
+    assert suite_schottish.SUITE_SCHOTTISH_KEY not in specs.SENTENCE_SPECS
+    assert suite_choros1.SUITE_CHOROS1_KEY not in specs.SENTENCE_SPECS
 
 
 # ---------------------------------------------------------------------------

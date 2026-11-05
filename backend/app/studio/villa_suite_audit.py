@@ -28,7 +28,7 @@ from typing import Literal
 from app.sonify.form import METER_34, METER_44, Meter
 from app.sonify.pattern_registry import PATTERN_META
 
-# The six Villa rows in `guitar_wave.PROFILES`; a test checks this set against
+# The ten Villa rows in `guitar_wave.PROFILES`; a test checks this set against
 # the real table so an invented id cannot survive.
 VILLA_PATTERN_IDS = frozenset(
     {
@@ -38,13 +38,25 @@ VILLA_PATTERN_IDS = frozenset(
         "etude11",
         "thumb_cantabile",
         "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
     }
 )
 
 # Movements that have since been promoted to a production pattern id. Their
 # ids and printed titles now deliberately collide with `PATTERN_META`; the
 # ledger keeps the row, but the "unshipped" collision guard skips these.
-PROMOTED_MOVEMENT_IDS = frozenset({"suite_mazurka"})
+PROMOTED_MOVEMENT_IDS = frozenset(
+    {
+        "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
+    }
+)
 
 
 SentenceVerdict = Literal["yes", "no", "unknown"]

@@ -19,13 +19,31 @@ registers nothing.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
+from types import MappingProxyType
 
 VILLA_PRODUCTION_ENV = "VSTOCK_VILLA_PRODUCTION"
 BROUWER_PRODUCTION_ENV = "VSTOCK_BROUWER_PRODUCTION"
 SUITE_MAZURKA_ENV = "VSTOCK_SUITE_MAZURKA"
+
+# The four remaining Suite movements. `suite_mazurka` keeps its own constant
+# and reader above so its historical flag contract does not move.
+SUITE_VALSA_ENV = "VSTOCK_SUITE_VALSA"
+SUITE_GAVOTTA_ENV = "VSTOCK_SUITE_GAVOTTA"
+SUITE_SCHOTTISH_ENV = "VSTOCK_SUITE_SCHOTTISH"
+SUITE_CHOROS1_ENV = "VSTOCK_SUITE_CHOROS1"
+
+# Movement id -> environment name, in selection precedence order.
+SUITE_MOVEMENT_ENVS: Mapping[str, str] = MappingProxyType(
+    {
+        "suite_valsa": SUITE_VALSA_ENV,
+        "suite_gavotta": SUITE_GAVOTTA_ENV,
+        "suite_schottish": SUITE_SCHOTTISH_ENV,
+        "suite_choros1": SUITE_CHOROS1_ENV,
+    }
+)
 
 _TRUE = frozenset({"1", "true", "yes", "on"})
 
@@ -38,16 +56,38 @@ _BROUWER_OVERRIDE: ContextVar[bool | None] = ContextVar(
 _SUITE_MAZURKA_OVERRIDE: ContextVar[bool | None] = ContextVar(
     "suite_mazurka_enabled", default=None
 )
+_SUITE_MOVEMENT_OVERRIDES: Mapping[str, ContextVar[bool | None]] = MappingProxyType(
+    {
+        movement: ContextVar(f"{movement}_enabled", default=None)
+        for movement in SUITE_MOVEMENT_ENVS
+    }
+)
 
 __all__ = [
     "BROUWER_PRODUCTION_ENV",
+    "SUITE_CHOROS1_ENV",
+    "SUITE_GAVOTTA_ENV",
     "SUITE_MAZURKA_ENV",
+    "SUITE_MOVEMENT_ENVS",
+    "SUITE_SCHOTTISH_ENV",
+    "SUITE_VALSA_ENV",
     "VILLA_PRODUCTION_ENV",
+    "any_suite_movement_enabled",
     "barrios_period_enabled",
     "brouwer_production_enabled",
+    "suite_choros1_enabled",
+    "suite_gavotta_enabled",
     "suite_mazurka_enabled",
+    "suite_movement_enabled",
+    "suite_schottish_enabled",
+    "suite_valsa_enabled",
     "use_brouwer_production",
+    "use_suite_choros1",
+    "use_suite_gavotta",
     "use_suite_mazurka",
+    "use_suite_movement",
+    "use_suite_schottish",
+    "use_suite_valsa",
     "use_villa_production",
     "villa_production_enabled",
 ]
@@ -81,6 +121,52 @@ def suite_mazurka_enabled() -> bool:
     if override is not None:
         return override
     return _env_enabled(SUITE_MAZURKA_ENV)
+
+
+def suite_movement_enabled(movement: str) -> bool:
+    """True when one remaining Suite movement's gate is enabled.
+
+    ``movement`` is the production id, e.g. ``suite_valsa``. An unknown id is a
+    programming error, not a silent off: a call site must name a real gate.
+    """
+    try:
+        override = _SUITE_MOVEMENT_OVERRIDES[movement]
+        env = SUITE_MOVEMENT_ENVS[movement]
+    except KeyError:
+        raise KeyError(f"unknown Suite movement flag {movement!r}") from None
+    pinned = override.get()
+    if pinned is not None:
+        return pinned
+    return _env_enabled(env)
+
+
+def suite_valsa_enabled() -> bool:
+    """True when the gated Suite Valsa-Choro path is selected."""
+    return suite_movement_enabled("suite_valsa")
+
+
+def suite_gavotta_enabled() -> bool:
+    """True when the gated Suite Gavotta-Choro path is selected."""
+    return suite_movement_enabled("suite_gavotta")
+
+
+def suite_schottish_enabled() -> bool:
+    """True when the gated Suite Schottish-Choro path is selected."""
+    return suite_movement_enabled("suite_schottish")
+
+
+def suite_choros1_enabled() -> bool:
+    """True when the gated Suite Choros No. 1 path is selected."""
+    return suite_movement_enabled("suite_choros1")
+
+
+def any_suite_movement_enabled() -> bool:
+    """True when any remaining Suite gate is on.
+
+    The renderer uses this to avoid importing the movement modules on the
+    default-off path, which keeps the historical render free of extra work.
+    """
+    return any(suite_movement_enabled(movement) for movement in SUITE_MOVEMENT_ENVS)
 
 
 def barrios_period_enabled() -> bool:
@@ -125,3 +211,34 @@ def use_brouwer_production(
 def use_suite_mazurka(enabled: bool = True) -> AbstractContextManager[None]:
     """Test/audition override for :func:`suite_mazurka_enabled`."""
     return _use_override(_SUITE_MAZURKA_OVERRIDE, enabled)
+
+
+def use_suite_movement(
+    movement: str, enabled: bool = True
+) -> AbstractContextManager[None]:
+    """Test/audition override for one remaining Suite movement's flag."""
+    try:
+        override = _SUITE_MOVEMENT_OVERRIDES[movement]
+    except KeyError:
+        raise KeyError(f"unknown Suite movement flag {movement!r}") from None
+    return _use_override(override, enabled)
+
+
+def use_suite_valsa(enabled: bool = True) -> AbstractContextManager[None]:
+    """Test/audition override for :func:`suite_valsa_enabled`."""
+    return use_suite_movement("suite_valsa", enabled)
+
+
+def use_suite_gavotta(enabled: bool = True) -> AbstractContextManager[None]:
+    """Test/audition override for :func:`suite_gavotta_enabled`."""
+    return use_suite_movement("suite_gavotta", enabled)
+
+
+def use_suite_schottish(enabled: bool = True) -> AbstractContextManager[None]:
+    """Test/audition override for :func:`suite_schottish_enabled`."""
+    return use_suite_movement("suite_schottish", enabled)
+
+
+def use_suite_choros1(enabled: bool = True) -> AbstractContextManager[None]:
+    """Test/audition override for :func:`suite_choros1_enabled`."""
+    return use_suite_movement("suite_choros1", enabled)

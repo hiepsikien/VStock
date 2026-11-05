@@ -336,8 +336,44 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
   },
   {
     "ensemble": "villa",
+    "pattern": "suite_choros1",
+    "title": "Choros No. 1",
+    "family": "dance",
+    "level": "topic",
+    "nameSource": "genre",
+    "waveProfile": true
+  },
+  {
+    "ensemble": "villa",
+    "pattern": "suite_gavotta",
+    "title": "Gavotta-Choro",
+    "family": "dance",
+    "level": "topic",
+    "nameSource": "dance",
+    "waveProfile": true
+  },
+  {
+    "ensemble": "villa",
     "pattern": "suite_mazurka",
     "title": "Mazurka-Choro",
+    "family": "dance",
+    "level": "topic",
+    "nameSource": "dance",
+    "waveProfile": true
+  },
+  {
+    "ensemble": "villa",
+    "pattern": "suite_schottish",
+    "title": "Schottish-Choro",
+    "family": "dance",
+    "level": "topic",
+    "nameSource": "dance",
+    "waveProfile": true
+  },
+  {
+    "ensemble": "villa",
+    "pattern": "suite_valsa",
+    "title": "Valsa-Choro",
     "family": "dance",
     "level": "topic",
     "nameSource": "dance",
