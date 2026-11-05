@@ -70,7 +70,7 @@ def family_for(pattern: object) -> str | None:
 
 def _unknown(pattern: object) -> preview.Error:
     return preview.Error(
-        "spec.pattern",
+        "pattern",
         f"unknown pattern {pattern!r}; expected a Torroba/Sor, Villa, "
         "Barrios, or Brouwer pattern",
     )

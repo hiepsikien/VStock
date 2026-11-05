@@ -409,9 +409,9 @@ def _resolve_fixture(spec: SentenceSpec, fixture: Mapping[str, Any] | None) -> d
     bars = _fixture_int(supplied.get("bars", length), "fixture.bars", minimum=0)
     bars = min(bars, MAX_RENDER_BARS, length)
 
-    character = supplied.get(
-        "character", "rally" if profile == "classic" else "calm"
-    )
+    character = supplied.get("character")
+    if character is None:
+        character = "rally" if profile == "classic" else "calm"
     if character not in _CHARACTERS:
         raise SpecParseError(
             f"fixture.character must be one of {sorted(item or 'none' for item in _CHARACTERS)}"

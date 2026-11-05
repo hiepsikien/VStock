@@ -255,7 +255,9 @@ def _resolve_fixture(
     )
     bars = _fixture_int(supplied.get("bars", length), "fixture.bars", minimum=0)
     bars = min(bars, MAX_RENDER_BARS, length)
-    character = supplied.get("character", "calm")
+    character = supplied.get("character")
+    if character is None:
+        character = "calm"
     if character not in _CHARACTERS:
         raise ValueError("fixture.character is not a known character")
     mode = supplied.get("mode", "minor")

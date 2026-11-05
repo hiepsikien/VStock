@@ -233,6 +233,18 @@ const bothRealizers = checkSpecShape({
 });
 deepEqual(paths(bothRealizers), ['slots[0]']);
 
+const procedureOnly = checkSpecShape({
+  ...valid,
+  slots: [{ start: 0, bars: 1, procedure: 'bach_imitation' }],
+});
+deepEqual(procedureOnly, []);
+
+const figureAndProcedure = checkSpecShape({
+  ...valid,
+  slots: [{ start: 0, bars: 1, figure: 8, procedure: 'bach_imitation' }],
+});
+deepEqual(paths(figureAndProcedure), ['slots[0]']);
+
 const neitherRealizer = checkSpecShape({
   ...valid,
   slots: [{ start: 0, bars: 1, figure: null, cell: null }],

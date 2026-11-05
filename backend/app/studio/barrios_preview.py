@@ -59,7 +59,7 @@ from app.studio.preview_fixture import (
 
 MAX_BARRIOS_MATRIX_ROWS = 64
 _BARRIOS_CONTOUR = (67, 65, 64, 62, 60, 62, 64, 65)
-_DEFAULT_BPM = 120
+_DEFAULT_BPM = 96  # match the Studio audio preview tempo
 _DEFAULT_MODE = "minor"
 _DEFAULT_CHARACTER = "calm"
 
@@ -241,7 +241,9 @@ def _resolve_fixture(
     mode = supplied.get("mode", _DEFAULT_MODE)
     if mode not in _MODES:
         raise SpecParseError("fixture.mode must be major or minor")
-    character = supplied.get("character", _DEFAULT_CHARACTER)
+    character = supplied.get("character")
+    if character is None:
+        character = _DEFAULT_CHARACTER
     if character not in _CHARACTERS:
         raise SpecParseError("fixture.character is not a known character")
     bpm = _fixture_int(

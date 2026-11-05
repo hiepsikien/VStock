@@ -246,6 +246,13 @@ def test_fixture_rejects_bad_types_and_values() -> None:
         assert path in result.errors[0].message, (fixture, result.errors)
 
 
+def test_explicit_null_character_uses_the_default() -> None:
+    default = preview_spec(CASTILLO_34_WALK)
+    explicit = preview_spec(CASTILLO_34_WALK, {"character": None})
+    assert explicit.ok
+    assert explicit.render_hash == default.render_hash
+
+
 def test_fixture_rejects_unknown_keys() -> None:
     result = preview_spec(CASTILLO_34_WALK, {"nope": 1})
     assert not result.ok

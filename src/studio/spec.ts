@@ -604,10 +604,14 @@ export function checkSpecShape(spec: Record<string, unknown>): StudioError[] {
       }
       const hasFigure = typeof slot.figure === 'number';
       const hasCell = typeof slot.cell === 'string' && slot.cell.trim() !== '';
-      if (hasFigure === hasCell) {
+      const hasProcedure =
+        typeof slot.procedure === 'string' && slot.procedure.trim() !== '';
+      const realizers = Number(hasFigure) + Number(hasCell) + Number(hasProcedure);
+      if (realizers !== 1) {
         errors.push({
           path: `slots[${index}]`,
-          message: 'needs exactly one of figure (number) or cell (non-empty string)',
+          message:
+            'needs exactly one of figure (number), cell (non-empty string), or procedure (non-empty string)',
         });
       }
       if (

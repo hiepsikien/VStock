@@ -212,7 +212,7 @@ def test_preview_rejects_an_unknown_pattern_at_spec_dot_pattern() -> None:
     assert body["ok"] is False
     assert body["errors"] == [
         {
-            "path": "spec.pattern",
+            "path": "pattern",
             "message": (
                 "unknown pattern 'nope'; expected a Torroba/Sor, Villa, "
                 "Barrios, or Brouwer pattern"
@@ -229,7 +229,7 @@ def test_validate_rejects_an_unknown_pattern_at_spec_dot_pattern() -> None:
     payload = {**_castillo_payload(), "pattern": "nope"}
     body = client.post(VALIDATE, json=payload).json()
     assert body["ok"] is False
-    assert body["errors"][0]["path"] == "spec.pattern"
+    assert body["errors"][0]["path"] == "pattern"
 
 
 # ---------------------------------------------------------------------------

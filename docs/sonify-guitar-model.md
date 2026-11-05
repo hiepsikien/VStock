@@ -630,8 +630,8 @@ Status theo composer:
 | **Torroba** | 4 family (castillo 3/4 + 4/4, sonatina, fandanguillo, danza 3/4 + 6/8) | **xong** (Phase 0/1) | bảng trên là toàn bộ archetype; `fandanguillo` cần `rise` + anchor `middle`; `sonatina` cần `n % 3`; danza 4/4 cố ý `None` |
 | **Sor/Classic** | cycle 8 ô trong galop | **xong** | cycle 8 ô + `plan_run` theo run; `_galop_body_index` vẫn là oracle |
 | **Bach** | không | **authoring** + `procedure` | exposition = sentence của entry |
-| **Barrios** | không (candidate preview-only) | **authoring**; cần figure variants | `barrios_cathedral_period` (`preludio → tremolo → preludio`) chỉ là pilot trong `app/studio/candidates/`; chưa register, chưa có endpoint |
-| **Villa** | không (candidate preview-only) | **authoring**; pilot texture trước | `villa_arpeggio_aba` chỉ là pilot trong `app/studio/candidates/`; chưa register, chưa có endpoint |
+| **Barrios** | không (candidate preview-only) | **authoring**; cần figure variants | `barrios_cathedral_period` (`preludio → tremolo → preludio`) chỉ là pilot trong `app/studio/candidates/`; chưa register, preview/validate/audio/publish qua endpoint chung |
+| **Villa** | không (candidate preview-only) | **authoring**; pilot texture trước | `villa_arpeggio_aba` chỉ là pilot trong `app/studio/candidates/`; chưa register, preview/validate/audio/publish qua endpoint chung |
 | **Brouwer** | không (candidate preview-only) | **authoring**; ưu tiên thấp | `brouwer_etude_noviembre_aba` chỉ là pilot trong `app/studio/candidates/`; chưa register, preview qua endpoint chung |
 
 ### 13.7. Quy tắc migration
