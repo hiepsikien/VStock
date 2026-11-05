@@ -21,6 +21,7 @@ import {
   previewSentenceSpec,
   publishSentenceSpec,
   requestSentenceAudio,
+  rollbackSentenceSpec,
   studioSentenceUrl,
   validateSentenceSpec,
   type StudioError,
@@ -42,6 +43,7 @@ import {
   fixtureTextForSpec,
   meterLabel,
   metersForPattern,
+  nextPublishedList,
   normalizeErrorPath,
   notesLines,
   parseJsonObject,
@@ -51,12 +53,15 @@ import {
   planLines,
   prefixErrorPaths,
   publishedAtLabel,
+  publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
+  rollbackLabel,
   sampleText,
   shortId,
   textStats,
   valueLines,
+  type PublishedListState,
   type StudioSample,
 } from './spec';
 
@@ -112,11 +117,16 @@ type PublishState =
     }
   | { kind: 'failure'; message: string; errors: StudioError[] };
 
-type PublishedListState = {
-  loading: boolean;
-  items: StudioPublishedSpec[];
-  error: string | null;
-};
+type RollbackState =
+  | { kind: 'idle' }
+  | { kind: 'running'; id: string }
+  | {
+      kind: 'ok';
+      id: string;
+      version: number | null;
+      rollbackOf: string;
+    }
+  | { kind: 'failure'; id: string; message: string; errors: StudioError[] };
 
 type CatalogState = {
   loading: boolean;
@@ -172,12 +182,15 @@ export function StudioRoom({ wide, onMode }: Props) {
     error: null,
   });
   const [loadingSpecId, setLoadingSpecId] = useState<string | null>(null);
+  const [rollbackState, setRollbackState] = useState<RollbackState>({ kind: 'idle' });
+  const [confirmingRollbackId, setConfirmingRollbackId] = useState<string | null>(null);
 
   const inFlight = useRef<AbortController | null>(null);
   const examplesController = useRef<AbortController | null>(null);
   const specsController = useRef<AbortController | null>(null);
   const publishController = useRef<AbortController | null>(null);
   const specDetailController = useRef<AbortController | null>(null);
+  const rollbackController = useRef<AbortController | null>(null);
   const audioController = useRef<AbortController | null>(null);
   const audioPlayer = useRef<HTMLAudioElement | null>(null);
   const audioRunId = useRef(0);
@@ -245,6 +258,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       specsController.current?.abort();
       publishController.current?.abort();
       specDetailController.current?.abort();
+      rollbackController.current?.abort();
       audioController.current?.abort();
       stopPlayer();
     },
@@ -295,18 +309,19 @@ export function StudioRoom({ wide, onMode }: Props) {
     specsController.current?.abort();
     const controller = new AbortController();
     specsController.current = controller;
-    setPublished((prev) => ({ ...prev, loading: true, error: null }));
+    setPublished((prev) => nextPublishedList(prev, { kind: 'start' }));
     try {
       const items = await fetchPublishedSpecs(controller.signal);
       if (controller.signal.aborted) return;
-      setPublished({ loading: false, items, error: null });
+      setPublished((prev) => nextPublishedList(prev, { kind: 'success', items }));
     } catch (error) {
       if (controller.signal.aborted) return;
-      setPublished((prev) => ({
-        loading: false,
-        items: prev.items,
-        error: describeRequestFailure(error),
-      }));
+      setPublished((prev) =>
+        nextPublishedList(prev, {
+          kind: 'failure',
+          message: describeRequestFailure(error),
+        }),
+      );
     } finally {
       if (specsController.current === controller) specsController.current = null;
     }
@@ -584,6 +599,49 @@ export function StudioRoom({ wide, onMode }: Props) {
     [applyEditor],
   );
 
+  const rollback = useCallback(
+    async (id: string) => {
+      setConfirmingRollbackId(null);
+      rollbackController.current?.abort();
+      const controller = new AbortController();
+      rollbackController.current = controller;
+      setRollbackState({ kind: 'running', id });
+      try {
+        const data = await rollbackSentenceSpec(id, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!data.ok || !data.id) {
+          setRollbackState({
+            kind: 'failure',
+            id,
+            message: data.errors[0]?.message ?? 'Rollback failed.',
+            errors: data.errors,
+          });
+          return;
+        }
+        setRollbackState({
+          kind: 'ok',
+          id: data.id,
+          version: data.version,
+          rollbackOf: data.rollbackOf ?? id,
+        });
+        void loadPublished();
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setRollbackState({
+          kind: 'failure',
+          id,
+          message: describeRequestFailure(error),
+          errors: [],
+        });
+      } finally {
+        if (rollbackController.current === controller) {
+          rollbackController.current = null;
+        }
+      }
+    },
+    [loadPublished],
+  );
+
   const running = result.kind === 'running';
   const publishing = publishState.kind === 'running';
   const stale =
@@ -801,8 +859,13 @@ export function StudioRoom({ wide, onMode }: Props) {
               <PublishedPanel
                 state={published}
                 loadingId={loadingSpecId}
+                rollback={rollbackState}
+                confirmingId={confirmingRollbackId}
                 onRefresh={() => void loadPublished()}
                 onOpen={(id) => void openPublished(id)}
+                onAskRollback={(id) => setConfirmingRollbackId(id)}
+                onCancelRollback={() => setConfirmingRollbackId(null)}
+                onConfirmRollback={(id) => void rollback(id)}
               />
               <View style={styles.endpoints}>
                 <Text style={styles.endpointLabel}>Endpoints</Text>
@@ -823,6 +886,9 @@ export function StudioRoom({ wide, onMode }: Props) {
                 </Text>
                 <Text selectable style={styles.endpoint}>
                   GET {studioSentenceUrl('specs')}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  POST {studioSentenceUrl('specs')}/{'<id>'}/rollback
                 </Text>
               </View>
             </View>
@@ -1173,13 +1239,23 @@ function ResultPanel({
 function PublishedPanel({
   state,
   loadingId,
+  rollback,
+  confirmingId,
   onRefresh,
   onOpen,
+  onAskRollback,
+  onCancelRollback,
+  onConfirmRollback,
 }: {
   state: PublishedListState;
   loadingId: string | null;
+  rollback: RollbackState;
+  confirmingId: string | null;
   onRefresh: () => void;
   onOpen: (id: string) => void;
+  onAskRollback: (id: string) => void;
+  onCancelRollback: () => void;
+  onConfirmRollback: (id: string) => void;
 }) {
   return (
     <View style={styles.card}>
@@ -1207,6 +1283,11 @@ function PublishedPanel({
         </Pressable>
       </View>
 
+      {rollback.kind === 'ok' ? (
+        <Text selectable style={styles.rollbackOk}>
+          {rollbackLabel(rollback.version, rollback.rollbackOf) ?? 'Rollback complete.'}
+        </Text>
+      ) : null}
       {state.error ? <Text style={styles.catalogWarning}>{state.error}</Text> : null}
       {state.items.length === 0 && !state.loading && !state.error ? (
         <Text style={styles.empty}>
@@ -1215,32 +1296,134 @@ function PublishedPanel({
         </Text>
       ) : null}
 
-      {state.items.map((item) => (
+      {state.items.map((item) => {
+        const lineage = publishedSpecLineage(item);
+        return (
+          <View key={item.id} style={styles.publishedRow}>
+            <Pressable
+              onPress={() => onOpen(item.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Load published ${publishedSpecTitle(item)}, ${publishedSpecMeta(item)}, id ${item.id}`}
+              style={({ pressed }) => [
+                styles.publishedOpen,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.publishedRowMain}>
+                <Text style={styles.publishedTitle}>{publishedSpecTitle(item)}</Text>
+                <Text selectable numberOfLines={1} style={styles.publishedId}>
+                  {item.id}
+                </Text>
+                {lineage ? (
+                  <Text selectable numberOfLines={1} style={styles.publishedLineage}>
+                    {lineage}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.publishedRight}>
+                <Text style={styles.publishedVersion}>v{item.version}</Text>
+                <Text style={styles.publishedTime}>
+                  {publishedAtLabel(item.createdAt)}
+                </Text>
+              </View>
+              {loadingId === item.id ? (
+                <ActivityIndicator color={palette.data} size="small" />
+              ) : null}
+            </Pressable>
+            <RollbackControl
+              item={item}
+              confirming={confirmingId === item.id}
+              busy={rollback.kind === 'running' && rollback.id === item.id}
+              failure={
+                rollback.kind === 'failure' && rollback.id === item.id
+                  ? rollback.message
+                  : null
+              }
+              disabled={rollback.kind === 'running'}
+              onAsk={() => onAskRollback(item.id)}
+              onCancel={onCancelRollback}
+              onConfirm={() => onConfirmRollback(item.id)}
+            />
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function RollbackControl({
+  item,
+  confirming,
+  busy,
+  failure,
+  disabled,
+  onAsk,
+  onCancel,
+  onConfirm,
+}: {
+  item: StudioPublishedSpec;
+  confirming: boolean;
+  busy: boolean;
+  failure: string | null;
+  disabled: boolean;
+  onAsk: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (busy) {
+    return (
+      <View style={styles.rollbackArea}>
+        <ActivityIndicator color={palette.data} size="small" />
+        <Text style={styles.rollbackHint}>Rolling back…</Text>
+      </View>
+    );
+  }
+  if (confirming) {
+    return (
+      <View style={styles.rollbackArea}>
+        <Text style={styles.rollbackHint}>Roll back to v{item.version}?</Text>
         <Pressable
-          key={item.id}
-          onPress={() => onOpen(item.id)}
+          onPress={onConfirm}
           accessibilityRole="button"
-          accessibilityLabel={`Load published ${publishedSpecTitle(item)}, ${publishedSpecMeta(item)}, id ${item.id}`}
+          accessibilityLabel={`Confirm rollback to version ${item.version}`}
           style={({ pressed }) => [
-            styles.publishedRow,
+            styles.rollbackButton,
+            styles.rollbackConfirm,
             pressed && styles.pressed,
           ]}
         >
-          <View style={styles.publishedRowMain}>
-            <Text style={styles.publishedTitle}>{publishedSpecTitle(item)}</Text>
-            <Text selectable numberOfLines={1} style={styles.publishedId}>
-              {item.id}
-            </Text>
-          </View>
-          <View style={styles.publishedRight}>
-            <Text style={styles.publishedVersion}>v{item.version}</Text>
-            <Text style={styles.publishedTime}>{publishedAtLabel(item.createdAt)}</Text>
-          </View>
-          {loadingId === item.id ? (
-            <ActivityIndicator color={palette.data} size="small" />
-          ) : null}
+          <Text style={[styles.rollbackText, styles.rollbackConfirmText]}>Confirm</Text>
         </Pressable>
-      ))}
+        <Pressable
+          onPress={onCancel}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel rollback"
+          style={({ pressed }) => [
+            styles.rollbackButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.rollbackText}>Cancel</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.rollbackArea}>
+      {failure ? <Text style={styles.rollbackFailure}>{failure}</Text> : null}
+      <Pressable
+        onPress={onAsk}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Roll back to ${publishedSpecTitle(item)}, version ${item.version}`}
+        style={({ pressed }) => [
+          styles.rollbackButton,
+          pressed && !disabled ? styles.pressed : null,
+          disabled ? styles.buttonDisabled : null,
+        ]}
+      >
+        <Text style={styles.rollbackText}>Rollback</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1697,6 +1880,14 @@ const styles = StyleSheet.create({
     borderColor: palette.hairline,
     backgroundColor: palette.surface,
   },
+  publishedOpen: {
+    flex: 1,
+    minWidth: 180,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
   publishedRowMain: {
     flex: 1,
     minWidth: 150,
@@ -1714,6 +1905,61 @@ const styles = StyleSheet.create({
     fontFamily: type.mono.fontFamily,
     fontSize: 10,
     lineHeight: 14,
+  },
+  publishedLineage: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  rollbackArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  rollbackButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  rollbackConfirm: {
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  rollbackText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  rollbackConfirmText: {
+    color: palette.text,
+  },
+  rollbackHint: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  rollbackFailure: {
+    color: palette.sound,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+    maxWidth: 260,
+  },
+  rollbackOk: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
   },
   publishedRight: {
     alignItems: 'flex-end',
