@@ -1,0 +1,423 @@
+{
+  "id": "chord_melody_phase2_34",
+  "composer": "villa",
+  "kind": "pattern",
+  "level": "topic",
+  "parent": null,
+  "runtime": "interpreter",
+  "status": "reviewed",
+  "source": {
+    "piece": "Texture interpreter prove-out — chord_melody",
+    "bars": [
+      1,
+      2
+    ],
+    "notation": "fixture",
+    "render_context": {
+      "pattern": "chord_melody",
+      "meter": "3/4",
+      "ensemble": "villa",
+      "bpm": 96,
+      "digest": "sha256:562275f3920bf30f0b2009f2c06cc2928f414094ca445a20500ad310b913108a"
+    }
+  },
+  "meter_variants": [
+    {
+      "meter": {
+        "id": "3/4",
+        "beats": 3,
+        "beat_type": 4,
+        "eighths_per_bar": 6,
+        "strong_eighths": [
+          0
+        ],
+        "subbar_breaks": [
+          4
+        ],
+        "extra_weights": [
+          [
+            4,
+            0.8
+          ]
+        ]
+      },
+      "materializer": "chord_melody_phase2",
+      "transform": "none",
+      "unsupported": false,
+      "reason": null,
+      "sentences": []
+    }
+  ],
+  "authored": {
+    "events": [
+      {
+        "bar": 0,
+        "beat": 0.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 0
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 0.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 1
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 1.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 2
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 1.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 3
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 4
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 5
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 0.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 6
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 0.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 7
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 1.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 8
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 1.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 9
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 2.0,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 10
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 2.5,
+        "duration_beats": 0.5,
+        "voice": 1,
+        "pitch": {
+          "kind": "melody_eighth",
+          "eighth": 11
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 0.0,
+        "duration_beats": 2.0,
+        "voice": 2,
+        "pitch": {
+          "kind": "chord_degree",
+          "degree": 2
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.0,
+        "duration_beats": 1.0,
+        "voice": 2,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 51
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 0.0,
+        "duration_beats": 3.0,
+        "voice": 2,
+        "pitch": {
+          "kind": "chord_degree",
+          "degree": 2
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 0.0,
+        "duration_beats": 2.0,
+        "voice": 3,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 48
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 0,
+        "beat": 2.0,
+        "duration_beats": 1.0,
+        "voice": 3,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 48
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      },
+      {
+        "bar": 1,
+        "beat": 0.0,
+        "duration_beats": 3.0,
+        "voice": 3,
+        "pitch": {
+          "kind": "literal_midi",
+          "value": 48
+        },
+        "staff": 1,
+        "tie": "none",
+        "slur": "none",
+        "accent": false,
+        "tenuto": false,
+        "staccato": false,
+        "conflict": false,
+        "review": "edited"
+      }
+    ]
+  },
+  "derived": {
+    "resolved_midi": "from_render_context",
+    "velocity": "host_resolver",
+    "hairpin": "phrase",
+    "humanize": "params"
+  },
+  "routing": {
+    "price": {
+      "voice": 1,
+      "source": "melody"
+    },
+    "bass": {
+      "voice": 3,
+      "mode": "chord_root"
+    },
+    "density": {
+      "voice": 2,
+      "mode": "block_grid"
+    }
+  },
+  "traits": {
+    "family": "arpeggio",
+    "kinetic": false,
+    "narrow_rows": [
+      6,
+      24,
+      80
+    ],
+    "scale_host": false,
+    "plucked": false,
+    "loud_down": true,
+    "has_door": false,
+    "pedal_door": false,
+    "sentence_registry": "none"
+  },
+  "provenance": {
+    "model": "hand-authored",
+    "prompt_version": "interpreter-phase2",
+    "schema_version": "texture-spec-1",
+    "renderer_version": "chord-melody-interpreter-1",
+    "confidence": 1.0,
+    "reviewed_by": "human",
+    "notes": "Phase 2 interpreter prove-out for chord_melody over a fixed two-bar 3/4 excerpt. The sung line uses melody_eighth for every eighth of the excerpt. Inner and bass tones use chord_degree where it resolves to the written pitch and literal_midi otherwise, because the code writer folds chord tones into the bass/mid registers and moves the inner voice with the melody; a fixed chord_degree cannot reproduce every fold. Velocity is host-derived, not authored."
+  }
+}

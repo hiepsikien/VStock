@@ -1,18 +1,20 @@
-"""Bounded Phase 2 interpreter proof for a two-bar authored texture.
+"""Bounded Phase 2 interpreter dispatch for authored textures.
 
-This module is deliberately narrow. It resolves one published ``TextureSpec``
-for ``chord_melody`` through :mod:`app.sonify.texture_registry` and turns its
-``authored.events`` into ``NoteEvent`` values bar by bar for a fixed two-bar
-excerpt. It is not a registry, a compiler, or a generic pattern engine:
+This module is deliberately narrow. It resolves a published ``TextureSpec`` for
+one pattern through :mod:`app.sonify.texture_registry` and turns its
+``authored.events`` into ``NoteEvent`` values bar by bar. It is not a registry, a
+compiler, or a generic pattern engine:
 
-* The spec comes from the fail-soft registry (``load_default``), not from a
-  hardcoded file read. Only the spec whose id is :data:`SPEC_ID`, whose
-  ``runtime`` is ``"interpreter"``, whose ``source.render_context.pattern`` is
-  :data:`INTERPRETER_PATTERN`, whose meter matches, and whose authored
-  render-context digest matches the live ``_Ctx`` is used. Everything else
-  returns ``None`` so the caller keeps the existing code path.
-* The digest covers the whole excerpt, so a two-bar context never borrows the
-  spec for a one-bar render and vice versa.
+* The specs come from the fail-soft registry (``load_default``), not from a
+  hardcoded file read. A bounded dispatch table is keyed by the authored
+  ``source.render_context.pattern``, the meter signature the live render
+  context exposes, and the spec's own excerpt digest. The ``chord_melody``
+  renderer asks for its pattern; every other pattern, every missing/failed
+  spec, and every context mismatch returns ``None`` so the caller keeps the
+  existing code path.
+* The digest is part of the dispatch key, so it is per excerpt. A two-bar
+  context never borrows a spec authored for a one-bar render and vice versa,
+  and two published excerpts with the same pattern and meter stay distinct.
 * Pitch resolution goes through :func:`app.studio.texture_resolve.resolve_pitch`
   (via ``authored_to_events``). The spec does not contain absolute MIDI unless
   a tone is genuinely fixture data; the golden fixture records that reason.
@@ -38,7 +40,7 @@ import os
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
@@ -64,13 +66,16 @@ __all__ = [
     "SPEC_ID",
     "SPEC_PATH",
     "SPEC_ROOT",
+    "Interpretation",
     "TextureInterpreterError",
     "context_digest",
+    "dispatch_key",
+    "dispatch_spec",
+    "excerpt_key",
     "interpreter_enabled",
     "load_spec",
     "render_chord_melody_bar",
     "reset_spec_cache",
-    "runtime_spec",
     "use_texture_interpreter",
 ]
 
@@ -78,6 +83,8 @@ logger = logging.getLogger(__name__)
 
 INTERPRETER_FLAG = "VSTOCK_TEXTURE_INTERPRETER"
 INTERPRETER_PATTERN = "chord_melody"
+#: The default file for the direct-file test seam (``load_spec``). Runtime
+#: dispatch never compares against this id; it comes from the registry table.
 SPEC_ID = "chord_melody_phase2"
 # The committed file is only the direct-file test seam (``load_spec``); runtime
 # resolution goes through the registry's scan of the published directory.
@@ -89,6 +96,13 @@ _TRUE = frozenset({"1", "true", "yes", "on"})
 
 VelocityResolver = Callable[[NoteEvent, set[int]], int | None]
 
+#: Meter fields the live render context exposes. ``strong_eighths`` keeps 3/4
+#: and 6/8 apart even though both have six eighths and three quarter beats.
+MeterKey = tuple[int, float, tuple[int, ...]]
+#: ``(pattern, meter, excerpt digest)``. The digest is in the key so a spec
+#: never applies outside the excerpt it was authored for.
+DispatchKey = tuple[str, MeterKey, str]
+
 _OVERRIDE: ContextVar[bool | None] = ContextVar(
     "texture_interpreter_enabled", default=None
 )
@@ -96,6 +110,16 @@ _OVERRIDE: ContextVar[bool | None] = ContextVar(
 
 class TextureInterpreterError(ValueError):
     """The interpreter spec is missing, malformed, or does not fit the context."""
+
+
+@dataclass(frozen=True)
+class Interpretation:
+    """One registry spec matched to a live render context."""
+
+    spec: TextureSpec
+    meter: MeterSpec
+    pattern: str
+    digest: str
 
 
 def interpreter_enabled() -> bool:
@@ -124,12 +148,16 @@ def use_texture_interpreter(enabled: bool = True) -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 
-def load_spec(path: Path | str | None = None) -> TextureSpec:
+def load_spec(
+    path: Path | str | None = None,
+    *,
+    pattern: str | None = INTERPRETER_PATTERN,
+) -> TextureSpec:
     """Parse and fully validate one spec file directly.
 
     This is the file-based test seam: it bypasses the registry so a test can
     point at a fixture on ``tmp_path`` and fail loudly. Runtime callers use
-    :func:`runtime_spec`, which goes through the fail-soft registry.
+    :func:`dispatch_spec`, which goes through the fail-soft registry.
     """
     target = Path(path) if path is not None else SPEC_PATH
     try:
@@ -144,35 +172,45 @@ def load_spec(path: Path | str | None = None) -> TextureSpec:
     except TextureSpecError as exc:
         raise TextureInterpreterError(str(exc)) from exc
 
-    return _validated_proof_spec(spec, source=str(target))
+    return _validated_spec(spec, source=str(target), expected_pattern=pattern)
 
 
-def _validated_proof_spec(spec: TextureSpec, *, source: str) -> TextureSpec:
+def _validated_spec(
+    spec: TextureSpec,
+    *,
+    source: str,
+    meter: MeterSpec | None = None,
+    expected_pattern: str | None = None,
+) -> TextureSpec:
     """The interpreter's own checks on an already-parsed spec.
 
     The registry applies the parse, version, and general offline validation
-    gates. These checks are stricter and specific to this proof: it must be the
-    ``chord_melody`` interpreter spec, declare its pattern, and validate every
-    authored bar as a full bar in its own meter.
+    gates. These checks are stricter and specific to this proof: it must be an
+    ``interpreter`` spec, declare its excerpt pattern and digest, and validate
+    every authored bar as a full bar in the meter being dispatched.
     """
     if spec.runtime != "interpreter":
         raise TextureInterpreterError(
             f"{spec.id}: runtime is {spec.runtime!r}, expected 'interpreter'"
         )
-    if spec.id != SPEC_ID:
-        raise TextureInterpreterError(f"{source}: spec id is {spec.id!r}")
+    declared = _declared_context(spec)
+    if declared is None:
+        raise TextureInterpreterError(
+            f"{spec.id}: source.render_context must declare a pattern and digest"
+        )
+    if expected_pattern is not None and declared["pattern"] != expected_pattern:
+        raise TextureInterpreterError(
+            f"{source}: spec pattern is {declared['pattern']!r}, "
+            f"expected {expected_pattern!r}"
+        )
     if not spec.meter_variants:
         raise TextureInterpreterError(f"{spec.id}: missing meter variant")
-    if not _declared_context(spec):
-        raise TextureInterpreterError(
-            f"{spec.id}: source.render_context must declare the pattern and digest"
-        )
 
-    errors = validate_texture_spec(
-        spec,
-        meter=spec.meter_variants[0].meter,
-        require_full_bars=True,
-    )
+    target = meter if meter is not None else spec.meter_variants[0].meter
+    if not isinstance(target, MeterSpec):
+        raise TextureInterpreterError(f"{spec.id}: meter is not a MeterSpec")
+
+    errors = validate_texture_spec(spec, meter=target, require_full_bars=True)
     if errors:
         raise TextureInterpreterError(_format_errors(errors))
     return spec
@@ -185,30 +223,6 @@ def _published_specs() -> tuple[TextureSpec, ...]:
     return texture_registry.load_specs(SPEC_ROOT)
 
 
-def runtime_spec() -> TextureSpec | None:
-    """The published proof spec, or ``None`` when it is missing/invalid.
-
-    Fail-soft mirrors the registry contract in ``docs/sonify-texture-studio.md``
-    §7.2: a broken or skipped proof spec must not stop a render or boot. The
-    caller falls back to the code renderer. The registry already caches the
-    default directory, so this does not add a second spec cache.
-    """
-    try:
-        specs = _published_specs()
-    except Exception:  # noqa: BLE001 - the render boundary must never raise
-        logger.warning("texture interpreter: registry unavailable", exc_info=True)
-        return None
-
-    spec = next((candidate for candidate in specs if candidate.id == SPEC_ID), None)
-    if spec is None:
-        return None
-    try:
-        return _validated_proof_spec(spec, source="texture registry")
-    except Exception:  # noqa: BLE001 - the render boundary must never raise
-        logger.warning("texture interpreter: ignoring spec", exc_info=True)
-        return None
-
-
 def reset_spec_cache() -> None:
     """Forget cached registry results. Tests call this after changing files."""
     texture_registry.clear_cache()
@@ -219,12 +233,127 @@ def _format_errors(errors: Sequence[TextureError]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+
+def excerpt_key(spec: TextureSpec) -> tuple[str, str] | None:
+    """The per-excerpt identity of one published spec.
+
+    A spec is addressed by its own id and its authored context digest. There is
+    no single module-wide excerpt constant: two specs may share a pattern and
+    meter while applying to different excerpts.
+    """
+    declared = _declared_context(spec)
+    if declared is None:
+        return None
+    return (spec.id, declared["digest"])
+
+
+def _meter_key(meter: MeterSpec) -> MeterKey:
+    return (
+        int(meter.eighths_per_bar),
+        round(float(meter.quarter_beats), 6),
+        tuple(int(value) for value in meter.strong_eighths),
+    )
+
+
+def _context_meter_key(ctx: Any) -> MeterKey:
+    return (
+        int(getattr(ctx, "epb", 0) or 0),
+        round(float(getattr(ctx, "bar_beats", 0.0) or 0.0), 6),
+        tuple(int(value) for value in tuple(getattr(ctx, "strong", ()) or ())),
+    )
+
+
+def dispatch_key(pattern: str, ctx: Any) -> DispatchKey:
+    """The bounded dispatch key: pattern + meter signature + excerpt digest."""
+    return (str(pattern), _context_meter_key(ctx), context_digest(ctx))
+
+
+def _dispatch_table(
+    specs: Sequence[TextureSpec],
+) -> dict[DispatchKey, tuple[Interpretation, ...]]:
+    """Index interpreter specs by pattern, meter, and authored digest.
+
+    Later duplicate entries with the same key stay in registration order; the
+    registry already sorts by id and drops duplicate ids.
+    """
+    table: dict[DispatchKey, list[Interpretation]] = {}
+    for spec in specs:
+        if spec.runtime != "interpreter":
+            continue
+        declared = _declared_context(spec)
+        if declared is None:
+            continue
+        pattern = declared["pattern"]
+        digest = declared["digest"]
+        for variant in spec.meter_variants:
+            meter = variant.meter
+            if not isinstance(meter, MeterSpec):
+                continue
+            key = (pattern, _meter_key(meter), digest)
+            table.setdefault(key, []).append(
+                Interpretation(
+                    spec=spec,
+                    meter=meter,
+                    pattern=pattern,
+                    digest=digest,
+                )
+            )
+    return {key: tuple(candidates) for key, candidates in table.items()}
+
+
+def dispatch_spec(pattern: str, ctx: Any) -> Interpretation | None:
+    """The first valid registry spec for ``pattern`` and this exact excerpt.
+
+    Fail-soft mirrors the registry contract in ``docs/sonify-texture-studio.md``
+    §7.2: a broken, skipped, or invalid spec must not stop a render or boot.
+    Unknown patterns, an unavailable registry, and a context mismatch all
+    return ``None`` so the caller keeps the code renderer.
+    """
+    if not isinstance(pattern, str) or not pattern:
+        return None
+    try:
+        specs = _published_specs()
+    except Exception:  # noqa: BLE001 - the render boundary must never raise
+        logger.warning("texture interpreter: registry unavailable", exc_info=True)
+        return None
+
+    try:
+        key = dispatch_key(pattern, ctx)
+        candidates = _dispatch_table(specs).get(key, ())
+    except Exception:  # noqa: BLE001 - the render boundary must never raise
+        logger.warning(
+            "texture interpreter: cannot build the dispatch table", exc_info=True
+        )
+        return None
+
+    for candidate in candidates:
+        try:
+            _validated_spec(
+                candidate.spec,
+                source="texture registry",
+                meter=candidate.meter,
+            )
+        except Exception:  # noqa: BLE001 - the render boundary must never raise
+            logger.warning(
+                "texture interpreter: ignoring spec %s",
+                candidate.spec.id,
+                exc_info=True,
+            )
+            continue
+        return candidate
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Render-context digest
 # ---------------------------------------------------------------------------
 
 
 def context_digest(ctx: Any) -> str:
-    """A stable digest of the fields this one pattern actually reads.
+    """A stable digest of the fields this pattern actually reads.
 
     The proof spec is authored for one deterministic excerpt, so it must not be
     applied to a different melody, chord, phrase, band, or meter. The digest is
@@ -334,29 +463,13 @@ def _declared_context(spec: TextureSpec) -> Mapping[str, Any] | None:
     declared = source.get("render_context")
     if not isinstance(declared, Mapping):
         return None
-    if declared.get("pattern") != INTERPRETER_PATTERN:
+    pattern = declared.get("pattern")
+    if not isinstance(pattern, str) or not pattern:
         return None
-    if not isinstance(declared.get("digest"), str):
+    digest = declared.get("digest")
+    if not isinstance(digest, str) or not digest:
         return None
     return declared
-
-
-def _spec_matches(spec: TextureSpec, ctx: Any) -> bool:
-    if spec.runtime != "interpreter" or spec.id != SPEC_ID:
-        return False
-    if not spec.meter_variants:
-        return False
-    meter = spec.meter_variants[0].meter
-    if not isinstance(meter, MeterSpec):
-        return False
-    if meter.eighths_per_bar != int(getattr(ctx, "epb", 0) or 0):
-        return False
-    if meter.quarter_beats != float(getattr(ctx, "bar_beats", 0) or 0):
-        return False
-    declared = _declared_context(spec)
-    if declared is None:
-        return False
-    return declared["digest"] == context_digest(ctx)
 
 
 def _events_for_bar(spec: TextureSpec, bar: int) -> tuple[Any, ...]:
@@ -370,30 +483,28 @@ def render_chord_melody_bar(
     *,
     velocity_at: VelocityResolver | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]] | None:
-    """Interpret one ``chord_melody`` bar from the committed spec.
+    """Interpret one ``chord_melody`` bar from a matching published spec.
 
     Bars are resolved independently from the same authored excerpt. Returns
-    ``(lead, support, low)`` exactly when the flag is on, the spec is valid,
-    and its authored render-context digest matches ``ctx``. Any other case
-    returns ``None``; the caller must keep the code renderer.
+    ``(lead, support, low)`` exactly when the flag is on, a spec for the
+    ``chord_melody`` pattern at this meter and excerpt resolves, and its
+    authored events validate. Any other case returns ``None``; the caller must
+    keep the code renderer.
     """
     if not interpreter_enabled():
         return None
-    spec = runtime_spec()
-    if spec is None:
-        return None
-    if not _spec_matches(spec, ctx):
+    match = dispatch_spec(INTERPRETER_PATTERN, ctx)
+    if match is None:
         return None
 
-    events = _events_for_bar(spec, bar)
+    events = _events_for_bar(match.spec, bar)
     if not events:
         return None
     if any(event.voice not in (1, 2, 3) for event in events):
         return None
 
-    meter = spec.meter_variants[0].meter
     try:
-        notes = authored_to_events(events, ctx, meter)
+        notes = authored_to_events(events, ctx, match.meter)
     except TextureResolveError:
         return None
 
