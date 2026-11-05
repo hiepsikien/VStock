@@ -32,20 +32,25 @@ from app.sonify.guitar_villa_figures import (
 )
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
 from app.studio.preview import (
-    MAX_PLAN_BARS,
-    MAX_RENDER_BARS,
+    MAX_MATRIX_LENGTH,
+    MAX_MATRIX_ROWS,
     Error,
     PreviewResult,
     _CHARACTERS,
     _MODES,
     _ctx,
-    _fixture_bool,
-    _fixture_int,
     _matrix,
-    _matrix_axes,
     _notes,
     _render_hash,
     _voice,
+)
+from app.studio.preview_fixture import (
+    MAX_PLAN_BARS,
+    MAX_RENDER_BARS,
+    allowed_fixture_keys,
+    fixture_bool as _fixture_bool,
+    fixture_int as _fixture_int,
+    matrix_axes,
 )
 
 VILLA_PATTERNS = frozenset({"villa_pattern", "chord_melody", "etude1", "etude11"})
@@ -191,10 +196,12 @@ def _default_length(spec: SentenceSpec) -> int:
 
 
 def _villa_matrix_axes(supplied: Mapping[str, Any] | None) -> dict[str, list[Any]]:
-    axes = dict(_VILLA_MATRIX)
-    if supplied:
-        axes.update(dict(supplied))
-    return _matrix_axes(axes)
+    return matrix_axes(
+        supplied,
+        defaults=_VILLA_MATRIX,
+        max_rows=MAX_MATRIX_ROWS,
+        max_length=MAX_MATRIX_LENGTH,
+    )
 
 
 def _resolve_fixture(
@@ -214,9 +221,7 @@ def _resolve_fixture(
         "bpm",
         "matrix",
     }
-    unknown = set(supplied) - allowed
-    if unknown:
-        raise ValueError(f"fixture: unknown field(s) {sorted(unknown)}")
+    allowed_fixture_keys(supplied, allowed)
 
     pattern = supplied.get("pattern", spec.pattern)
     if pattern != spec.pattern:
