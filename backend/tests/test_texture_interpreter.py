@@ -1,26 +1,30 @@
 """Phase 2 interpreter proof: one chord_melody bar behind a flag.
 
-The committed spec is a deterministic one-bar fixture. These tests lock three
-things:
+The committed spec is a deterministic one-bar fixture, published through
+``app.sonify.texture_registry``. These tests lock four things:
 
-* flag off is the existing code render, byte for byte;
-* flag on applies the interpreter only to the authored ``chord_melody`` bar and
-  reproduces the code bar writer exactly (velocity included, supplied by the
-  host because the spec does not own it);
-* every other context/pattern falls back, and the interpreter never mutates the
-  production sentence registry.
+* flag off is the existing code render, byte for byte, and reads no registry;
+* flag on applies the interpreter only to the authored ``chord_melody`` bar
+  resolved from the registry and reproduces the code bar writer exactly
+  (velocity included, supplied by the host because the spec does not own it);
+* every other context/pattern, and every missing/malformed/registry-skipped
+  spec, falls back to code without raising;
+* the interpreter never mutates the production sentence or texture registries.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from app.sonify import sentence_specs
+from app.sonify import sentence_specs, texture_interpreter, texture_registry
 from app.sonify.form import METER_44, compose_meter
 from app.sonify.guitar_patterns import render_patterned_voices
 from app.sonify.keys import C_KEY, compose_register, register_for
@@ -120,6 +124,13 @@ def _velocity(ctx, phrase, event, breaks):
     return fixture.velocity_for(ctx, phrase, event, breaks)
 
 
+def _publish(root: Path, mapping, name: str = "chord_melody_phase2.json") -> Path:
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(mapping), encoding="utf-8")
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Flag
 # ---------------------------------------------------------------------------
@@ -184,6 +195,51 @@ def test_spec_declares_the_render_context_digest() -> None:
     assert declared["digest"] == context_digest(ctx)
 
 
+def test_registry_publishes_the_proof_spec() -> None:
+    reset_spec_cache()
+    report = texture_registry.load_report()
+    assert report.issues == ()
+    assert SPEC_ID in report.ids
+
+    spec = report.get(SPEC_ID)
+    assert spec is not None
+    assert spec.runtime == "interpreter"
+    assert spec.provenance["schema_version"] == texture_registry.CURRENT_SCHEMA_VERSION
+    assert spec.provenance["renderer_version"] == fixture.RENDERER_VERSION
+
+
+def test_interpreter_resolves_the_spec_through_the_registry() -> None:
+    reset_spec_cache()
+    published = texture_registry.load_default()
+    spec = runtime_spec()
+    assert spec is not None
+    # Identity, not just equality: the interpreter returns the registry object.
+    assert spec is next(candidate for candidate in published if candidate.id == SPEC_ID)
+
+
+def test_interpreter_does_not_read_spec_path_at_runtime(tmp_path) -> None:
+    reset_spec_cache()
+    ctx, phrases = fixture.fixture_case()
+    with patch(
+        "app.sonify.texture_interpreter.SPEC_PATH", tmp_path / "missing.json"
+    ):
+        with use_texture_interpreter(True):
+            assert render_chord_melody_bar(ctx, 0, phrases[0]) is not None
+    reset_spec_cache()
+
+
+def test_interpreter_uses_a_published_spec_from_the_configured_root(tmp_path) -> None:
+    _publish(tmp_path, fixture.spec_mapping())
+    reset_spec_cache()
+    with patch("app.sonify.texture_interpreter.SPEC_ROOT", tmp_path):
+        spec = runtime_spec()
+        assert spec is not None
+        ctx, phrases = fixture.fixture_case()
+        with use_texture_interpreter(True):
+            assert render_chord_melody_bar(ctx, 0, phrases[0]) is not None
+    reset_spec_cache()
+
+
 # ---------------------------------------------------------------------------
 # Interpreter output vs the code bar writer
 # ---------------------------------------------------------------------------
@@ -237,9 +293,8 @@ def test_full_render_on_matches_off_for_the_authored_bar() -> None:
     ctx, _phrases = fixture.fixture_case()
     with use_texture_interpreter(False):
         off = _render(ctx)
-    from app.sonify import texture_interpreter as interpreter_module
 
-    original = interpreter_module.render_chord_melody_bar
+    original = texture_interpreter.render_chord_melody_bar
     calls: list[bool] = []
 
     def spy(*args, **kwargs):
@@ -248,7 +303,9 @@ def test_full_render_on_matches_off_for_the_authored_bar() -> None:
         return result
 
     with use_texture_interpreter(True):
-        with patch.object(interpreter_module, "render_chord_melody_bar", side_effect=spy):
+        with patch.object(
+            texture_interpreter, "render_chord_melody_bar", side_effect=spy
+        ):
             on = _render(ctx)
     assert calls == [True], "the on render did not take the interpreter path"
     assert on == off
@@ -285,11 +342,87 @@ def test_another_pattern_falls_back_to_code() -> None:
 def test_flag_on_but_missing_spec_falls_back(tmp_path) -> None:
     reset_spec_cache()
     ctx, phrases = fixture.fixture_case()
-    with patch("app.sonify.texture_interpreter.SPEC_PATH", tmp_path / "missing.json"):
-        reset_spec_cache()
+    with patch("app.sonify.texture_interpreter.SPEC_ROOT", tmp_path):
         assert runtime_spec() is None
         with use_texture_interpreter(True):
             assert render_chord_melody_bar(ctx, 0, phrases[0]) is None
+    reset_spec_cache()
+
+
+def test_malformed_published_spec_falls_back(tmp_path) -> None:
+    (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
+    reset_spec_cache()
+    ctx, phrases = fixture.fixture_case()
+    with patch("app.sonify.texture_interpreter.SPEC_ROOT", tmp_path):
+        assert runtime_spec() is None
+        with use_texture_interpreter(True):
+            assert render_chord_melody_bar(ctx, 0, phrases[0]) is None
+    reset_spec_cache()
+
+
+def test_registry_skipped_spec_falls_back(tmp_path) -> None:
+    # A valid JSON spec that the registry's version gate rejects: runtime
+    # ``interpreter`` without ``provenance.renderer_version``.
+    mapping = fixture.spec_mapping()
+    del mapping["provenance"]["renderer_version"]
+    _publish(tmp_path, mapping)
+
+    reset_spec_cache()
+    ctx, phrases = fixture.fixture_case()
+    with patch("app.sonify.texture_interpreter.SPEC_ROOT", tmp_path):
+        assert texture_registry.load_specs(tmp_path) == ()
+        assert runtime_spec() is None
+        with use_texture_interpreter(True):
+            assert render_chord_melody_bar(ctx, 0, phrases[0]) is None
+    reset_spec_cache()
+
+
+def test_a_broken_published_spec_does_not_change_the_render(tmp_path) -> None:
+    mapping = fixture.spec_mapping()
+    mapping["runtime"] = "code"
+    _publish(tmp_path, mapping)
+
+    reset_spec_cache()
+    ctx, _phrases = fixture.fixture_case()
+    with patch("app.sonify.texture_interpreter.SPEC_ROOT", tmp_path):
+        with use_texture_interpreter(False):
+            off = _render(ctx)
+        with use_texture_interpreter(True):
+            on = _render(ctx)
+    assert on == off
+    reset_spec_cache()
+
+
+def test_a_registry_failure_never_breaks_the_render() -> None:
+    reset_spec_cache()
+    ctx, _phrases = fixture.fixture_case()
+    with use_texture_interpreter(False):
+        off = _render(ctx)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("registry is unavailable")
+
+    reset_spec_cache()
+    with patch.object(texture_registry, "load_default", side_effect=explode):
+        assert runtime_spec() is None
+        with use_texture_interpreter(True):
+            on = _render(ctx)
+    assert on == off
+    reset_spec_cache()
+
+
+def test_flag_off_never_reads_the_registry() -> None:
+    ctx, _phrases = fixture.fixture_case()
+
+    def explode(*args, **kwargs):
+        raise AssertionError("flag-off render read the texture registry")
+
+    reset_spec_cache()
+    with patch.object(texture_registry, "load_specs", side_effect=explode):
+        with patch.object(texture_registry, "load_default", side_effect=explode):
+            with use_texture_interpreter(False):
+                rendered = _render(ctx)
+    assert _render_digest(rendered) == OFF_RENDER_DIGEST
     reset_spec_cache()
 
 
@@ -300,6 +433,37 @@ def test_a_spec_with_the_wrong_runtime_is_rejected(tmp_path) -> None:
     target.write_text(json.dumps(mapping), encoding="utf-8")
     with pytest.raises(TextureInterpreterError):
         load_spec(target)
+
+
+def test_a_spec_with_the_wrong_pattern_is_rejected(tmp_path) -> None:
+    mapping = fixture.spec_mapping()
+    mapping["source"]["render_context"]["pattern"] = "villa_pattern"
+    target = tmp_path / "wrong-pattern.json"
+    target.write_text(json.dumps(mapping), encoding="utf-8")
+    with pytest.raises(TextureInterpreterError):
+        load_spec(target)
+
+
+def test_import_reads_no_files_and_loads_no_writer() -> None:
+    backend = Path(__file__).resolve().parents[1]
+    code = (
+        "import pathlib\n"
+        "def _boom(*args, **kwargs):\n"
+        "    raise AssertionError('importing texture_interpreter read a file')\n"
+        "pathlib.Path.read_text = _boom\n"
+        "import sys\n"
+        "import app.sonify.texture_interpreter\n"
+        "print('app.sonify.guitar_patterns' in sys.modules)\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=backend,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "False"
 
 
 # ---------------------------------------------------------------------------
@@ -325,3 +489,16 @@ def test_interpreter_never_mutates_the_sentence_registry() -> None:
     }
     assert after_keys == before_keys
     assert after_values == before_values
+
+
+def test_interpreter_never_mutates_the_texture_registry() -> None:
+    reset_spec_cache()
+    before = texture_registry.load_default()
+    ctx, phrases = fixture.fixture_case()
+    with use_texture_interpreter(True):
+        assert render_chord_melody_bar(ctx, 0, phrases[0]) is not None
+        _render(ctx)
+    after = texture_registry.load_default()
+    assert after == before
+    assert texture_registry.load_report().issues == ()
+    reset_spec_cache()

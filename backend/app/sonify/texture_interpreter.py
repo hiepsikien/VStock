@@ -1,13 +1,16 @@
 """Bounded Phase 2 interpreter proof for one authored bar texture.
 
-This module is deliberately narrow. It reads one committed ``TextureSpec`` for
-``chord_melody`` and turns its ``authored.events`` into ``NoteEvent`` values for
-the same bar. It is not a registry, a compiler, or a generic pattern engine:
+This module is deliberately narrow. It resolves one published ``TextureSpec``
+for ``chord_melody`` through :mod:`app.sonify.texture_registry` and turns its
+``authored.events`` into ``NoteEvent`` values for the same bar. It is not a
+registry, a compiler, or a generic pattern engine:
 
-* Only the spec whose id is :data:`SPEC_ID`, whose ``runtime`` is
-  ``"interpreter"``, and whose authored render-context digest matches the live
-  ``_Ctx`` is used. Everything else returns ``None`` so the caller keeps the
-  existing code path.
+* The spec comes from the fail-soft registry (``load_default``), not from a
+  hardcoded file read. Only the spec whose id is :data:`SPEC_ID`, whose
+  ``runtime`` is ``"interpreter"``, whose ``source.render_context.pattern`` is
+  :data:`INTERPRETER_PATTERN`, whose meter matches, and whose authored
+  render-context digest matches the live ``_Ctx`` is used. Everything else
+  returns ``None`` so the caller keeps the existing code path.
 * Pitch resolution goes through :func:`app.studio.texture_resolve.resolve_pitch`
   (via ``authored_to_events``). The spec does not contain absolute MIDI unless
   a tone is genuinely fixture data; the golden fixture records that reason.
@@ -18,14 +21,17 @@ the same bar. It is not a registry, a compiler, or a generic pattern engine:
   renderer derives it.
 
 The flag :data:`INTERPRETER_FLAG` is read on every call and defaults off. The
-module never imports ``guitar_patterns`` and never mutates ``SENTENCE_SPECS``.
-Importing it is inert: the spec is loaded lazily from a file.
+module never imports ``guitar_patterns``, never registers a spec, and never
+mutates ``SENTENCE_SPECS``. Importing it is inert: the registry reads no files
+until the first flagged render. A missing, malformed, or registry-skipped spec
+degrades to ``None``; it never raises into a render or boot path.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -35,6 +41,7 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
+from app.sonify import texture_registry
 from app.sonify.model import NoteEvent
 from app.studio.texture_spec import (
     MeterSpec,
@@ -54,6 +61,7 @@ __all__ = [
     "INTERPRETER_PATTERN",
     "SPEC_ID",
     "SPEC_PATH",
+    "SPEC_ROOT",
     "TextureInterpreterError",
     "context_digest",
     "interpreter_enabled",
@@ -64,10 +72,17 @@ __all__ = [
     "use_texture_interpreter",
 ]
 
+logger = logging.getLogger(__name__)
+
 INTERPRETER_FLAG = "VSTOCK_TEXTURE_INTERPRETER"
 INTERPRETER_PATTERN = "chord_melody"
 SPEC_ID = "chord_melody_phase2"
+# The committed file is only the direct-file test seam (``load_spec``); runtime
+# resolution goes through the registry's scan of the published directory.
 SPEC_PATH = Path(__file__).with_name("textures") / f"{SPEC_ID}.json"
+#: Registry root. ``None`` means the registry's own committed ``TEXTURES_DIR``.
+#: Tests override it to point at a temporary published directory.
+SPEC_ROOT: Path | None = None
 _TRUE = frozenset({"1", "true", "yes", "on"})
 
 VelocityResolver = Callable[[NoteEvent, set[int]], int | None]
@@ -75,8 +90,6 @@ VelocityResolver = Callable[[NoteEvent, set[int]], int | None]
 _OVERRIDE: ContextVar[bool | None] = ContextVar(
     "texture_interpreter_enabled", default=None
 )
-_SPEC_CACHE: TextureSpec | None = None
-_SPEC_LOADED = False
 
 
 class TextureInterpreterError(ValueError):
@@ -110,10 +123,11 @@ def use_texture_interpreter(enabled: bool = True) -> Iterator[None]:
 
 
 def load_spec(path: Path | str | None = None) -> TextureSpec:
-    """Parse and fully validate the committed proof spec.
+    """Parse and fully validate one spec file directly.
 
-    Raises :class:`TextureInterpreterError` so tests can fail loudly. Runtime
-    callers use :func:`runtime_spec`, which is fail-soft.
+    This is the file-based test seam: it bypasses the registry so a test can
+    point at a fixture on ``tmp_path`` and fail loudly. Runtime callers use
+    :func:`runtime_spec`, which goes through the fail-soft registry.
     """
     target = Path(path) if path is not None else SPEC_PATH
     try:
@@ -128,14 +142,29 @@ def load_spec(path: Path | str | None = None) -> TextureSpec:
     except TextureSpecError as exc:
         raise TextureInterpreterError(str(exc)) from exc
 
+    return _validated_proof_spec(spec, source=str(target))
+
+
+def _validated_proof_spec(spec: TextureSpec, *, source: str) -> TextureSpec:
+    """The interpreter's own checks on an already-parsed spec.
+
+    The registry applies the parse, version, and general offline validation
+    gates. These checks are stricter and specific to this proof: it must be the
+    ``chord_melody`` interpreter spec, declare its pattern, and validate for a
+    full bar in its own meter.
+    """
     if spec.runtime != "interpreter":
         raise TextureInterpreterError(
             f"{spec.id}: runtime is {spec.runtime!r}, expected 'interpreter'"
         )
     if spec.id != SPEC_ID:
-        raise TextureInterpreterError(f"{target}: spec id is {spec.id!r}")
+        raise TextureInterpreterError(f"{source}: spec id is {spec.id!r}")
     if not spec.meter_variants:
         raise TextureInterpreterError(f"{spec.id}: missing meter variant")
+    if not _declared_context(spec):
+        raise TextureInterpreterError(
+            f"{spec.id}: source.render_context must declare the pattern and digest"
+        )
 
     errors = validate_texture_spec(
         spec,
@@ -147,28 +176,40 @@ def load_spec(path: Path | str | None = None) -> TextureSpec:
     return spec
 
 
+def _published_specs() -> tuple[TextureSpec, ...]:
+    """The registry's specs, from the default directory or a test override."""
+    if SPEC_ROOT is None:
+        return texture_registry.load_default()
+    return texture_registry.load_specs(SPEC_ROOT)
+
+
 def runtime_spec() -> TextureSpec | None:
-    """The cached spec, or ``None`` when it is missing/invalid.
+    """The published proof spec, or ``None`` when it is missing/invalid.
 
     Fail-soft mirrors the registry contract in ``docs/sonify-texture-studio.md``
-    §7.2: a broken proof spec must not stop a render. The caller falls back to
-    the code renderer.
+    §7.2: a broken or skipped proof spec must not stop a render or boot. The
+    caller falls back to the code renderer. The registry already caches the
+    default directory, so this does not add a second spec cache.
     """
-    global _SPEC_CACHE, _SPEC_LOADED
-    if not _SPEC_LOADED:
-        _SPEC_LOADED = True
-        try:
-            _SPEC_CACHE = load_spec()
-        except TextureInterpreterError:
-            _SPEC_CACHE = None
-    return _SPEC_CACHE
+    try:
+        specs = _published_specs()
+    except Exception:  # noqa: BLE001 - the render boundary must never raise
+        logger.warning("texture interpreter: registry unavailable", exc_info=True)
+        return None
+
+    spec = next((candidate for candidate in specs if candidate.id == SPEC_ID), None)
+    if spec is None:
+        return None
+    try:
+        return _validated_proof_spec(spec, source="texture registry")
+    except Exception:  # noqa: BLE001 - the render boundary must never raise
+        logger.warning("texture interpreter: ignoring spec", exc_info=True)
+        return None
 
 
 def reset_spec_cache() -> None:
-    """Drop the cache. Tests use this after changing the committed file."""
-    global _SPEC_CACHE, _SPEC_LOADED
-    _SPEC_CACHE = None
-    _SPEC_LOADED = False
+    """Forget cached registry results. Tests call this after changing files."""
+    texture_registry.clear_cache()
 
 
 def _format_errors(errors: Sequence[TextureError]) -> str:
@@ -283,6 +324,21 @@ def _chord_snapshot(ctx: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _declared_context(spec: TextureSpec) -> Mapping[str, Any] | None:
+    """The authored render-context mapping, when it declares pattern + digest."""
+    source = spec.source
+    if not isinstance(source, Mapping):
+        return None
+    declared = source.get("render_context")
+    if not isinstance(declared, Mapping):
+        return None
+    if declared.get("pattern") != INTERPRETER_PATTERN:
+        return None
+    if not isinstance(declared.get("digest"), str):
+        return None
+    return declared
+
+
 def _spec_matches(spec: TextureSpec, ctx: Any) -> bool:
     if spec.runtime != "interpreter" or spec.id != SPEC_ID:
         return False
@@ -295,13 +351,10 @@ def _spec_matches(spec: TextureSpec, ctx: Any) -> bool:
         return False
     if meter.quarter_beats != float(getattr(ctx, "bar_beats", 0) or 0):
         return False
-    source = spec.source
-    if not isinstance(source, Mapping):
+    declared = _declared_context(spec)
+    if declared is None:
         return False
-    declared = source.get("render_context")
-    if not isinstance(declared, Mapping):
-        return False
-    return declared.get("digest") == context_digest(ctx)
+    return declared["digest"] == context_digest(ctx)
 
 
 def _events_for_bar(spec: TextureSpec, bar: int) -> tuple[Any, ...]:
