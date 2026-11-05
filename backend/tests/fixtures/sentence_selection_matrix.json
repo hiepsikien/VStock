@@ -117,6 +117,69 @@
     {
       "closes": false,
       "family": "villa",
+      "id": "suite_valsa_arpeggio_period",
+      "kind": "figure",
+      "length": 8,
+      "meter": "3/4",
+      "n": 0,
+      "pattern": "villa_pattern",
+      "rise": 0,
+      "selected": true,
+      "source": "candidate",
+      "spans": [
+        {
+          "bars": [
+            0
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            1
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            2
+          ],
+          "figure": 2
+        },
+        {
+          "bars": [
+            3
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            4
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            5
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            6
+          ],
+          "figure": 2
+        },
+        {
+          "bars": [
+            7
+          ],
+          "figure": 2
+        }
+      ]
+    },
+    {
+      "closes": false,
+      "family": "villa",
       "id": "villa_arpeggio_aba",
       "kind": "figure",
       "length": 3,
