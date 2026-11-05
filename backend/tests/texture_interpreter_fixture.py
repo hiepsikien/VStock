@@ -1,8 +1,9 @@
 """Authoring and oracle helpers for the Phase 2 ``chord_melody`` interpreter.
 
-The committed spec ``app/sonify/textures/chord_melody_phase2.json`` is data, not
-a runtime builder. This module is the deterministic authoring tool that made it
-and the test oracle that keeps it honest:
+The committed specs ``app/sonify/textures/chord_melody_phase2.json`` (4/4) and
+``chord_melody_phase2_34.json`` (3/4) are data, not runtime builders. This
+module is the deterministic authoring tool that made them and the test oracle
+that keeps them honest:
 
 * :func:`code_bar` calls the production bar writers (``_chord_grid``,
   ``_render_block_bar``, ``_sustain``) for one fixture bar. That is the golden
@@ -31,7 +32,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.sonify.form import METER_44
+from app.sonify.form import METER_34, METER_44, Meter, compose_meter
 from app.sonify.guitar import _apex_eighths
 from app.sonify.guitar_patterns import (
     _covering_melody_velocity,
@@ -53,6 +54,7 @@ FIXTURE_ENSEMBLE = "villa"
 FIXTURE_MOOD = "calm"
 FIXTURE_BAND = "mf"
 FIXTURE_BPM = 96
+FIXTURE_METER = METER_44
 SPEC_ID = "chord_melody_phase2"
 SPEC_PATH = (
     Path(__file__).resolve().parents[1]
@@ -60,6 +62,17 @@ SPEC_PATH = (
     / "sonify"
     / "textures"
     / f"{SPEC_ID}.json"
+)
+#: The second bounded proof: same pattern, different meter. Dispatch must pick
+#: it for a 3/4 context and the 4/4 spec for a 4/4 context.
+SECOND_METER = METER_34
+SECOND_SPEC_ID = "chord_melody_phase2_34"
+SECOND_SPEC_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "app"
+    / "sonify"
+    / "textures"
+    / f"{SECOND_SPEC_ID}.json"
 )
 RENDERER_VERSION = "chord-melody-interpreter-1"
 SPEC_NOTES = (
@@ -73,10 +86,16 @@ SPEC_NOTES = (
 )
 
 
-def fixture_case() -> tuple[Any, list[Phrase]]:
+def _spec_notes(meter_label: str) -> str:
+    return SPEC_NOTES.replace(
+        "fixed two-bar 4/4 excerpt", f"fixed two-bar {meter_label} excerpt"
+    )
+
+
+def fixture_case(meter: Meter = FIXTURE_METER) -> tuple[Any, list[Phrase]]:
     return pattern_case(
         "chord_melody",
-        METER_44,
+        meter,
         ensemble=FIXTURE_ENSEMBLE,
         mood=FIXTURE_MOOD,
         band=FIXTURE_BAND,
@@ -217,81 +236,98 @@ def authored_events(ctx: Any, phrase: Phrase) -> list[dict[str, Any]]:
     ]
 
 
-def spec_mapping() -> dict[str, Any]:
+def spec_mapping(
+    *,
+    meter: Meter = FIXTURE_METER,
+    spec_id: str = SPEC_ID,
+) -> dict[str, Any]:
     from app.sonify.texture_interpreter import context_digest
 
-    ctx, phrases = fixture_case()
-    phrase = phrases[0]
-    return {
-        "id": SPEC_ID,
-        "composer": FIXTURE_ENSEMBLE,
-        "kind": "pattern",
-        "level": "topic",
-        "parent": None,
-        "runtime": "interpreter",
-        "status": "reviewed",
-        "source": {
-            "piece": "Texture interpreter prove-out — chord_melody",
-            "bars": [1, FIXTURE_BARS],
-            "notation": "fixture",
-            "render_context": {
-                "pattern": "chord_melody",
-                "meter": "4/4",
-                "ensemble": FIXTURE_ENSEMBLE,
-                "bpm": FIXTURE_BPM,
-                "digest": context_digest(ctx),
+    meter_label = f"{meter.beats}/{meter.beat_type}"
+    with compose_meter(meter):
+        ctx, phrases = fixture_case(meter)
+        phrase = phrases[0]
+        events = authored_events(ctx, phrase)
+        return {
+            "id": spec_id,
+            "composer": FIXTURE_ENSEMBLE,
+            "kind": "pattern",
+            "level": "topic",
+            "parent": None,
+            "runtime": "interpreter",
+            "status": "reviewed",
+            "source": {
+                "piece": "Texture interpreter prove-out — chord_melody",
+                "bars": [1, FIXTURE_BARS],
+                "notation": "fixture",
+                "render_context": {
+                    "pattern": "chord_melody",
+                    "meter": meter_label,
+                    "ensemble": FIXTURE_ENSEMBLE,
+                    "bpm": FIXTURE_BPM,
+                    "digest": context_digest(ctx),
+                },
             },
-        },
-        "meter_variants": [
-            {
-                "meter": MeterSpec.from_form_meter(METER_44).to_mapping(),
-                "materializer": "chord_melody_phase2",
-                "transform": "none",
-                "unsupported": False,
-                "reason": None,
-                "sentences": [],
-            }
-        ],
-        "authored": {"events": authored_events(ctx, phrase)},
-        "derived": {
-            "resolved_midi": "from_render_context",
-            "velocity": "host_resolver",
-            "hairpin": "phrase",
-            "humanize": "params",
-        },
-        "routing": {
-            "price": {"voice": 1, "source": "melody"},
-            "bass": {"voice": 3, "mode": "chord_root"},
-            "density": {"voice": 2, "mode": "block_grid"},
-        },
-        "traits": {
-            "family": "arpeggio",
-            "kinetic": False,
-            "narrow_rows": [6, 24, 80],
-            "scale_host": False,
-            "plucked": False,
-            "loud_down": True,
-            "has_door": False,
-            "pedal_door": False,
-            "sentence_registry": "none",
-        },
-        "provenance": {
-            "model": "hand-authored",
-            "prompt_version": "interpreter-phase2",
-            "schema_version": "texture-spec-1",
-            "renderer_version": RENDERER_VERSION,
-            "confidence": 1.0,
-            "reviewed_by": "human",
-            "notes": SPEC_NOTES,
-        },
-    }
+            "meter_variants": [
+                {
+                    "meter": MeterSpec.from_form_meter(meter).to_mapping(),
+                    "materializer": "chord_melody_phase2",
+                    "transform": "none",
+                    "unsupported": False,
+                    "reason": None,
+                    "sentences": [],
+                }
+            ],
+            "authored": {"events": events},
+            "derived": {
+                "resolved_midi": "from_render_context",
+                "velocity": "host_resolver",
+                "hairpin": "phrase",
+                "humanize": "params",
+            },
+            "routing": {
+                "price": {"voice": 1, "source": "melody"},
+                "bass": {"voice": 3, "mode": "chord_root"},
+                "density": {"voice": 2, "mode": "block_grid"},
+            },
+            "traits": {
+                "family": "arpeggio",
+                "kinetic": False,
+                "narrow_rows": [6, 24, 80],
+                "scale_host": False,
+                "plucked": False,
+                "loud_down": True,
+                "has_door": False,
+                "pedal_door": False,
+                "sentence_registry": "none",
+            },
+            "provenance": {
+                "model": "hand-authored",
+                "prompt_version": "interpreter-phase2",
+                "schema_version": "texture-spec-1",
+                "renderer_version": RENDERER_VERSION,
+                "confidence": 1.0,
+                "reviewed_by": "human",
+                "notes": _spec_notes(meter_label),
+            },
+        }
 
 
-def write_spec(path: Path | None = None) -> Path:
+def write_spec(
+    path: Path | None = None,
+    *,
+    meter: Meter = FIXTURE_METER,
+    spec_id: str = SPEC_ID,
+) -> Path:
     target = Path(path) if path is not None else SPEC_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
-        json.dumps(spec_mapping(), indent=2, ensure_ascii=False) + "\n",
+        json.dumps(
+            spec_mapping(meter=meter, spec_id=spec_id),
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
         encoding="utf-8",
     )
     return target
@@ -299,7 +335,11 @@ def write_spec(path: Path | None = None) -> Path:
 
 __all__ = [
     "FIXTURE_BARS",
+    "FIXTURE_METER",
     "RENDERER_VERSION",
+    "SECOND_METER",
+    "SECOND_SPEC_ID",
+    "SECOND_SPEC_PATH",
     "SPEC_ID",
     "SPEC_PATH",
     "authored_events",
