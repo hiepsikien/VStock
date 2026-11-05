@@ -582,6 +582,10 @@ def _contour_galop1(
     Measuring from each note's own velocity lets a rising phrase cancel the
     two-step gap inside a beat. The peak is the loudest lead already written.
     """
+    from app.sonify.micro_velocity_writer import apply_galop, writers_enabled
+
+    if writers_enabled():
+        return apply_galop(lead, low, rule_id="galop1")
     written = [
         event.velocity
         for event in lead
@@ -625,6 +629,10 @@ def _contour_galop2(
     lead: list[NoteEvent], low: list[NoteEvent]
 ) -> tuple[list[NoteEvent], list[NoteEvent]]:
     """One written peak for the bar. The second twelfth sits on it, and the first cell is quieter."""
+    from app.sonify.micro_velocity_writer import apply_galop, writers_enabled
+
+    if writers_enabled():
+        return apply_galop(lead, low, rule_id="galop2")
     written = [
         event.velocity
         for event in lead

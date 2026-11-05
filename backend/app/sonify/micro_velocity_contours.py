@@ -12,18 +12,17 @@ renderer currently hardcodes inside its figure writers, expressed as
 * A rule is flattened to per-note offsets by :func:`flatten_rule` for the
   figure occurrence being rendered. The stored value stays the rule.
 
-The module is inert. Importing it reads constants from the figure modules and
-builds frozen values; it never registers a figure, never changes a renderer,
-and nothing in the render path imports it. ``render_patterned_voices`` keeps
-using the hardcoded writers until a separate writer integration switches them
-to a neutral level plus these contours.
+The module is inert at import. The production writer reaches it only through
+``app.sonify.micro_velocity_writer`` when ``VSTOCK_MICRO_VELOCITY_WRITERS`` is
+on; with the flag off (the default) ``render_patterned_voices`` keeps using the
+hardcoded writers and every ``NoteEvent`` stays byte-identical.
 
-Neutral levels used by the extraction harness live in :data:`NEUTRAL_LEVELS`.
-They are verification metadata, not part of the contour schema: section 6.9
-forbids a stored ``base``. A mapping entry means the writer writes that level
-when the contour is absent; the contour is the delta on top of it. A family
-whose layers sit on different role centres (Cathedral Preludio) maps each
-voice to its centre.
+Neutral levels used by the extraction harness and the feature-gated writer path
+live in :data:`NEUTRAL_LEVELS`. They are verification and rendering metadata,
+not part of the contour schema: section 6.9 forbids a stored ``base``. A
+mapping entry means the writer writes that level when the contour is absent;
+the contour is the delta on top of it. A family whose layers sit on different
+role centres (Cathedral Preludio) maps each voice to its centre.
 
 Coverage in this workstream:
 
