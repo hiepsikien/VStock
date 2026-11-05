@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,36 +10,53 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getApiBaseUrl } from '../api/client';
 import { palette, TOUCH_TARGET } from '../musicalize/palette';
 import { TopBar, type RoomMode } from '../musicalize/TopBar';
 import { type } from '../musicalize/type';
 import {
+  fetchPublishedSpec,
+  fetchPublishedSpecs,
+  fetchSentenceExamples,
   previewSentenceSpec,
+  publishSentenceSpec,
+  requestSentenceAudio,
   studioSentenceUrl,
   validateSentenceSpec,
   type StudioError,
   type StudioPreviewResponse,
+  type StudioPublishedSpec,
   type StudioValidateResponse,
 } from './api';
+import { resolveAudioUrl } from './protocol';
 import {
   DEFAULT_SAMPLE,
-  PATTERNS,
+  SAMPLES,
+  examplesToSamples,
   checkSpecText,
   defaultSampleForPattern,
   describeRequestFailure,
+  durationLabel,
   findSample,
   fixtureText as sampleFixtureText,
+  fixtureTextForSpec,
   meterLabel,
+  metersForPattern,
   normalizeErrorPath,
   notesLines,
   parseJsonObject,
-  patternOption,
+  patternCatalogHint,
+  patternIds,
+  patternLabel,
   planLines,
   prefixErrorPaths,
+  publishedAtLabel,
+  publishedSpecMeta,
+  publishedSpecTitle,
   sampleText,
+  shortId,
   textStats,
   valueLines,
-  type PatternId,
   type StudioSample,
 } from './spec';
 
@@ -56,67 +74,270 @@ type StudioResult =
   | { kind: 'preview'; data: StudioPreviewResponse; elapsedMs: number }
   | { kind: 'failure'; action: RunAction; message: string; errors: StudioError[] };
 
+type Selection = {
+  key: string;
+  pattern: string;
+  meter: string;
+  title: string;
+  id?: string;
+};
+
+type PreviewSnapshot = {
+  spec: Record<string, unknown>;
+  fixture: Record<string, unknown>;
+  renderHash: string | null;
+};
+
+type AudioState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | {
+      kind: 'ready';
+      url: string;
+      durationSec: number;
+      renderHash: string | null;
+      playing: boolean;
+    }
+  | { kind: 'error'; message: string; errors: StudioError[] };
+
+type PublishState =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | {
+      kind: 'ok';
+      id: string;
+      pattern: string;
+      meter: string;
+      version: number;
+    }
+  | { kind: 'failure'; message: string; errors: StudioError[] };
+
+type PublishedListState = {
+  loading: boolean;
+  items: StudioPublishedSpec[];
+  error: string | null;
+};
+
+type CatalogState = {
+  loading: boolean;
+  source: 'api' | 'fallback';
+  note: string | null;
+};
+
 const DEFAULT_STUDIO_SAMPLE = DEFAULT_SAMPLE;
+const DEFAULT_SELECTION: Selection = {
+  key: DEFAULT_STUDIO_SAMPLE.key,
+  pattern: DEFAULT_STUDIO_SAMPLE.pattern,
+  meter: DEFAULT_STUDIO_SAMPLE.meter,
+  title: DEFAULT_STUDIO_SAMPLE.title,
+  id: DEFAULT_STUDIO_SAMPLE.id,
+};
 
 function msLabel(ms: number): string {
   return `${Math.max(1, Math.round(ms))} ms`;
 }
 
-function sampleFor(pattern: PatternId, meter: string): StudioSample {
-  return findSample(pattern, meter) ?? defaultSampleForPattern(pattern);
+function selectionForSample(sample: StudioSample): Selection {
+  return {
+    key: sample.key,
+    pattern: sample.pattern,
+    meter: sample.meter,
+    title: sample.title,
+    id: sample.id,
+  };
 }
 
 export function StudioRoom({ wide, onMode }: Props) {
   const insets = useSafeAreaInsets();
-  const [sampleKey, setSampleKey] = useState(DEFAULT_STUDIO_SAMPLE.key);
-  const current = findSampleByKey(sampleKey) ?? DEFAULT_STUDIO_SAMPLE;
-  const [specText, setSpecText] = useState(() => sampleText(current));
-  const [fixtureJson, setFixtureJson] = useState(() => sampleFixtureText(current));
+  const [samples, setSamples] = useState<readonly StudioSample[]>(SAMPLES);
+  const [catalog, setCatalog] = useState<CatalogState>({
+    loading: true,
+    source: 'fallback',
+    note: null,
+  });
+  const [selection, setSelection] = useState<Selection>(DEFAULT_SELECTION);
+  const [specText, setSpecText] = useState(() => sampleText(DEFAULT_STUDIO_SAMPLE));
+  const [fixtureJson, setFixtureJson] = useState(() =>
+    sampleFixtureText(DEFAULT_STUDIO_SAMPLE),
+  );
   const [showFixture, setShowFixture] = useState(false);
   const [result, setResult] = useState<StudioResult>({ kind: 'idle' });
   const [dirty, setDirty] = useState(false);
+  const [previewSnapshot, setPreviewSnapshot] = useState<PreviewSnapshot | null>(null);
+  const [audio, setAudio] = useState<AudioState>({ kind: 'idle' });
+  const [publishState, setPublishState] = useState<PublishState>({ kind: 'idle' });
+  const [published, setPublished] = useState<PublishedListState>({
+    loading: true,
+    items: [],
+    error: null,
+  });
+  const [loadingSpecId, setLoadingSpecId] = useState<string | null>(null);
 
   const inFlight = useRef<AbortController | null>(null);
+  const examplesController = useRef<AbortController | null>(null);
+  const specsController = useRef<AbortController | null>(null);
+  const publishController = useRef<AbortController | null>(null);
+  const specDetailController = useRef<AbortController | null>(null);
+  const audioController = useRef<AbortController | null>(null);
+  const audioPlayer = useRef<HTMLAudioElement | null>(null);
+  const audioRunId = useRef(0);
   const runId = useRef(0);
   const specTextRef = useRef(specText);
   const fixtureJsonRef = useRef(fixtureJson);
+  const dirtyRef = useRef(dirty);
+  const selectionRef = useRef(selection);
+  // A run/publish started before the examples response lands must not be wiped
+  // by the palette swap.
+  const engagedRef = useRef(false);
   specTextRef.current = specText;
   fixtureJsonRef.current = fixtureJson;
+  dirtyRef.current = dirty;
+  selectionRef.current = selection;
+
+  const stopPlayer = useCallback(() => {
+    const player = audioPlayer.current;
+    audioPlayer.current = null;
+    if (player) {
+      try {
+        player.pause();
+        player.currentTime = 0;
+      } catch {
+        // The element may already be detached; nothing to release.
+      }
+    }
+  }, []);
+
+  const resetAudio = useCallback(() => {
+    audioRunId.current += 1;
+    audioController.current?.abort();
+    audioController.current = null;
+    stopPlayer();
+    setAudio({ kind: 'idle' });
+  }, [stopPlayer]);
+
+  const applyEditor = useCallback(
+    (nextSpecText: string, nextFixtureText: string, nextSelection: Selection) => {
+      inFlight.current?.abort();
+      inFlight.current = null;
+      runId.current += 1;
+      resetAudio();
+      setSelection(nextSelection);
+      setSpecText(nextSpecText);
+      setFixtureJson(nextFixtureText);
+      setResult({ kind: 'idle' });
+      setPreviewSnapshot(null);
+      setDirty(false);
+    },
+    [resetAudio],
+  );
+
+  const applySample = useCallback(
+    (sample: StudioSample) => {
+      applyEditor(sampleText(sample), sampleFixtureText(sample), selectionForSample(sample));
+    },
+    [applyEditor],
+  );
 
   useEffect(
     () => () => {
       inFlight.current?.abort();
+      examplesController.current?.abort();
+      specsController.current?.abort();
+      publishController.current?.abort();
+      specDetailController.current?.abort();
+      audioController.current?.abort();
+      stopPlayer();
     },
-    [],
+    [stopPlayer],
   );
 
-  const applySample = useCallback((sample: StudioSample) => {
-    inFlight.current?.abort();
-    inFlight.current = null;
-    runId.current += 1;
-    setSampleKey(sample.key);
-    setSpecText(sampleText(sample));
-    setFixtureJson(sampleFixtureText(sample));
-    setResult({ kind: 'idle' });
-    setDirty(false);
+  // The API examples are the palette. Embedded Torroba/Sor samples only fill in
+  // when the endpoint is missing, so the hand-copied list cannot silently drift.
+  useEffect(() => {
+    const controller = new AbortController();
+    examplesController.current = controller;
+    void (async () => {
+      try {
+        const data = await fetchSentenceExamples(controller.signal);
+        if (controller.signal.aborted) return;
+        const next = examplesToSamples(data.examples);
+        if (!next.length) {
+          setCatalog({
+            loading: false,
+            source: 'fallback',
+            note: 'Examples API returned no examples — using the embedded Torroba/Sor samples.',
+          });
+          return;
+        }
+        setSamples(next);
+        setCatalog({ loading: false, source: 'api', note: null });
+        if (!dirtyRef.current && !engagedRef.current) {
+          const match =
+            findSample(selectionRef.current.pattern, selectionRef.current.meter, next) ??
+            next[0];
+          applySample(match);
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setCatalog({
+          loading: false,
+          source: 'fallback',
+          note: `Examples API unavailable (${describeRequestFailure(error)}) — using embedded Torroba/Sor samples.`,
+        });
+      } finally {
+        if (examplesController.current === controller) examplesController.current = null;
+      }
+    })();
+    return () => controller.abort();
+  }, [applySample]);
+
+  const loadPublished = useCallback(async () => {
+    specsController.current?.abort();
+    const controller = new AbortController();
+    specsController.current = controller;
+    setPublished((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const items = await fetchPublishedSpecs(controller.signal);
+      if (controller.signal.aborted) return;
+      setPublished({ loading: false, items, error: null });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPublished((prev) => ({
+        loading: false,
+        items: prev.items,
+        error: describeRequestFailure(error),
+      }));
+    } finally {
+      if (specsController.current === controller) specsController.current = null;
+    }
   }, []);
 
+  useEffect(() => {
+    void loadPublished();
+    return () => specsController.current?.abort();
+  }, [loadPublished]);
+
   const choosePattern = useCallback(
-    (pattern: PatternId) => {
-      applySample(sampleFor(pattern, current.meter));
+    (pattern: string) => {
+      const sample =
+        findSample(pattern, selection.meter, samples) ??
+        defaultSampleForPattern(pattern, samples);
+      applySample(sample);
     },
-    [applySample, current.meter],
+    [applySample, samples, selection.meter],
   );
 
   const chooseMeter = useCallback(
     (meter: string) => {
-      applySample(sampleFor(current.pattern, meter));
+      const sample = findSample(selection.pattern, meter, samples);
+      if (sample) applySample(sample);
     },
-    [applySample, current.pattern],
+    [applySample, samples, selection.pattern],
   );
 
   const run = useCallback(
     async (action: RunAction) => {
+      engagedRef.current = true;
       const checked = checkSpecText(specText);
       if (!checked.ok) {
         setResult({
@@ -143,6 +364,8 @@ export function StudioRoom({ wide, onMode }: Props) {
         fixture = parsed.value;
       }
 
+      resetAudio();
+      setPreviewSnapshot(null);
       inFlight.current?.abort();
       const controller = new AbortController();
       inFlight.current = controller;
@@ -165,6 +388,13 @@ export function StudioRoom({ wide, onMode }: Props) {
           );
           if (id !== runId.current) return;
           setResult({ kind: 'preview', data, elapsedMs: Date.now() - startedAt });
+          if (data.ok) {
+            setPreviewSnapshot({
+              spec: checked.spec,
+              fixture: fixture ?? {},
+              renderHash: data.renderHash,
+            });
+          }
         }
         if (
           specTextRef.current === startedSpec &&
@@ -184,17 +414,193 @@ export function StudioRoom({ wide, onMode }: Props) {
         if (inFlight.current === controller) inFlight.current = null;
       }
     },
-    [specText, fixtureJson],
+    [fixtureJson, resetAudio, specText],
+  );
+
+  const playAudio = useCallback(async () => {
+    if (!previewSnapshot) return;
+    if (Platform.OS !== 'web') {
+      setAudio({
+        kind: 'error',
+        message: 'Audio playback is web-only in this sprint.',
+        errors: [],
+      });
+      return;
+    }
+
+    audioController.current?.abort();
+    const controller = new AbortController();
+    audioController.current = controller;
+    const id = ++audioRunId.current;
+    stopPlayer();
+    setAudio({ kind: 'loading' });
+
+    try {
+      const data = await requestSentenceAudio(
+        { spec: previewSnapshot.spec, fixture: previewSnapshot.fixture },
+        controller.signal,
+      );
+      if (controller.signal.aborted || id !== audioRunId.current) return;
+      if (!data.ok || !data.audioUrl) {
+        setAudio({
+          kind: 'error',
+          message: data.errors[0]?.message ?? 'Audio preview failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      const url = resolveAudioUrl(getApiBaseUrl(), data.audioUrl);
+      if (!url) {
+        setAudio({
+          kind: 'error',
+          message: 'The audio response did not include a usable URL.',
+          errors: [],
+        });
+        return;
+      }
+
+      const player = new Audio(url);
+      audioPlayer.current = player;
+      player.onended = () => {
+        if (id === audioRunId.current) {
+          setAudio((prev) => (prev.kind === 'ready' ? { ...prev, playing: false } : prev));
+        }
+      };
+      player.onerror = () => {
+        if (id === audioRunId.current) {
+          setAudio({
+            kind: 'error',
+            message: 'The browser could not play the preview WAV.',
+            errors: [],
+          });
+        }
+      };
+      await player.play();
+      if (controller.signal.aborted || id !== audioRunId.current) {
+        player.pause();
+        return;
+      }
+      setAudio({
+        kind: 'ready',
+        url,
+        durationSec: data.durationSec,
+        renderHash: data.renderHash ?? previewSnapshot.renderHash,
+        playing: true,
+      });
+    } catch (error) {
+      if (controller.signal.aborted || id !== audioRunId.current) return;
+      setAudio({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (audioController.current === controller) audioController.current = null;
+    }
+  }, [previewSnapshot, stopPlayer]);
+
+  const publish = useCallback(async () => {
+    engagedRef.current = true;
+    const checked = checkSpecText(specTextRef.current);
+    if (!checked.ok) {
+      setPublishState({
+        kind: 'failure',
+        message: 'Fix the spec JSON before publishing.',
+        errors: checked.errors,
+      });
+      return;
+    }
+
+    publishController.current?.abort();
+    const controller = new AbortController();
+    publishController.current = controller;
+    setPublishState({ kind: 'running' });
+    try {
+      const data = await publishSentenceSpec(checked.spec, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!data.ok || !data.id) {
+        setPublishState({
+          kind: 'failure',
+          message: data.errors[0]?.message ?? 'Publish failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      setPublishState({
+        kind: 'ok',
+        id: data.id,
+        pattern: data.pattern ?? String(checked.spec.pattern ?? ''),
+        meter: data.meter ?? String(checked.spec.meter ?? ''),
+        version: data.version ?? 0,
+      });
+      void loadPublished();
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPublishState({
+        kind: 'failure',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (publishController.current === controller) publishController.current = null;
+    }
+  }, [loadPublished]);
+
+  const openPublished = useCallback(
+    async (id: string) => {
+      specDetailController.current?.abort();
+      const controller = new AbortController();
+      specDetailController.current = controller;
+      setLoadingSpecId(id);
+      setPublished((prev) => ({ ...prev, error: null }));
+      try {
+        const detail = await fetchPublishedSpec(id, controller.signal);
+        if (controller.signal.aborted) return;
+        applyEditor(
+          JSON.stringify(detail.payload, null, 2),
+          fixtureTextForSpec(detail.payload),
+          {
+            key: `${detail.pattern}:${detail.meter}`,
+            pattern: detail.pattern,
+            meter: detail.meter,
+            title: `${publishedSpecTitle(detail)} · v${detail.version}`,
+            id: detail.id,
+          },
+        );
+        setPublishState({ kind: 'idle' });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setPublished((prev) => ({
+          ...prev,
+          error: `Could not load ${shortId(id)}: ${describeRequestFailure(error)}`,
+        }));
+      } finally {
+        if (specDetailController.current === controller) {
+          specDetailController.current = null;
+        }
+        setLoadingSpecId((current) => (current === id ? null : current));
+      }
+    },
+    [applyEditor],
   );
 
   const running = result.kind === 'running';
+  const publishing = publishState.kind === 'running';
   const stale =
     dirty &&
     (result.kind === 'validate' ||
       result.kind === 'preview' ||
       result.kind === 'failure');
-  const meters = patternOption(current.pattern)?.meters ?? [current.meter];
   const stats = textStats(specText);
+
+  const catalogPatterns = patternIds(samples);
+  const patternChoices = catalogPatterns.includes(selection.pattern)
+    ? catalogPatterns
+    : [selection.pattern, ...catalogPatterns];
+  const catalogMeters = metersForPattern(samples, selection.pattern);
+  const meterChoices = catalogMeters.includes(selection.meter)
+    ? catalogMeters
+    : [selection.meter, ...catalogMeters];
 
   return (
     <View
@@ -219,44 +625,56 @@ export function StudioRoom({ wide, onMode }: Props) {
             </View>
             <Text style={[type.displayNarrow, styles.title]}>Sentence lab</Text>
             <Text style={styles.subtitle}>
-              Edit one Torroba or Sor sentence spec, validate it against the registry,
-              then preview the plan and render hash. Audio playback is the next workstream.
+              Edit one sentence spec, validate it against the registry, preview the
+              plan and render hash, then play the short preview WAV and publish a
+              version. The JSON editor remains the source of truth.
             </Text>
           </View>
 
           <View style={[styles.columns, wide && styles.columnsWide]}>
             <View style={[styles.column, wide && styles.columnWide]}>
               <View style={styles.card}>
-                <Text style={[type.section, styles.cardLabel]}>Template</Text>
-                <Text style={styles.cardTitle}>{current.title}</Text>
-                <Text style={styles.hint}>
-                  Picking a pattern or meter loads a known-good sample and replaces the
-                  editor contents. The JSON below is always the source of truth for a run.
+                <Text style={[type.section, styles.cardLabel]}>
+                  {catalog.source === 'api' ? 'API example' : 'Embedded template'}
                 </Text>
+                <Text style={styles.cardTitle}>{selection.title}</Text>
+                {selection.id ? (
+                  <Text selectable style={styles.templateId}>
+                    id {selection.id}
+                  </Text>
+                ) : null}
+                <Text style={styles.hint}>
+                  Picking a pattern or meter loads a known-good example and replaces
+                  the editor contents. The JSON below is always the source of truth
+                  for a run.
+                </Text>
+                {catalog.loading ? (
+                  <Text style={styles.catalogNote}>Loading examples…</Text>
+                ) : catalog.note ? (
+                  <Text style={styles.catalogWarning}>{catalog.note}</Text>
+                ) : null}
 
                 <Text style={styles.fieldLabel}>Pattern</Text>
                 <View style={styles.chips}>
-                  {PATTERNS.map((item) => (
+                  {patternChoices.map((pattern) => (
                     <Chip
-                      key={item.id}
-                      label={item.label}
-                      active={current.pattern === item.id}
-                      accessibilityLabel={`${item.label}, ${item.composer}`}
-                      onPress={() => choosePattern(item.id)}
+                      key={pattern}
+                      label={patternLabel(pattern)}
+                      active={selection.pattern === pattern}
+                      accessibilityLabel={patternLabel(pattern)}
+                      onPress={() => choosePattern(pattern)}
                     />
                   ))}
                 </View>
-                <Text style={styles.composerHint}>
-                  Torroba: castillo, sonatina, fandanguillo, danza · Sor: galop
-                </Text>
+                <Text style={styles.composerHint}>{patternCatalogHint(samples)}</Text>
 
                 <Text style={styles.fieldLabel}>Meter</Text>
                 <View style={styles.chips}>
-                  {meters.map((meter) => (
+                  {meterChoices.map((meter) => (
                     <Chip
                       key={meter}
                       label={meterLabel(meter)}
-                      active={current.meter === meter}
+                      active={selection.meter === meter}
                       accessibilityLabel={meterLabel(meter)}
                       onPress={() => chooseMeter(meter)}
                     />
@@ -295,23 +713,31 @@ export function StudioRoom({ wide, onMode }: Props) {
                   <ActionButton
                     label="Validate"
                     onPress={() => void run('validate')}
-                    disabled={running}
+                    disabled={running || publishing}
                     busy={result.kind === 'running' && result.action === 'validate'}
                   />
                   <ActionButton
                     label="Preview"
                     primary
                     onPress={() => void run('preview')}
-                    disabled={running}
+                    disabled={running || publishing}
                     busy={result.kind === 'running' && result.action === 'preview'}
                   />
-                  {running ? (
+                  <ActionButton
+                    label="Publish"
+                    onPress={() => void publish()}
+                    disabled={running || publishing}
+                    busy={publishing}
+                  />
+                  {running || publishing ? (
                     <ActivityIndicator color={palette.data} size="small" />
                   ) : null}
                   {stale ? (
                     <Text style={styles.stale}>Edited since the last run.</Text>
                   ) : null}
                 </View>
+
+                <PublishStatus state={publishState} />
               </View>
 
               <View style={styles.card}>
@@ -337,8 +763,9 @@ export function StudioRoom({ wide, onMode }: Props) {
                   Figure sentences use <Text style={styles.code}>length</Text>,{' '}
                   <Text style={styles.code}>n</Text>,{' '}
                   <Text style={styles.code}>closes</Text>, and{' '}
-                  <Text style={styles.code}>rise</Text>. The galop cycle uses{' '}
-                  <Text style={styles.code}>run_length</Text>.
+                  <Text style={styles.code}>rise</Text>. Cell/cycle specs use{' '}
+                  <Text style={styles.code}>run_length</Text>. API examples derive a
+                  fixture from the spec; edit it for a different render.
                 </Text>
                 {showFixture ? (
                   <TextInput
@@ -363,14 +790,39 @@ export function StudioRoom({ wide, onMode }: Props) {
             </View>
 
             <View style={[styles.column, wide && styles.columnWide]}>
-              <ResultPanel result={result} stale={stale} />
+              <ResultPanel
+                result={result}
+                stale={stale}
+                audio={audio}
+                audioSupported={Platform.OS === 'web'}
+                canPlayAudio={previewSnapshot !== null}
+                onPlayAudio={() => void playAudio()}
+              />
+              <PublishedPanel
+                state={published}
+                loadingId={loadingSpecId}
+                onRefresh={() => void loadPublished()}
+                onOpen={(id) => void openPublished(id)}
+              />
               <View style={styles.endpoints}>
                 <Text style={styles.endpointLabel}>Endpoints</Text>
+                <Text selectable style={styles.endpoint}>
+                  GET {studioSentenceUrl('examples')}
+                </Text>
                 <Text selectable style={styles.endpoint}>
                   POST {studioSentenceUrl('validate')}
                 </Text>
                 <Text selectable style={styles.endpoint}>
                   POST {studioSentenceUrl('preview')}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  POST {studioSentenceUrl('audio')}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  POST {studioSentenceUrl('publish')}
+                </Text>
+                <Text selectable style={styles.endpoint}>
+                  GET {studioSentenceUrl('specs')}
                 </Text>
               </View>
             </View>
@@ -379,12 +831,6 @@ export function StudioRoom({ wide, onMode }: Props) {
       </ScrollView>
     </View>
   );
-}
-
-function findSampleByKey(key: string): StudioSample | undefined {
-  // The sample list is small; avoid exporting another lookup just for this.
-  const [pattern, ...meterParts] = key.split(':');
-  return findSample(pattern, meterParts.join(':'));
 }
 
 function Chip({
@@ -503,7 +949,110 @@ function ResultBlock({
   );
 }
 
-function ResultPanel({ result, stale }: { result: StudioResult; stale: boolean }) {
+function PublishStatus({ state }: { state: PublishState }) {
+  if (state.kind === 'idle') return null;
+  if (state.kind === 'running') {
+    return (
+      <View style={styles.publishStatus}>
+        <ActivityIndicator color={palette.data} size="small" />
+        <Text style={styles.publishStatusText}>Publishing current spec…</Text>
+      </View>
+    );
+  }
+  if (state.kind === 'failure') {
+    return (
+      <View style={styles.publishStatus}>
+        <Text style={styles.publishFailure}>{state.message}</Text>
+        <ErrorList errors={state.errors} />
+      </View>
+    );
+  }
+  return (
+    <View style={styles.publishStatus}>
+      <Text style={styles.publishOk}>
+        Published v{state.version} · {shortId(state.id)}
+      </Text>
+      <Text style={styles.publishStatusText}>
+        {patternLabel(state.pattern)} · {meterLabel(state.meter)}
+      </Text>
+    </View>
+  );
+}
+
+function AudioControls({
+  state,
+  supported,
+  canPlay,
+  onPlay,
+}: {
+  state: AudioState;
+  supported: boolean;
+  canPlay: boolean;
+  onPlay: () => void;
+}) {
+  if (!supported) {
+    return (
+      <View style={styles.audioRow}>
+        <Text style={styles.audioText}>
+          Audio playback is web-only in this sprint. The render hash and duration
+          still identify the server-side WAV.
+        </Text>
+      </View>
+    );
+  }
+  if (!canPlay) {
+    return (
+      <View style={styles.audioRow}>
+        <Text style={styles.audioText}>
+          Run a successful preview to render its short preview WAV.
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.audioPanel}>
+      <View style={styles.audioRow}>
+        <ActionButton
+          label={state.kind === 'loading' ? 'Rendering audio…' : 'Play preview'}
+          onPress={onPlay}
+          disabled={state.kind === 'loading'}
+          busy={state.kind === 'loading'}
+        />
+        {state.kind === 'loading' ? (
+          <Text style={styles.audioText}>Synthesizing the cached WAV…</Text>
+        ) : state.kind === 'ready' ? (
+          <Text style={styles.audioText}>
+            {durationLabel(state.durationSec)} WAV
+            {state.playing ? ' · playing' : ''}
+          </Text>
+        ) : state.kind === 'error' ? (
+          <Text style={styles.audioText}>{state.message}</Text>
+        ) : (
+          <Text style={styles.audioText}>
+            Calls /sentence/audio for this preview&apos;s spec and fixture.
+          </Text>
+        )}
+      </View>
+      {state.kind === 'error' ? <ErrorList errors={state.errors} /> : null}
+    </View>
+  );
+}
+
+function ResultPanel({
+  result,
+  stale,
+  audio,
+  audioSupported,
+  canPlayAudio,
+  onPlayAudio,
+}: {
+  result: StudioResult;
+  stale: boolean;
+  audio: AudioState;
+  audioSupported: boolean;
+  canPlayAudio: boolean;
+  onPlayAudio: () => void;
+}) {
   if (result.kind === 'idle') {
     return (
       <View style={[styles.card, styles.resultCard]}>
@@ -606,19 +1155,92 @@ function ResultPanel({ result, stale }: { result: StudioResult; stale: boolean }
         </Text>
       </View>
 
-      <View style={styles.audioRow}>
-        <View style={styles.audioPill}>
-          <Text style={styles.audioPillText}>AUDIO PREVIEW NEXT</Text>
-        </View>
-        <Text style={styles.audioText}>
-          No playback in this sprint. Compare render hashes across edits.
-        </Text>
-      </View>
+      <AudioControls
+        state={audio}
+        supported={audioSupported}
+        canPlay={canPlayAudio && data.ok}
+        onPlay={onPlayAudio}
+      />
 
       <ResultBlock label="Plan" lines={plan} empty={planEmpty} />
       <ResultBlock label="Row" lines={row} empty="No row returned." />
       <ResultBlock label="Matrix" lines={matrix} empty="No matrix returned." />
       <ResultBlock label="Notes" lines={notes} empty="No notes returned." />
+    </View>
+  );
+}
+
+function PublishedPanel({
+  state,
+  loadingId,
+  onRefresh,
+  onOpen,
+}: {
+  state: PublishedListState;
+  loadingId: string | null;
+  onRefresh: () => void;
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.publishedHeader}>
+        <View style={styles.fixtureHeaderText}>
+          <Text style={[type.section, styles.cardLabel]}>Published specs</Text>
+          <Text style={styles.cardTitle}>
+            {state.items.length
+              ? `${state.items.length} version${state.items.length === 1 ? '' : 's'}`
+              : 'No versions yet'}
+          </Text>
+        </View>
+        <Pressable
+          onPress={onRefresh}
+          disabled={state.loading}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh published specs"
+          style={({ pressed }) => [
+            styles.refreshButton,
+            pressed && styles.pressed,
+            state.loading ? styles.buttonDisabled : null,
+          ]}
+        >
+          <Text style={styles.refreshText}>{state.loading ? 'Loading…' : 'Refresh'}</Text>
+        </Pressable>
+      </View>
+
+      {state.error ? <Text style={styles.catalogWarning}>{state.error}</Text> : null}
+      {state.items.length === 0 && !state.loading && !state.error ? (
+        <Text style={styles.empty}>
+          Publish a spec to start its version history. Rows load the stored payload
+          back into the editor.
+        </Text>
+      ) : null}
+
+      {state.items.map((item) => (
+        <Pressable
+          key={item.id}
+          onPress={() => onOpen(item.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`Load published ${publishedSpecTitle(item)}, ${publishedSpecMeta(item)}, id ${item.id}`}
+          style={({ pressed }) => [
+            styles.publishedRow,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={styles.publishedRowMain}>
+            <Text style={styles.publishedTitle}>{publishedSpecTitle(item)}</Text>
+            <Text selectable numberOfLines={1} style={styles.publishedId}>
+              {item.id}
+            </Text>
+          </View>
+          <View style={styles.publishedRight}>
+            <Text style={styles.publishedVersion}>v{item.version}</Text>
+            <Text style={styles.publishedTime}>{publishedAtLabel(item.createdAt)}</Text>
+          </View>
+          {loadingId === item.id ? (
+            <ActivityIndicator color={palette.data} size="small" />
+          ) : null}
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -708,6 +1330,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '600',
+  },
+  templateId: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  catalogNote: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  catalogWarning: {
+    color: palette.playhead,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
   },
   hint: {
     color: palette.textMuted,
@@ -837,6 +1477,33 @@ const styles = StyleSheet.create({
     fontFamily: type.sans.fontFamily,
     fontSize: 11,
     lineHeight: 16,
+  },
+  publishStatus: {
+    gap: 6,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+  },
+  publishStatusText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  publishOk: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  publishFailure: {
+    color: palette.sound,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
   },
   fixtureHeader: {
     flexDirection: 'row',
@@ -975,35 +1642,95 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  audioPanel: {
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
   audioRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 8,
-    paddingVertical: 2,
-  },
-  audioPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: palette.playhead,
-  },
-  audioPillText: {
-    color: palette.playhead,
-    fontFamily: type.mono.fontFamily,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '700',
-    letterSpacing: 0.8,
+    gap: 10,
   },
   audioText: {
     flex: 1,
-    minWidth: 180,
+    minWidth: 160,
     color: palette.textMuted,
     fontFamily: type.sans.fontFamily,
     fontSize: 11,
     lineHeight: 16,
+  },
+  publishedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  refreshButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surface,
+  },
+  refreshText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  publishedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  publishedRowMain: {
+    flex: 1,
+    minWidth: 150,
+    gap: 2,
+  },
+  publishedTitle: {
+    color: palette.text,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  publishedId: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  publishedRight: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  publishedVersion: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
+  publishedTime: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
   },
   block: {
     borderTopWidth: 1,

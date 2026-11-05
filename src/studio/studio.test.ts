@@ -1,9 +1,17 @@
 import {
+  buildAudioBody,
+  buildAudioHashBody,
   buildPreviewBody,
   buildValidateBody,
+  normalizeAudioResponse,
   normalizeErrors,
+  normalizeExamplesResponse,
   normalizePreviewResponse,
+  normalizePublishResponse,
+  normalizePublishedSpecResponse,
+  normalizeSpecsResponse,
   normalizeValidateResponse,
+  resolveAudioUrl,
 } from './protocol';
 import {
   DEFAULT_SAMPLE,
@@ -13,16 +21,26 @@ import {
   checkSpecText,
   defaultSampleForPattern,
   describeRequestFailure,
+  durationLabel,
+  examplesToSamples,
   findSample,
+  fixtureForSpec,
   fixtureText,
   jsonErrorLocation,
   meterLabel,
+  metersForPattern,
   normalizeErrorPath,
   notesLines,
   parseJsonObject,
+  patternCatalogHint,
+  patternIds,
   planLines,
   prefixErrorPaths,
+  publishedAtLabel,
+  publishedSpecMeta,
+  publishedSpecTitle,
   sampleText,
+  shortId,
   textStats,
   valueLines,
 } from './spec';
@@ -66,10 +84,24 @@ for (const sample of SAMPLES) {
 
 deepEqual(
   PATTERNS.map((item) => item.id),
-  ['castillo', 'sonatina', 'fandanguillo', 'danza', 'galop'],
+  [
+    'castillo',
+    'sonatina',
+    'fandanguillo',
+    'danza',
+    'galop',
+    'villa_pattern',
+    'preludio',
+  ],
 );
 equal(PATTERNS.filter((item) => item.composer === 'Torroba').length, 4);
 equal(PATTERNS.filter((item) => item.composer === 'Sor').length, 1);
+equal(PATTERNS.filter((item) => item.composer === 'Villa').length, 1);
+equal(PATTERNS.filter((item) => item.composer === 'Barrios').length, 1);
+equal(patternIds(SAMPLES).length, 5);
+deepEqual(metersForPattern(SAMPLES, 'danza'), ['3/4', '6/8']);
+deepEqual(metersForPattern(SAMPLES, 'missing'), []);
+equal(patternCatalogHint(SAMPLES), 'Torroba: Castillo, Sonatina, Fandanguillo, Danza · Sor: Galop');
 
 equal(findSample('castillo', '3/4')?.spec.id, 'castillo_34_walk');
 equal(findSample('danza', '6/8')?.spec.id, 'danza_68_open');
@@ -79,6 +111,73 @@ equal(defaultSampleForPattern('galop').key, 'galop:*');
 equal(defaultSampleForPattern('unknown').key, DEFAULT_SAMPLE.key);
 equal(meterLabel('*'), 'any meter');
 equal(meterLabel('3/4'), '3/4');
+
+// The picker can be handed the API palette instead of the embedded table.
+equal(findSample('castillo', '3/4', [SAMPLES[2]])?.key, undefined);
+equal(defaultSampleForPattern('preludio', SAMPLES).key, DEFAULT_SAMPLE.key);
+
+// Fixtures derived from a spec match the values the server defaults to.
+deepEqual(fixtureForSpec(DEFAULT_SAMPLE.spec), {
+  length: 9,
+  n: 0,
+  closes: false,
+  rise: 0,
+});
+deepEqual(fixtureForSpec(findSample('galop', '*')!.spec), {
+  run_length: 8,
+  closes: false,
+  rise: 0,
+});
+deepEqual(fixtureForSpec({ select: {}, span: {} }), { closes: false });
+
+// API examples replace the hand-copied SAMPLES and carry their own fixture.
+const villaExample = {
+  id: 'villa_arpeggio_aba',
+  pattern: 'villa_pattern',
+  meter: '4/4',
+  payload: {
+    id: 'villa_arpeggio_aba',
+    pattern: 'villa_pattern',
+    meter: '4/4',
+    select: { length_min: 3, length_max: null, n_parity: 'any', rise_min: 0 },
+    span: { tile: 3, remainder: 'same_figure', cycle: false, exact: false },
+    slots: [{ start: 0, bars: 1, figure: 1 }],
+  },
+};
+const villaSamples = examplesToSamples([villaExample]);
+equal(villaSamples.length, 1);
+equal(villaSamples[0]?.key, 'villa_pattern:4/4');
+equal(villaSamples[0]?.title, 'Villa arpeggio · 4/4');
+equal(villaSamples[0]?.source, 'api');
+equal(villaSamples[0]?.id, 'villa_arpeggio_aba');
+deepEqual(villaSamples[0]?.fixture, {
+  length: 3,
+  closes: false,
+  rise: 0,
+});
+deepEqual(patternIds(villaSamples), ['villa_pattern']);
+deepEqual(metersForPattern(villaSamples, 'villa_pattern'), ['4/4']);
+
+// Publish/list formatting is deterministic and locale-free.
+equal(publishedAtLabel('2026-11-05T09:41:02.123+00:00'), '2026-11-05 09:41');
+equal(publishedAtLabel(''), '—');
+equal(publishedAtLabel('not-a-date'), 'not-a-date');
+const published = {
+  id: '0123456789abcdef0123456789abcdef',
+  pattern: 'villa_pattern',
+  meter: '4/4',
+  version: 3,
+  status: 'published',
+  createdAt: '2026-11-05T09:41:02+00:00',
+};
+equal(publishedSpecTitle(published), 'Villa arpeggio · 4/4');
+equal(publishedSpecMeta(published), 'v3 · 2026-11-05 09:41');
+equal(shortId(published.id), '0123456789…');
+equal(shortId('short'), 'short');
+equal(durationLabel(1.24), '1.2s');
+equal(durationLabel(61), '1:01');
+equal(durationLabel(0), '—');
+equal(durationLabel(Number.NaN), '—');
 
 // Editor counters.
 deepEqual(textStats(''), { lines: 1, chars: 0 });
@@ -233,5 +332,175 @@ deepEqual(preview.plan, [[13, [0, 1]]]);
 equal(preview.row, null);
 equal(preview.notes, null);
 equal(preview.matrix, null);
+
+// Examples: documented payload, a `spec` alias, and invalid rows are dropped.
+deepEqual(
+  normalizeExamplesResponse({
+    ok: true,
+    examples: [
+      {
+        id: 'villa_arpeggio_aba',
+        pattern: 'villa_pattern',
+        meter: '4/4',
+        payload: { id: 'villa_arpeggio_aba' },
+      },
+      { pattern: 'preludio', meter: '4/4', spec: { id: 'barrios' } },
+      { pattern: '', meter: '4/4', payload: {} },
+      { pattern: 'broken', meter: '4/4' },
+      'nope',
+    ],
+  }),
+  {
+    ok: true,
+    examples: [
+      {
+        id: 'villa_arpeggio_aba',
+        pattern: 'villa_pattern',
+        meter: '4/4',
+        payload: { id: 'villa_arpeggio_aba' },
+      },
+      {
+        id: 'barrios',
+        pattern: 'preludio',
+        meter: '4/4',
+        payload: { id: 'barrios' },
+      },
+    ],
+  },
+);
+deepEqual(normalizeExamplesResponse({ examples: [] }), { ok: true, examples: [] });
+let examplesThrew = false;
+try {
+  normalizeExamplesResponse(null);
+} catch {
+  examplesThrew = true;
+}
+equal(examplesThrew, true);
+
+// Audio body allows spec+fixture or a cached render hash.
+deepEqual(buildAudioBody({ id: 'x' }, { length: 8 }), {
+  spec: { id: 'x' },
+  fixture: { length: 8 },
+});
+deepEqual(buildAudioBody({ id: 'x' }), { spec: { id: 'x' }, fixture: {} });
+deepEqual(buildAudioHashBody('sha256:abc'), { renderHash: 'sha256:abc' });
+
+deepEqual(
+  normalizeAudioResponse({
+    ok: true,
+    audio_url: '/v1/studio/sentence/audio/key.wav',
+    duration_sec: 1.25,
+    render_hash: 'sha256:abc',
+  }),
+  {
+    ok: true,
+    errors: [],
+    audioUrl: '/v1/studio/sentence/audio/key.wav',
+    durationSec: 1.25,
+    renderHash: 'sha256:abc',
+  },
+);
+deepEqual(
+  normalizeAudioResponse({
+    ok: false,
+    errors: [{ path: 'audio', message: 'busy' }],
+    durationSec: -1,
+  }),
+  {
+    ok: false,
+    errors: [{ path: 'audio', message: 'busy' }],
+    audioUrl: null,
+    durationSec: 0,
+    renderHash: null,
+  },
+);
+
+// Audio URLs: relative routes join the API base; absolute/CDN URLs pass through.
+equal(
+  resolveAudioUrl('http://localhost:8000', '/v1/studio/sentence/audio/key.wav'),
+  'http://localhost:8000/v1/studio/sentence/audio/key.wav',
+);
+equal(
+  resolveAudioUrl('http://localhost:8000/', 'v1/studio/sentence/audio/key.wav'),
+  'http://localhost:8000/v1/studio/sentence/audio/key.wav',
+);
+equal(
+  resolveAudioUrl('http://localhost:8000', 'https://cdn.example/key.wav'),
+  'https://cdn.example/key.wav',
+);
+equal(resolveAudioUrl('http://localhost:8000', ''), null);
+equal(resolveAudioUrl('', '/v1/key.wav'), '/v1/key.wav');
+equal(resolveAudioUrl('http://localhost:8000', 'blob:http://localhost/123'), 'blob:http://localhost/123');
+
+// Publish normalisation.
+deepEqual(
+  normalizePublishResponse({
+    ok: true,
+    id: 'abc',
+    pattern: 'villa_pattern',
+    meter: '4/4',
+    version: 2,
+  }),
+  {
+    ok: true,
+    id: 'abc',
+    pattern: 'villa_pattern',
+    meter: '4/4',
+    version: 2,
+    errors: [],
+  },
+);
+deepEqual(
+  normalizePublishResponse({
+    errors: [{ path: 'spec.slots[0]', message: 'bad' }],
+  }),
+  {
+    ok: false,
+    id: null,
+    pattern: null,
+    meter: null,
+    version: null,
+    errors: [{ path: 'spec.slots[0]', message: 'bad' }],
+  },
+);
+
+// Spec list accepts `{ok, specs}` and a bare array; detail adds the payload.
+const specs = normalizeSpecsResponse({
+  ok: true,
+  specs: [
+    published,
+    { id: 'y', pattern: 'preludio', meter: '4/4', version: 1, created_at: '2026-11-04T00:00:00Z' },
+    { id: 'bad' },
+  ],
+});
+deepEqual(specs, [
+  published,
+  {
+    id: 'y',
+    pattern: 'preludio',
+    meter: '4/4',
+    version: 1,
+    status: '',
+    createdAt: '2026-11-04T00:00:00Z',
+  },
+]);
+deepEqual(normalizeSpecsResponse([published]), [published]);
+deepEqual(normalizeSpecsResponse({ ok: true }), []);
+
+deepEqual(
+  normalizePublishedSpecResponse({ ...published, payload: { id: 'villa' } }),
+  { ...published, payload: { id: 'villa' } },
+);
+deepEqual(
+  normalizePublishedSpecResponse({ ...published }),
+  { ...published, payload: {} },
+);
+let detailThrew = false;
+try {
+  normalizePublishedSpecResponse({ id: 'only-id' });
+} catch {
+  detailThrew = true;
+}
+equal(detailThrew, true);
 
 console.log('studio tests passed');

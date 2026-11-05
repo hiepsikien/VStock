@@ -1,4 +1,8 @@
-import type { StudioError } from './protocol';
+import type {
+  StudioError,
+  StudioExample,
+  StudioPublishedSpec,
+} from './protocol';
 
 /**
  * Pure helpers for the sentence Studio. Nothing here talks to the network.
@@ -9,28 +13,60 @@ import type { StudioError } from './protocol';
  * compile/publish path later, not by this screen.
  */
 
-export type PatternId = 'castillo' | 'sonatina' | 'fandanguillo' | 'danza' | 'galop';
+export type PatternId =
+  | 'castillo'
+  | 'sonatina'
+  | 'fandanguillo'
+  | 'danza'
+  | 'galop'
+  | 'villa_pattern'
+  | 'preludio';
+
+export type Composer = 'Torroba' | 'Sor' | 'Villa' | 'Barrios';
 
 export type PatternOption = {
   id: PatternId;
   label: string;
-  composer: 'Torroba' | 'Sor';
+  composer: Composer;
   meters: string[];
 };
 
 export const ANY_METER = '*';
 
-/** Canonical meter key `*` is the backend's wildcard (SentenceSpec.meter). */
+/**
+ * Display metadata only. The palette of patterns and meters comes from
+ * `GET /sentence/examples`; this table supplies labels/composers and backs the
+ * embedded fallback samples when that endpoint is unavailable.
+ *
+ * Villa (`villa_pattern`) and Barrios (`preludio`) are preview-only candidates,
+ * so they have labels here but no embedded sample.
+ */
 export const PATTERNS: PatternOption[] = [
   { id: 'castillo', label: 'Castillo', composer: 'Torroba', meters: ['3/4', '4/4'] },
   { id: 'sonatina', label: 'Sonatina', composer: 'Torroba', meters: [ANY_METER] },
   { id: 'fandanguillo', label: 'Fandanguillo', composer: 'Torroba', meters: [ANY_METER] },
   { id: 'danza', label: 'Danza', composer: 'Torroba', meters: ['3/4', '6/8'] },
   { id: 'galop', label: 'Galop', composer: 'Sor', meters: [ANY_METER] },
+  {
+    id: 'villa_pattern',
+    label: 'Villa arpeggio',
+    composer: 'Villa',
+    meters: ['4/4'],
+  },
+  {
+    id: 'preludio',
+    label: 'Barrios cathedral',
+    composer: 'Barrios',
+    meters: ['4/4'],
+  },
 ];
 
 export function patternOption(pattern: string): PatternOption | undefined {
   return PATTERNS.find((item) => item.id === pattern);
+}
+
+export function patternLabel(pattern: string): string {
+  return patternOption(pattern)?.label ?? pattern;
 }
 
 export function meterLabel(meter: string): string {
@@ -40,11 +76,15 @@ export function meterLabel(meter: string): string {
 export type StudioSample = {
   /** Stable key, also used as the picker value. `pattern:meter`. */
   key: string;
-  pattern: PatternId;
+  /** Requested pattern id. Candidate ids are not part of the shipped registry. */
+  pattern: string;
   meter: string;
   title: string;
   spec: Record<string, unknown>;
   fixture: Record<string, unknown>;
+  /** Server-side example/spec id, when the sample came from the API. */
+  id?: string;
+  source?: 'api' | 'fallback';
 };
 
 /**
@@ -263,16 +303,103 @@ export const SAMPLES: StudioSample[] = [
 
 export const DEFAULT_SAMPLE = SAMPLES[0];
 
-export function samplesForPattern(pattern: string): StudioSample[] {
-  return SAMPLES.filter((sample) => sample.pattern === pattern);
+export function samplesForPattern(
+  pattern: string,
+  samples: readonly StudioSample[] = SAMPLES,
+): StudioSample[] {
+  return samples.filter((sample) => sample.pattern === pattern);
 }
 
-export function defaultSampleForPattern(pattern: string): StudioSample {
-  return samplesForPattern(pattern)[0] ?? DEFAULT_SAMPLE;
+export function defaultSampleForPattern(
+  pattern: string,
+  samples: readonly StudioSample[] = SAMPLES,
+): StudioSample {
+  return samplesForPattern(pattern, samples)[0] ?? samples[0] ?? DEFAULT_SAMPLE;
 }
 
-export function findSample(pattern: string, meter: string): StudioSample | undefined {
-  return SAMPLES.find((sample) => sample.pattern === pattern && sample.meter === meter);
+export function findSample(
+  pattern: string,
+  meter: string,
+  samples: readonly StudioSample[] = SAMPLES,
+): StudioSample | undefined {
+  return samples.find(
+    (sample) => sample.pattern === pattern && sample.meter === meter,
+  );
+}
+
+/** Pattern ids in first-seen order, so the picker follows the API ordering. */
+export function patternIds(samples: readonly StudioSample[]): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const sample of samples) {
+    if (seen.has(sample.pattern)) continue;
+    seen.add(sample.pattern);
+    ids.push(sample.pattern);
+  }
+  return ids;
+}
+
+/** Meters offered for one pattern, in first-seen order. */
+export function metersForPattern(
+  samples: readonly StudioSample[],
+  pattern: string,
+): string[] {
+  const seen = new Set<string>();
+  const meters: string[] = [];
+  for (const sample of samples) {
+    if (sample.pattern !== pattern || seen.has(sample.meter)) continue;
+    seen.add(sample.meter);
+    meters.push(sample.meter);
+  }
+  return meters;
+}
+
+/** One-line composer summary built from whatever the API returned. */
+export function patternCatalogHint(samples: readonly StudioSample[]): string {
+  const groups = new Map<string, string[]>();
+  for (const pattern of patternIds(samples)) {
+    const option = patternOption(pattern);
+    const composer = option?.composer ?? 'Other';
+    const labels = groups.get(composer) ?? [];
+    labels.push(option?.label ?? pattern);
+    groups.set(composer, labels);
+  }
+  return [...groups]
+    .map(([composer, labels]) => `${composer}: ${labels.join(', ')}`)
+    .join(' · ');
+}
+
+/** Build the fixture the server would otherwise default from the spec. */
+export function fixtureForSpec(spec: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(spec)) return {};
+  const select = isRecord(spec.select) ? spec.select : {};
+  const span = isRecord(spec.span) ? spec.span : {};
+
+  const parity = select.n_parity;
+  const nMod = Array.isArray(select.n_mod) ? select.n_mod[1] : null;
+  const n =
+    typeof nMod === 'number'
+      ? nMod
+      : parity === 'odd'
+        ? 1
+        : parity === 'even'
+          ? 0
+          : null;
+
+  const length =
+    typeof span.tile === 'number' && span.tile > 0
+      ? span.tile
+      : typeof select.length_min === 'number' && select.length_min > 0
+        ? select.length_min
+        : null;
+
+  const fixture: Record<string, unknown> = {};
+  const key = span.cycle === true ? 'run_length' : 'length';
+  if (length != null) fixture[key] = length;
+  if (n != null) fixture.n = n;
+  fixture.closes = select.closes === 'close';
+  if (typeof select.rise_min === 'number') fixture.rise = select.rise_min;
+  return fixture;
 }
 
 export function sampleText(sample: StudioSample): string {
@@ -281,6 +408,64 @@ export function sampleText(sample: StudioSample): string {
 
 export function fixtureText(sample: StudioSample): string {
   return JSON.stringify(sample.fixture, null, 2);
+}
+
+export function fixtureTextForSpec(spec: Record<string, unknown>): string {
+  return JSON.stringify(fixtureForSpec(spec), null, 2);
+}
+
+/** Convert one examples-API entry into the picker's sample shape. */
+export function exampleToSample(example: StudioExample): StudioSample {
+  const spec = example.payload;
+  return {
+    key: `${example.pattern}:${example.meter}`,
+    pattern: example.pattern,
+    meter: example.meter,
+    id: example.id,
+    title: `${patternLabel(example.pattern)} · ${meterLabel(example.meter)}`,
+    spec,
+    fixture: fixtureForSpec(spec),
+    source: 'api',
+  };
+}
+
+export function examplesToSamples(examples: readonly StudioExample[]): StudioSample[] {
+  return examples.map(exampleToSample);
+}
+
+/** `2026-11-05T09:41:02.123+00:00` -> `2026-11-05 09:41`. */
+export function publishedAtLabel(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '—';
+  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(trimmed);
+  if (match) return `${match[1]} ${match[2]}`;
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    const iso = parsed.toISOString();
+    return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+  }
+  return trimmed;
+}
+
+export function publishedSpecTitle(spec: StudioPublishedSpec): string {
+  return `${patternLabel(spec.pattern)} · ${meterLabel(spec.meter)}`;
+}
+
+export function publishedSpecMeta(spec: StudioPublishedSpec): string {
+  return `v${spec.version} · ${publishedAtLabel(spec.createdAt)}`;
+}
+
+/** Keep a published row compact while still exposing the full id to a11y tools. */
+export function shortId(id: string, keep = 10): string {
+  return id.length <= keep ? id : `${id.slice(0, keep)}…`;
+}
+
+/** 1.24 -> `1.2s`; 61 -> `1:01`; missing -> `—`. */
+export function durationLabel(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 /** Counters in the editor header. Kept pure so the test can assert them. */
