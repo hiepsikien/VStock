@@ -8,19 +8,22 @@
  *
  * Contract seam while the backend contour API is not built:
  *
- *   `MicroVelocity` is the documented `{ kind: "offsets" | "rule", ... }`
- *   carrier. A preview response can expose it as `microVelocity` (preferred)
- *   or `velocityContour`; `normalizeVelocityContour()` accepts either value.
+ *   The API returns `microVelocity` as a slot list: `[{ slot, contour }]`.
+ *   `normalizeVelocityContour()` takes the first/only slot that carries a
+ *   contour until Studio adds a slot selector. It also accepts a bare
+ *   documented contour object or a plain array of offsets for compatibility.
  *   A note may also carry `velocityOffset` / `pinned` / `pinnedLayer` for
  *   hand-authored specs.
  *
  * Coordinate notes:
- *   - Contour `bar`/`eighth` are relative to the figure/slot that owns them.
+ *   - Contour `bar`/`beat` are relative to the figure/slot that owns them.
  *     `options.barOffset` shifts the start bar and `options.barSpan` wraps a
  *     tiled figure. With neither, contour bars match preview bars 0-based.
- *   - Preview `beat` is in quarter notes; `eighth` is `round(beat * 2)`.
+ *   - `beat` is the 0-based quarter-note beat inside the bar. `0.25/0.5/0.75`
+ *     are sixteenths and `1/3` is a triplet. Keys round to 6 decimals so a
+ *     binary float from either side matches the same attack.
  *   - The thumb lane is voice 3 / finger `p`. A voice-3 note is also treated
- *     as thumb when the contour's `thumb[]` names that bar/eighth.
+ *     as thumb when the contour's `thumb[]` names that bar/beat.
  *   - Rule contours are never invented here. Every unmatched row gets
  *     `needsRule: true` unless the caller supplies a simple offset table.
  */
@@ -33,8 +36,8 @@ export const VELOCITY_FINGERS: readonly VelocityFinger[] = ['p', 'a', 'm', 'i'];
 export type VelocityCoordinate = {
   /** 0-based, relative to the figure/slot. */
   bar: number;
-  /** 0-based eighth-note index inside the bar. */
-  eighth: number;
+  /** 0-based quarter-note beat inside the bar; sixteenths and triplets allowed. */
+  beat: number;
   /** 1–4. */
   voice: number;
   /** Optional for tremolo/fingerstyle; absent means the whole voice. */
@@ -80,7 +83,6 @@ export type MicroVelocity = VelocityOffsetsContour | VelocityRuleContour;
 export type VelocityLaneNote = {
   bar: number;
   beat: number;
-  eighth: number;
   duration: number | null;
   midi: number | null;
   voice: number;
@@ -108,7 +110,6 @@ export type VelocityLaneRow = {
   note: VelocityLaneNote;
   bar: number;
   beat: number;
-  eighth: number;
   voice: number;
   finger: VelocityFinger | null;
   thumb: boolean;
@@ -139,7 +140,7 @@ export type VelocityLaneOptions = {
   barSpan?: number;
   /**
    * Simple flatten table for a rule contour, keyed by `noteKey(...)` or
-   * `bar:eighth:voice`. Missing coordinates stay `needsRule`.
+   * `bar:beat:voice`. Missing coordinates stay `needsRule`.
    */
   ruleOffsets?: Readonly<Record<string, number>>;
 };
@@ -211,22 +212,27 @@ export function noteOffset(value: unknown): number {
   return finite(value) ?? 0;
 }
 
+/** One beat key; 6 decimals is the documented matching tolerance. */
+function beatKey(beat: number): string {
+  return String(Math.round(beat * 1_000_000) / 1_000_000);
+}
+
 /** Stable contour coordinate key; a missing finger matches the whole voice. */
 export function noteKey(
   bar: number,
-  eighth: number,
+  beat: number,
   voice: number,
   finger?: VelocityFinger | null,
 ): string {
-  return `${Math.trunc(bar)}:${Math.trunc(eighth)}:${Math.trunc(voice)}:${finger ?? '*'}`;
+  return `${Math.trunc(bar)}:${beatKey(beat)}:${Math.trunc(voice)}:${finger ?? '*'}`;
 }
 
-function voiceKey(bar: number, eighth: number, voice: number): string {
-  return `${Math.trunc(bar)}:${Math.trunc(eighth)}:${Math.trunc(voice)}`;
+function voiceKey(bar: number, beat: number, voice: number): string {
+  return `${Math.trunc(bar)}:${beatKey(beat)}:${Math.trunc(voice)}`;
 }
 
-function thumbPositionKey(bar: number, eighth: number): string {
-  return `${Math.trunc(bar)}:${Math.trunc(eighth)}`;
+function thumbPositionKey(bar: number, beat: number): string {
+  return `${Math.trunc(bar)}:${beatKey(beat)}`;
 }
 
 /** Normalise one preview note; unknown/extra fields are ignored. */
@@ -241,7 +247,6 @@ export function normalizeVelocityNote(value: unknown): VelocityLaneNote | null {
   return {
     bar: Math.trunc(value.bar),
     beat,
-    eighth: Math.max(0, Math.round(beat * 2)),
     duration: finite(value.duration),
     midi: finite(value.midi),
     voice,
@@ -265,11 +270,13 @@ function normalizeOffset(value: unknown): VelocityOffset | null {
   if (typeof value.voice !== 'number') return null;
   const voice = Math.trunc(value.voice);
   if (voice < 1 || voice > 4) return null;
+  const beat = finite(value.beat);
+  if (beat == null || beat < 0) return null;
   const offset = finite(value.offset);
   const velocity = finite(value.velocity);
   return {
     bar: integer(value.bar),
-    eighth: integer(value.eighth),
+    beat,
     voice,
     finger: fingerValue(value.finger),
     ...(offset == null ? {} : { offset }),
@@ -286,9 +293,29 @@ function normalizeOffsets(value: unknown): VelocityOffset[] {
     .filter((entry): entry is VelocityOffset => entry !== null);
 }
 
-/** Accept the documented contour, an array, or null. */
+/**
+ * Accept the API slot list, the documented contour object, a plain offsets
+ * array, or null.
+ *
+ * `microVelocity` is served as `[{ slot, contour }]`. Studio has no slot
+ * selector yet, so we take the first slot that carries a contour; a later
+ * multi-slot view must pass the chosen slot in explicitly rather than
+ * flattening every slot together.
+ */
 export function normalizeVelocityContour(value: unknown): MicroVelocity | null {
   if (Array.isArray(value)) {
+    const hasSlotContour = value.some(
+      (item) => isRecord(item) && 'contour' in item,
+    );
+    if (hasSlotContour) {
+      for (const item of value) {
+        if (!isRecord(item) || !('contour' in item) || item.contour == null) continue;
+        const contour = normalizeVelocityContour(item.contour);
+        if (contour) return contour;
+      }
+      return null;
+    }
+    // Compatibility: a plain array of offset entries is still accepted.
     return { kind: 'offsets', notes: normalizeOffsets(value) };
   }
   if (!isRecord(value)) return null;
@@ -323,9 +350,9 @@ export function velocityContourKind(
 }
 
 type Lookup = {
-  /** Exact `bar:eighth:voice:finger` entries. */
+  /** Exact `bar:beat:voice:finger` entries. */
   exact: Map<string, VelocityOffset>;
-  /** Fingerless `bar:eighth:voice:*` entries. */
+  /** Fingerless `bar:beat:voice:*` entries. */
   voice: Map<string, VelocityOffset>;
   /** Thumb positions from `thumb[]`, even when the entry itself is fingerless. */
   thumb: VelocityOffset[];
@@ -341,15 +368,15 @@ function entryFor(
   exact: Map<string, VelocityOffset>,
   byVoice: Map<string, VelocityOffset>,
   bar: number,
-  eighth: number,
+  beat: number,
   voice: number,
   finger: VelocityFinger | null,
 ): VelocityOffset | undefined {
   if (finger) {
-    const exactHit = exact.get(noteKey(bar, eighth, voice, finger));
+    const exactHit = exact.get(noteKey(bar, beat, voice, finger));
     if (exactHit) return exactHit;
   }
-  return byVoice.get(noteKey(bar, eighth, voice, null));
+  return byVoice.get(noteKey(bar, beat, voice, null));
 }
 
 function buildLookup(contour: MicroVelocity | null | undefined): Lookup {
@@ -372,16 +399,16 @@ function buildLookup(contour: MicroVelocity | null | undefined): Lookup {
   if (!contour) return lookup;
 
   for (const entry of contour.notes ?? []) {
-    const key = noteKey(entry.bar, entry.eighth, entry.voice, entry.finger ?? null);
+    const key = noteKey(entry.bar, entry.beat, entry.voice, entry.finger ?? null);
     if (entry.finger) exact.set(key, entry);
     else byVoice.set(key, entry);
   }
   for (const entry of contour.thumb ?? []) {
     lookup.thumb.push(entry);
-    const key = noteKey(entry.bar, entry.eighth, entry.voice, entry.finger ?? null);
+    const key = noteKey(entry.bar, entry.beat, entry.voice, entry.finger ?? null);
     if (entry.finger) thumbExact.set(key, entry);
     else thumbVoice.set(key, entry);
-    thumbPositions.add(thumbPositionKey(entry.bar, entry.eighth));
+    thumbPositions.add(thumbPositionKey(entry.bar, entry.beat));
   }
   return lookup;
 }
@@ -389,15 +416,15 @@ function buildLookup(contour: MicroVelocity | null | undefined): Lookup {
 function ruleOffsetFor(
   table: Readonly<Record<string, number>> | null,
   bar: number,
-  eighth: number,
+  beat: number,
   voice: number,
   finger: VelocityFinger | null,
 ): number | null {
   if (!table) return null;
   const candidates = [
-    noteKey(bar, eighth, voice, finger),
-    noteKey(bar, eighth, voice, null),
-    voiceKey(bar, eighth, voice),
+    noteKey(bar, beat, voice, finger),
+    noteKey(bar, beat, voice, null),
+    voiceKey(bar, beat, voice),
   ];
   for (const candidate of candidates) {
     const value = finite(table[candidate]);
@@ -422,7 +449,7 @@ function relativeBar(
 /**
  * One row per preview note, with default offset 0.
  *
- * Rows are sorted by bar, eighth, voice, midi. Never mutates `notes`.
+ * Rows are sorted by bar, beat, voice, midi. Never mutates `notes`.
  */
 export function velocityLaneRows(
   notes: readonly unknown[],
@@ -450,7 +477,7 @@ export function velocityLaneRows(
   const rows: VelocityLaneRow[] = [];
   normalized.forEach((note, index) => {
     const bar = relativeBar(note.bar, barOffset, options.barSpan);
-    const position = thumbPositionKey(bar, note.eighth);
+    const position = thumbPositionKey(bar, note.beat);
     const thumb =
       note.voice === 3 &&
       (note.finger === 'p' || lookup.thumbPositions.has(position));
@@ -471,7 +498,7 @@ export function velocityLaneRows(
       const rule = ruleOffsetFor(
         options.ruleOffsets ?? null,
         bar,
-        note.eighth,
+        note.beat,
         note.voice,
         note.finger,
       );
@@ -487,8 +514,8 @@ export function velocityLaneRows(
       // us the matched contour entry must be the `p` one when it is fingered.
       const lookupFinger = thumb ? (note.finger ?? 'p') : note.finger;
       const entry = thumb
-        ? entryFor(lookup.thumbExact, lookup.thumbVoice, bar, note.eighth, note.voice, lookupFinger)
-        : entryFor(lookup.exact, lookup.voice, bar, note.eighth, note.voice, lookupFinger);
+        ? entryFor(lookup.thumbExact, lookup.thumbVoice, bar, note.beat, note.voice, lookupFinger)
+        : entryFor(lookup.exact, lookup.voice, bar, note.beat, note.voice, lookupFinger);
       if (entry) {
         authored = true;
         offset = noteOffset(entry.offset);
@@ -518,12 +545,11 @@ export function velocityLaneRows(
         : clampVelocity(velocity + offset);
 
     rows.push({
-      key: `${noteKey(note.bar, note.eighth, note.voice, note.finger)}:${note.midi ?? '-'}:${index}`,
+      key: `${noteKey(note.bar, note.beat, note.voice, note.finger)}:${note.midi ?? '-'}:${index}`,
       lane,
       note,
       bar: note.bar,
       beat: note.beat,
-      eighth: note.eighth,
       voice: note.voice,
       finger: note.finger,
       thumb,
@@ -568,12 +594,12 @@ export function velocityLaneExtent(rows: readonly VelocityLaneRow[]): VelocityLa
 /** Display label; bars are 1-based for musicians, contour data stays 0-based. */
 export function velocityLaneLabel(input: {
   bar: number;
-  eighth: number;
+  beat: number;
   voice: number;
   finger?: VelocityFinger | null;
   thumb?: boolean;
 }): string {
-  const parts = [`bar ${input.bar + 1}`, `eighth ${input.eighth}`, `voice ${input.voice}`];
+  const parts = [`bar ${input.bar + 1}`, `beat ${input.beat}`, `voice ${input.voice}`];
   if (input.finger) parts.push(`finger ${input.finger}`);
   if (input.thumb) parts.push('thumb');
   return parts.join(' · ');

@@ -353,7 +353,7 @@ export function VelocityLane({
                           ? 0
                           : row.bar !== previous.bar
                             ? 10
-                            : row.eighth !== previous.eighth
+                            : row.beat !== previous.beat
                               ? 2
                               : 0;
                       const offset = effectiveOffset(row);
@@ -459,7 +459,7 @@ export function VelocityLane({
         <View style={styles.detail}>
           <Text style={styles.detailTitle}>{velocityLaneLabel(selected)}</Text>
           <Text style={styles.detailKey}>
-            key {noteKey(selected.bar, selected.eighth, selected.voice, selected.finger)} ·
+            key {noteKey(selected.bar, selected.beat, selected.voice, selected.finger)} ·
             midi {selected.note.midi ?? '—'}
           </Text>
           <Text style={styles.detailLine}>

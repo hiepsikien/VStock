@@ -54,9 +54,10 @@ export type StudioPreviewResponse = StudioValidateResponse & {
   row: unknown;
   notes: unknown;
   /**
-   * Authored micro-velocity contour (docs §6.9). The backend does not serve it
-   * yet; the field stays `null` until Phase 2. `normalizeVelocityContour()`
-   * accepts the documented `{ kind: "offsets" | "rule", ... }` shape.
+   * Authored micro-velocity slot list (docs §6.9), `[{ slot, contour }]`.
+   * The contour shape is `{ kind: "offsets" | "rule", ... }`;
+   * `normalizeVelocityContour()` selects the first slot with a contour until
+   * Studio adds a slot selector.
    */
   microVelocity: unknown;
   renderHash: string | null;

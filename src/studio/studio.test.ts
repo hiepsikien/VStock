@@ -1675,10 +1675,10 @@ equal(defaultThumbRow?.previewVelocity, 55);
 const offsetsContour: MicroVelocity = {
   kind: 'offsets',
   notes: [
-    { bar: 0, eighth: 0, voice: 1, offset: -6 },
-    { bar: 0, eighth: 2, voice: 1, finger: 'a', offset: 3 },
+    { bar: 0, beat: 0, voice: 1, offset: -6 },
+    { bar: 0, beat: 1, voice: 1, finger: 'a', offset: 3 },
   ],
-  thumb: [{ bar: 0, eighth: 0, voice: 3, finger: 'p', offset: -4 }],
+  thumb: [{ bar: 0, beat: 0, voice: 3, finger: 'p', offset: -4 }],
 };
 
 const offsetRows = velocityLaneRows(laneNotes, offsetsContour);
@@ -1704,6 +1704,33 @@ equal(
   true,
 );
 
+// Sixteenths at 0/0.25/0.5/0.75 and a triplet at 1/3 all match by beat.
+// The contour's 0.3333334 rounds to the same 6-decimal key as the note's 1/3.
+const gridNotes = [
+  { bar: 0, beat: 0, duration: 0.25, midi: 60, voice: 1, velocity: 70 },
+  { bar: 0, beat: 0.25, duration: 0.25, midi: 61, voice: 1, velocity: 70 },
+  { bar: 0, beat: 1 / 3, duration: 0.25, midi: 62, voice: 1, velocity: 70 },
+  { bar: 0, beat: 0.5, duration: 0.25, midi: 63, voice: 1, velocity: 70 },
+  { bar: 0, beat: 0.75, duration: 0.25, midi: 64, voice: 1, velocity: 70 },
+];
+const gridContour: MicroVelocity = {
+  kind: 'offsets',
+  notes: [
+    { bar: 0, beat: 0, voice: 1, offset: -4 },
+    { bar: 0, beat: 0.25, voice: 1, offset: -3 },
+    { bar: 0, beat: 0.3333334, voice: 1, offset: 5 },
+    { bar: 0, beat: 0.5, voice: 1, offset: -2 },
+    { bar: 0, beat: 0.75, voice: 1, offset: -1 },
+  ],
+};
+const gridRows = velocityLaneRows(gridNotes, gridContour);
+equal(laneRow(gridRows, 60).offset, -4);
+equal(laneRow(gridRows, 61).offset, -3);
+equal(laneRow(gridRows, 62).offset, 5);
+equal(laneRow(gridRows, 63).offset, -2);
+equal(laneRow(gridRows, 64).offset, -1);
+equal(noteKey(0, 1 / 3, 1), noteKey(0, 0.3333334, 1));
+
 // Pinned attacks keep the absolute writer's velocity and never apply an offset.
 const pinnedNote = [
   {
@@ -1720,7 +1747,7 @@ const pinnedNote = [
 ];
 const pinnedRows = velocityLaneRows(pinnedNote, {
   kind: 'offsets',
-  notes: [{ bar: 0, eighth: 0, voice: 1, offset: -6, pinned: true, velocity: 84, layer: 'snap' }],
+  notes: [{ bar: 0, beat: 0, voice: 1, offset: -6, pinned: true, velocity: 84, layer: 'snap' }],
 });
 equal(pinnedRows[0]?.pinned, true);
 equal(pinnedRows[0]?.offset, -6);
@@ -1733,7 +1760,7 @@ equal(pinnedLabel({}), 'pinned');
 
 const pinnedPreview = applyOffsetPreview(pinnedNote, {
   kind: 'offsets',
-  notes: [{ bar: 0, eighth: 0, voice: 1, pinned: true, velocity: 84, layer: 'snap' }],
+  notes: [{ bar: 0, beat: 0, voice: 1, pinned: true, velocity: 84, layer: 'snap' }],
 });
 equal(pinnedPreview[0]?.pinned, true);
 equal(pinnedPreview[0]?.velocity, 84);
@@ -1768,7 +1795,7 @@ equal(laneRow(flattened, 65).needsRule, true);
 // Figure/slot-relative contour bars can wrap over a tiled preview.
 const wrapped = velocityLaneRows(
   [{ bar: 8, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 }],
-  { kind: 'offsets', notes: [{ bar: 0, eighth: 0, voice: 1, offset: -6 }] },
+  { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -6 }] },
   { barSpan: 8 },
 );
 equal(wrapped[0]?.bar, 8);
@@ -1777,7 +1804,7 @@ equal(wrapped[0]?.offset, -6);
 // The same figure can start later; barOffset shifts the contour coordinate.
 const shifted = velocityLaneRows(
   [{ bar: 4, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 }],
-  { kind: 'offsets', notes: [{ bar: 0, eighth: 0, voice: 1, offset: -6 }] },
+  { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -6 }] },
   { barOffset: 4 },
 );
 equal(shifted[0]?.offset, -6);
@@ -1806,8 +1833,8 @@ const diff = velocityLaneDiff(
   {
     kind: 'offsets',
     notes: [
-      { bar: 0, eighth: 0, voice: 1, offset: -5 },
-      { bar: 0, eighth: 1, voice: 1, pinned: true, velocity: 90, layer: 'stab' },
+      { bar: 0, beat: 0, voice: 1, offset: -5 },
+      { bar: 0, beat: 0.5, voice: 1, pinned: true, velocity: 90, layer: 'stab' },
     ],
   },
 );
@@ -1828,9 +1855,9 @@ const extentRows = velocityLaneRows(
   {
     kind: 'offsets',
     notes: [
-      { bar: 0, eighth: 0, voice: 1, offset: -6 },
-      { bar: 1, eighth: 0, voice: 1, offset: 3 },
-      { bar: 0, eighth: 1, voice: 3, pinned: true, velocity: 90, layer: 'stab' },
+      { bar: 0, beat: 0, voice: 1, offset: -6 },
+      { bar: 1, beat: 0, voice: 1, offset: 3 },
+      { bar: 0, beat: 0.5, voice: 3, pinned: true, velocity: 90, layer: 'stab' },
     ],
   },
 );
@@ -1847,14 +1874,14 @@ equal(extent.hasPinned, true);
 equal(extent.needsRule, false);
 
 equal(
-  velocityLaneLabel({ bar: 1, eighth: 2, voice: 1, finger: 'a' }),
-  'bar 2 · eighth 2 · voice 1 · finger a',
+  velocityLaneLabel({ bar: 1, beat: 1, voice: 1, finger: 'a' }),
+  'bar 2 · beat 1 · voice 1 · finger a',
 );
-equal(velocityLaneLabel({ bar: 0, eighth: 0, voice: 3, thumb: true }), 'bar 1 · eighth 0 · voice 3 · thumb');
+equal(velocityLaneLabel({ bar: 0, beat: 0, voice: 3, thumb: true }), 'bar 1 · beat 0 · voice 3 · thumb');
 
 const normalizedContour = normalizeVelocityContour({
   kind: 'offsets',
-  notes: [{ bar: 0, eighth: 0, voice: 1, offset: -3 }],
+  notes: [{ bar: 0, beat: 0, voice: 1, offset: -3 }],
   thumb: [],
 });
 if (!normalizedContour || normalizedContour.kind !== 'offsets') {
@@ -1864,6 +1891,42 @@ equal(normalizedContour.notes.length, 1);
 equal(normalizedContour.thumb?.length, 0);
 equal(normalizeVelocityContour({ kind: 'mystery' }), null);
 equal(normalizeVelocityContour(null), null);
+
+// The API serves `microVelocity` as `[{ slot, contour }]`. Studio has no slot
+// selector yet, so the first slot carrying a contour wins. A slot wrapper must
+// never be read as an offset entry.
+const slotContour = normalizeVelocityContour([
+  {
+    slot: 0,
+    contour: {
+      kind: 'offsets',
+      notes: [{ bar: 0, beat: 0.25, voice: 1, offset: -3 }],
+    },
+  },
+  {
+    slot: 1,
+    contour: {
+      kind: 'offsets',
+      notes: [{ bar: 0, beat: 0.5, voice: 1, offset: -7 }],
+    },
+  },
+]);
+if (!slotContour || slotContour.kind !== 'offsets') {
+  throw new Error('expected the first slot contour to normalise');
+}
+equal(slotContour.notes.length, 1);
+equal(slotContour.notes[0]?.offset, -3);
+equal(slotContour.notes[0]?.beat, 0.25);
+
+// Compatibility path: a bare offsets array still normalises.
+const plainOffsets = normalizeVelocityContour([
+  { bar: 0, beat: 0.5, voice: 1, offset: -2 },
+]);
+if (!plainOffsets || plainOffsets.kind !== 'offsets') {
+  throw new Error('expected a plain offsets array to normalise');
+}
+equal(plainOffsets.notes.length, 1);
+equal(plainOffsets.notes[0]?.offset, -2);
 
 
 type FakeStore = {
