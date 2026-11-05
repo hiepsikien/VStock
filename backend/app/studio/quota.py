@@ -20,6 +20,9 @@ KIND_UPLOAD = "upload"
 KIND_ANALYZE = "analyze"
 KIND_SPEC = "spec"
 KINDS = (KIND_UPLOAD, KIND_ANALYZE, KIND_SPEC)
+# A session is a namespace, not auth: a client can mint a new one. A global
+# counter per kind makes rotation stop buying unlimited work.
+GLOBAL_OWNER = "__global__"
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,37 @@ async def consume(
         remaining=max(0, limit - current),
         retry_after_seconds=retry_after,
     )
+
+
+async def consume_with_global(
+    db: aiosqlite.Connection,
+    owner_id: str,
+    kind: str,
+    limit: int,
+    global_limit: int,
+    *,
+    now: datetime | None = None,
+) -> QuotaDecision:
+    """Spend one unit for the owner only if the global daily cap also allows it.
+
+    The global row is updated first so a burst of fresh sessions cannot each
+    win the owner check and then overshoot the server-wide cap. When the owner
+    limit rejects the call, the just-spent global unit is refunded.
+    """
+    global_decision = await consume(db, GLOBAL_OWNER, kind, global_limit, now=now)
+    if not global_decision.allowed:
+        return global_decision
+
+    decision = await consume(db, owner_id, kind, limit, now=now)
+    if not decision.allowed:
+        await db.execute(
+            "UPDATE studio_quota SET used = MAX(0, used - 1) "
+            "WHERE owner_id = ? AND kind = ? AND day = ?",
+            (GLOBAL_OWNER, kind, current_day(now)),
+        )
+        await db.commit()
+        return decision
+    return decision
 
 
 async def reset(

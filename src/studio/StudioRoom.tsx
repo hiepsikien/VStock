@@ -20,6 +20,7 @@ import {
   fetchPublishedSpec,
   fetchPublishedSpecs,
   fetchSentenceExamples,
+  deleteStudioUpload,
   fetchStudioAccess,
   previewSentenceSpec,
   publishSentenceSpec,
@@ -98,7 +99,14 @@ type StudioResult =
   | { kind: 'running'; action: RunAction }
   | { kind: 'validate'; data: StudioValidateResponse; elapsedMs: number }
   | { kind: 'preview'; data: StudioPreviewResponse; elapsedMs: number }
-  | { kind: 'failure'; action: RunAction; message: string; errors: StudioError[] };
+  | {
+      kind: 'failure';
+      action: RunAction;
+      message: string;
+      errors: StudioError[];
+      /** false only when pre-flight stopped before any request was sent. */
+      sent: boolean;
+    };
 
 type Selection = {
   key: string;
@@ -163,6 +171,7 @@ type AccessState =
 type UploadState =
   | { kind: 'idle' }
   | { kind: 'uploading'; filename: string }
+  | { kind: 'deleting'; id: string }
   | { kind: 'ready'; upload: StudioUpload }
   | { kind: 'error'; message: string; errors: StudioError[] };
 
@@ -267,6 +276,8 @@ export function StudioRoom({ wide, onMode }: Props) {
   const accessController = useRef<AbortController | null>(null);
   const uploadController = useRef<AbortController | null>(null);
   const analyzeController = useRef<AbortController | null>(null);
+  // The upload an in-flight analyze belongs to; a new file invalidates it.
+  const uploadIdRef = useRef<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
   const audioPlayer = useRef<HTMLAudioElement | null>(null);
   const audioRunId = useRef(0);
@@ -487,6 +498,7 @@ export function StudioRoom({ wide, onMode }: Props) {
           action,
           message: 'Fix the spec JSON before sending it.',
           errors: checked.errors,
+          sent: false,
         });
         return;
       }
@@ -500,6 +512,7 @@ export function StudioRoom({ wide, onMode }: Props) {
             action,
             message: 'Fix the preview fixture before sending it.',
             errors: prefixErrorPaths(parsed.errors, 'fixture'),
+            sent: false,
           });
           return;
         }
@@ -551,6 +564,7 @@ export function StudioRoom({ wide, onMode }: Props) {
           action,
           message: describeRequestFailure(error),
           errors: [],
+          sent: true,
         });
       } finally {
         if (inFlight.current === controller) inFlight.current = null;
@@ -561,6 +575,11 @@ export function StudioRoom({ wide, onMode }: Props) {
 
   const pickFile = useCallback(
     (file: File | null) => {
+      uploadController.current?.abort();
+      uploadController.current = null;
+      analyzeController.current?.abort();
+      analyzeController.current = null;
+      uploadIdRef.current = null;
       if (
         previewUrlRef.current &&
         typeof URL !== 'undefined' &&
@@ -630,6 +649,9 @@ export function StudioRoom({ wide, onMode }: Props) {
   const uploadSelected = useCallback(async () => {
     if (!selectedFile) return;
     uploadController.current?.abort();
+    analyzeController.current?.abort();
+    analyzeController.current = null;
+    uploadIdRef.current = null;
     const controller = new AbortController();
     uploadController.current = controller;
     setUpload({ kind: 'uploading', filename: selectedFile.name || 'image' });
@@ -650,6 +672,7 @@ export function StudioRoom({ wide, onMode }: Props) {
         });
         return;
       }
+      uploadIdRef.current = data.id;
       setUpload({ kind: 'ready', upload: data });
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -663,8 +686,60 @@ export function StudioRoom({ wide, onMode }: Props) {
     }
   }, [selectedFile]);
 
+  const deleteUpload = useCallback(async () => {
+    if (upload.kind !== 'ready' || !upload.upload.id) return;
+    analyzeController.current?.abort();
+    analyzeController.current = null;
+    uploadIdRef.current = null;
+    uploadController.current?.abort();
+    const controller = new AbortController();
+    uploadController.current = controller;
+    const id = upload.upload.id;
+    setUpload({ kind: 'deleting', id });
+    try {
+      const data = await deleteStudioUpload(id, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!data.ok) {
+        setUpload({
+          kind: 'error',
+          message: data.errors[0]?.message ?? 'Delete failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      if (
+        previewUrlRef.current &&
+        typeof URL !== 'undefined' &&
+        typeof URL.revokeObjectURL === 'function'
+      ) {
+        try {
+          URL.revokeObjectURL(previewUrlRef.current);
+        } catch {
+          // The blob URL may already be gone.
+        }
+        previewUrlRef.current = null;
+      }
+      setSelectedFile(null);
+      setSelectedPreview(null);
+      setUpload({ kind: 'idle' });
+      setDraftState({ kind: 'idle' });
+      setShowDraftJson(false);
+      setCopyNote(null);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setUpload({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (uploadController.current === controller) uploadController.current = null;
+    }
+  }, [upload]);
+
   const analyzeUpload = useCallback(async () => {
     if (upload.kind !== 'ready' || !upload.upload.id) return;
+    const requestedId = upload.upload.id;
     analyzeController.current?.abort();
     const controller = new AbortController();
     analyzeController.current = controller;
@@ -672,8 +747,8 @@ export function StudioRoom({ wide, onMode }: Props) {
     setShowDraftJson(false);
     setCopyNote(null);
     try {
-      const draft = await analyzeStudioImage(upload.upload.id, undefined, controller.signal);
-      if (controller.signal.aborted) return;
+      const draft = await analyzeStudioImage(requestedId, undefined, controller.signal);
+      if (controller.signal.aborted || uploadIdRef.current !== requestedId) return;
       if (!draft.ok && draft.notes.length === 0 && draft.errors.length > 0) {
         setDraftState({
           kind: 'error',
@@ -684,7 +759,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       }
       setDraftState({ kind: 'ready', draft });
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || uploadIdRef.current !== requestedId) return;
       setDraftState({
         kind: 'error',
         message: describeRequestFailure(error),
@@ -933,11 +1008,11 @@ export function StudioRoom({ wide, onMode }: Props) {
   const accessLoading = access.kind === 'loading';
   const uploadEnabled =
     access.kind === 'ready' ? access.access.enabled : access.kind === 'error';
-  const uploadBusy = upload.kind === 'uploading';
+  const uploadBusy = upload.kind === 'uploading' || upload.kind === 'deleting';
   const analyzeBusy = draftState.kind === 'running';
   const uploaded = upload.kind === 'ready' ? upload.upload : null;
   const canUpload = uploadEnabled && selectedFile !== null && !uploadBusy;
-  const canAnalyze = uploadEnabled && Boolean(uploaded?.id) && !analyzeBusy;
+  const canAnalyze = uploadEnabled && Boolean(uploaded?.id) && !analyzeBusy && !uploadBusy;
   const previewUri = uploadImageUri(uploaded) ?? selectedPreview;
   const accessNote =
     access.kind === 'ready'
@@ -1071,6 +1146,13 @@ export function StudioRoom({ wide, onMode }: Props) {
                     disabled={!canAnalyze}
                     busy={analyzeBusy}
                   />
+                  {upload.kind === 'ready' ? (
+                    <ActionButton
+                      label="Xoá ảnh"
+                      onPress={() => void deleteUpload()}
+                      disabled={uploadBusy || analyzeBusy}
+                    />
+                  ) : null}
                   {uploadBusy || analyzeBusy ? (
                     <ActivityIndicator color={palette.data} size="small" />
                   ) : null}
@@ -1090,6 +1172,8 @@ export function StudioRoom({ wide, onMode }: Props) {
                   <Text style={styles.composerHint}>
                     Uploading {upload.filename}…
                   </Text>
+                ) : upload.kind === 'deleting' ? (
+                  <Text style={styles.composerHint}>Removing image…</Text>
                 ) : upload.kind === 'error' ? (
                   <View style={styles.publishStatus}>
                     <Text style={styles.publishFailure}>{upload.message}</Text>
@@ -1748,7 +1832,7 @@ function ResultPanel({
     return (
       <View style={[styles.card, styles.resultCard]}>
         <View style={styles.resultHeader}>
-          <Badge ok={false} label="NOT SENT" />
+          <Badge ok={false} label={result.sent ? 'REQUEST FAILED' : 'NOT SENT'} />
           <Text style={styles.actionLabel}>
             {result.action === 'validate' ? 'Validate' : 'Preview'}
           </Text>
@@ -1756,8 +1840,9 @@ function ResultPanel({
         <Text style={styles.failureTitle}>{result.message}</Text>
         <ErrorList errors={result.errors} />
         <Text style={styles.hint}>
-          The request was stopped in the app. Fix the highlighted JSON and run it
-          again.
+          {result.sent
+            ? 'The request was sent but the Studio API did not answer successfully. Check the backend and try again.'
+            : 'The request was stopped in the app. Fix the highlighted JSON and run it again.'}
         </Text>
       </View>
     );

@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -147,9 +148,37 @@ class _VisionError(Exception):
 # cache
 
 
+DEFAULT_CACHE_MAX_AGE_DAYS = 30
+
+
+def cache_max_age_days() -> int:
+    raw = os.environ.get("VSTOCK_STUDIO_VISION_CACHE_DAYS", "").strip()
+    try:
+        return max(1, int(raw)) if raw else DEFAULT_CACHE_MAX_AGE_DAYS
+    except ValueError:
+        return DEFAULT_CACHE_MAX_AGE_DAYS
+
+
+def _prune_cache(path: Path) -> None:
+    """Drop old drafts/temp files; the cache is disposable and must stay bounded."""
+    cutoff = time.time() - cache_max_age_days() * 86400
+    try:
+        children = list(path.iterdir())
+    except OSError:
+        return
+    for child in children:
+        try:
+            if not child.is_file() or child.stat().st_mtime >= cutoff:
+                continue
+            child.unlink()
+        except OSError:
+            continue
+
+
 def cache_dir() -> Path:
     path = studio_root() / "vision-cache"
     path.mkdir(parents=True, exist_ok=True)
+    _prune_cache(path)
     return path
 
 

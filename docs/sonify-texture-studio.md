@@ -26,7 +26,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
 | Candidates | **Villa** `villa_arpeggio_aba`, **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
-| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload ảnh (web) + Gemini draft + notes table** (crop/native chưa) |
+| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + Gemini draft + notes table**; analyze cũ bị abort khi đổi ảnh (crop/native/apply chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
 | Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng, 7 pair + 3 candidate) + `render_matrix.json` (41 row, 1.796 note); pattern-level `_select_body` matrix còn thiếu |
@@ -1362,6 +1362,8 @@ backend/app/studio/                    # sentence_spec, texture_spec, preview, d
 ```
 
 Sentence prefix: `/v1/studio/sentence`. Vision/session prefix: `/v1/musicalize/studio`. Vẫn chưa có preview job/queue, crop server-side hay export file trên đĩa.
+
+**Vận hành MVP:** production nên set `VSTOCK_STUDIO_SECRET`; thiếu env thì server dùng secret random per-process (token chết sau restart, không còn hardcoded secret). Upload có `Content-Length` guard + chunk cap; ngoài quota per-owner còn global cap `VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY`/`..._ANALYSES_PER_DAY` để chặn session rotation. Vision cache prune theo `VSTOCK_STUDIO_VISION_CACHE_DAYS` (default 30).
 
 **Đề xuất Phase 1:**
 

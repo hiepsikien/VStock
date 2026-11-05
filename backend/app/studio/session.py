@@ -22,6 +22,7 @@ import base64
 import hashlib
 import hmac
 import os
+import secrets
 import time
 from dataclasses import dataclass
 
@@ -29,7 +30,11 @@ from fastapi import Header, HTTPException
 
 SESSION_HEADER = "X-Studio-Session"
 OWNER_HASH_PREFIX = "vstock-studio-owner-v1:"
-DEV_SECRET = "vstock-studio-dev-secret"
+# A missing env secret must not fall back to a public constant. Generate one
+# per process instead: tokens stop working after a restart/worker change, which
+# is safer than a known key. Production should always set
+# VSTOCK_STUDIO_SECRET.
+_FALLBACK_SECRET = secrets.token_hex(32)
 DEFAULT_TOKEN_TTL_SECONDS = 600
 MIN_TOKEN_TTL_SECONDS = 300
 MAX_TOKEN_TTL_SECONDS = 900
@@ -116,6 +121,25 @@ def quota_limits() -> StudioQuota:
     )
 
 
+@dataclass(frozen=True)
+class StudioGlobalQuota:
+    uploads_per_day: int = 1000
+    analyses_per_day: int = 5000
+
+
+def global_quota_limits() -> StudioGlobalQuota:
+    """Server-wide caps that make session rotation stop buying work."""
+    defaults = StudioGlobalQuota()
+    return StudioGlobalQuota(
+        uploads_per_day=_int_env(
+            "VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY", defaults.uploads_per_day
+        ),
+        analyses_per_day=_int_env(
+            "VSTOCK_STUDIO_GLOBAL_ANALYSES_PER_DAY", defaults.analyses_per_day
+        ),
+    )
+
+
 def _enabled() -> bool:
     raw = os.environ.get("VSTOCK_STUDIO_ENABLED", "").strip().lower()
     if not raw:
@@ -157,7 +181,7 @@ class TokenError(ValueError):
 
 def _secret() -> bytes:
     raw = os.environ.get("VSTOCK_STUDIO_SECRET", "").strip()
-    return (raw or DEV_SECRET).encode("utf-8")
+    return (raw or _FALLBACK_SECRET).encode("utf-8")
 
 
 def token_ttl_seconds() -> int:

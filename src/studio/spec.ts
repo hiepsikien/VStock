@@ -1009,13 +1009,18 @@ export function draftJson(draft: StudioAnalyzeDraft): string {
     put('fret', note.fret);
     put('confidence', note.confidence);
     if (note.conflict) row.conflict = true;
-    put('review', note.review);
+    put('review', note.review ?? 'pending');
     put('tie', note.tie);
     if (note.articulation.length) row.articulation = note.articulation;
     return row;
   });
   return JSON.stringify(
-    { measures: draft.measures, notes, warnings: draft.warnings },
+    {
+      measures: draft.measures,
+      notes,
+      warnings: draft.warnings,
+      review: draft.review ?? 'pending',
+    },
     null,
     2,
   );

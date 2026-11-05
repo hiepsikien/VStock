@@ -9,6 +9,7 @@ import {
   normalizeAnalyzeResponse,
   normalizeAudioResponse,
   normalizeErrors,
+  normalizeDeleteUploadResponse,
   normalizeExamplesResponse,
   normalizePreviewResponse,
   normalizePublishResponse,
@@ -21,6 +22,7 @@ import {
   studioSessionError,
   type StudioAccess,
   type StudioAnalyzeDraft,
+  type StudioDeleteUpload,
   type StudioAudioResponse,
   type StudioExamplesResponse,
   type StudioPreviewResponse,
@@ -117,6 +119,10 @@ export function studioAccessUrl(): string {
 
 export function studioUploadsUrl(): string {
   return `${getApiBaseUrl()}${MUSICALIZE_STUDIO_PREFIX}/uploads`;
+}
+
+export function studioUploadItemUrl(id: string): string {
+  return `${studioUploadsUrl()}/${encodeURIComponent(id)}`;
 }
 
 export function studioAnalyzeUrl(): string {
@@ -239,6 +245,21 @@ export async function uploadStudioImage(
     signal: options.signal,
   });
   return normalizeUploadResponse(await readStudioResponse(res, await res.text()));
+}
+
+/** `DELETE /uploads/{id}`; owner is the session header. */
+export async function deleteStudioUpload(
+  id: string,
+  signal?: AbortSignal,
+): Promise<StudioDeleteUpload> {
+  const res = await fetch(studioUploadItemUrl(id), {
+    method: 'DELETE',
+    headers: await studioSessionHeaders(),
+    signal,
+  });
+  return normalizeDeleteUploadResponse(
+    await readStudioResponse(res, await res.text()),
+  );
 }
 
 /**

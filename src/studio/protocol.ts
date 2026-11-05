@@ -149,7 +149,7 @@ function errorMessage(item: unknown): string {
 
 function errorPath(item: unknown): string {
   if (!isRecord(item)) return '$';
-  const raw = item.path ?? item.loc ?? '$';
+  const raw = item.path ?? item.loc ?? item.code ?? '$';
   if (Array.isArray(raw)) {
     const parts = raw.filter((part) => part !== 'body' && part != null).map(String);
     return parts.length ? parts.join('.') : '$';
@@ -164,13 +164,16 @@ function errorPath(item: unknown): string {
  */
 export function normalizeErrors(body: unknown): StudioError[] {
   if (!isRecord(body)) return [];
+  const detail = body.detail;
   const list = Array.isArray(body.errors)
     ? body.errors
-    : Array.isArray(body.detail)
-      ? body.detail
-      : typeof body.detail === 'string' && body.detail.trim()
-        ? [body.detail]
-        : [];
+    : Array.isArray(detail)
+      ? detail
+      : typeof detail === 'string' && detail.trim()
+        ? [detail]
+        : isRecord(detail)
+          ? [detail]
+          : [];
   return list.map((item) => ({ path: errorPath(item), message: errorMessage(item) }));
 }
 
@@ -436,6 +439,8 @@ export type StudioAnalyzeDraft = {
   warnings: string[];
   cached: boolean;
   partial: boolean;
+  /** Top-level Gemini review state; per-note values are the durable copy. */
+  review: string | null;
   /** Checks skipped because the draft has no render context (`pitch`, …). */
   skippedChecks: string[];
   errors: StudioError[];
@@ -511,6 +516,25 @@ export function emptyStudioQuota(): StudioQuota {
   return { ...EMPTY_QUOTA };
 }
 
+export type StudioDeleteUpload = {
+  ok: boolean;
+  id: string | null;
+  errors: StudioError[];
+};
+
+export function normalizeDeleteUploadResponse(body: unknown): StudioDeleteUpload {
+  if (!isRecord(body)) {
+    throw new Error('Studio delete-upload API returned a non-object response.');
+  }
+  const errors = normalizeErrors(body);
+  const id = text(body.id) ?? text(body.uploadId) ?? text(body.upload_id);
+  return {
+    ok: typeof body.ok === 'boolean' ? body.ok : Boolean(id) && errors.length === 0,
+    id,
+    errors,
+  };
+}
+
 export function normalizeUploadResponse(body: unknown): StudioUpload {
   if (!isRecord(body)) {
     throw new Error('Studio upload API returned a non-object response.');
@@ -571,7 +595,9 @@ function normalizeNote(value: unknown): StudioAnalysisNote | null {
     fret: optionalInteger(value.fret),
     confidence: confidenceValue(value.confidence),
     conflict: booleanFlag(value.conflict),
-    review: text(value.review),
+    // Gemini drafts are pending; a note copied without an explicit state must
+    // not fall back to `edited` in AuthoredEvent later.
+    review: text(value.review) ?? 'pending',
     tie: text(value.tie),
     articulation: articulationList(value.articulation),
   };
@@ -620,6 +646,7 @@ export function normalizeAnalyzeResponse(body: unknown): StudioAnalyzeDraft {
     measures,
     notes,
     warnings: warningList(draft.warnings),
+    review: text(draft.review) ?? text(body.review),
     cached:
       booleanFlag(body.cached) ||
       booleanFlag(body.cacheHit) ||

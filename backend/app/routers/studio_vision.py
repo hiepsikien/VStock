@@ -17,11 +17,12 @@ Session is a namespace, not auth: ``X-Studio-Session`` hashes to ``owner_id``.
 
 from __future__ import annotations
 
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
 import aiosqlite
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -35,6 +36,29 @@ from app.studio import session as studio_session
 router = APIRouter(prefix="/v1/musicalize/studio", tags=["studio-vision"])
 
 _UPLOAD_CHUNK = 1024 * 1024
+# Multipart boundaries/headers are small; allow them before the byte cap so a
+# normal max-size image is not rejected by the Content-Length guard.
+_UPLOAD_OVERHEAD = 64 * 1024
+
+
+def _content_length_guard(request: Request) -> None:
+    """Reject an obviously oversized multipart body before Starlette spools it."""
+    raw = request.headers.get("content-length", "").strip()
+    if not raw:
+        return
+    try:
+        length = int(raw)
+    except ValueError:
+        return
+    cap = studio_session.quota_limits().max_image_bytes + _UPLOAD_OVERHEAD
+    if length > cap:
+        raise HTTPException(
+            status_code=413,
+            detail=_detail(
+                "image_too_large",
+                "Image exceeds the configured upload limit",
+            ),
+        )
 
 
 class QuotaOut(BaseModel):
@@ -179,7 +203,10 @@ def get_access() -> AccessResponse:
     "/uploads",
     response_model=UploadResponse,
     status_code=201,
-    dependencies=[Depends(studio_session.require_enabled)],
+    dependencies=[
+        Depends(studio_session.require_enabled),
+        Depends(_content_length_guard),
+    ],
 )
 async def create_upload(
     file: UploadFile = File(...),
@@ -188,23 +215,32 @@ async def create_upload(
 ) -> UploadResponse:
     """Store one image, deduped by sha256; each upload gets its own row."""
     limits = studio_session.quota_limits()
-    chunks: list[bytes] = []
+    if file.size is not None and file.size > limits.max_image_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=_detail(
+                "image_too_large",
+                f"Image exceeds the {limits.max_image_mb} MB limit",
+            ),
+        )
     total = 0
-    while True:
-        chunk = await file.read(_UPLOAD_CHUNK)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > limits.max_image_bytes:
-            raise HTTPException(
-                status_code=413,
-                detail=_detail(
-                    "image_too_large",
-                    f"Image exceeds the {limits.max_image_mb} MB limit",
-                ),
-            )
-        chunks.append(chunk)
-    data = b"".join(chunks)
+    with tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as spool:
+        while True:
+            chunk = await file.read(_UPLOAD_CHUNK)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > limits.max_image_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=_detail(
+                        "image_too_large",
+                        f"Image exceeds the {limits.max_image_mb} MB limit",
+                    ),
+                )
+            spool.write(chunk)
+        spool.seek(0)
+        data = spool.read()
 
     try:
         studio_store.validate_image(
@@ -215,8 +251,13 @@ async def create_upload(
     except studio_store.UploadError as exc:
         raise _upload_error(exc) from exc
 
-    decision = await studio_quota.consume(
-        db, owner_id, studio_quota.KIND_UPLOAD, limits.uploads_per_day
+    global_limits = studio_session.global_quota_limits()
+    decision = await studio_quota.consume_with_global(
+        db,
+        owner_id,
+        studio_quota.KIND_UPLOAD,
+        limits.uploads_per_day,
+        global_limits.uploads_per_day,
     )
     if not decision.allowed:
         raise _quota_error(decision)
@@ -335,8 +376,13 @@ async def analyze_upload(
         )
 
     limits = studio_session.quota_limits()
-    decision = await studio_quota.consume(
-        db, owner_id, studio_quota.KIND_ANALYZE, limits.analyses_per_day
+    global_limits = studio_session.global_quota_limits()
+    decision = await studio_quota.consume_with_global(
+        db,
+        owner_id,
+        studio_quota.KIND_ANALYZE,
+        limits.analyses_per_day,
+        global_limits.analyses_per_day,
     )
     if not decision.allowed:
         raise _quota_error(decision)

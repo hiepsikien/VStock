@@ -7,6 +7,7 @@ import {
   emptyStudioQuota,
   normalizeAccessResponse,
   normalizeAnalyzeResponse,
+  normalizeDeleteUploadResponse,
   normalizeAudioResponse,
   normalizeErrors,
   normalizeExamplesResponse,
@@ -552,6 +553,14 @@ try {
 }
 equal(detailThrew, true);
 
+// Vision/session errors use `detail:{code,message}`; do not show raw JSON.
+deepEqual(
+  normalizeErrors({
+    detail: { code: 'studio_disabled', message: 'Studio is disabled' },
+  }),
+  [{ path: 'studio_disabled', message: 'Studio is disabled' }],
+);
+
 // FastAPI can answer with a bare string `detail`; surface it with the `$` path.
 deepEqual(normalizeErrors({ detail: 'published spec not found' }), [
   { path: '$', message: 'published spec not found' },
@@ -808,6 +817,19 @@ deepEqual(uploadFailure.errors, [{ path: '$', message: 'file too large' }]);
 equal(uploadMetaLabel(normalizeUploadResponse({ id: 'up', width: 10, height: 20, sha256: '0123456789abcdef' })), 'up · 10×20 · sha 0123456789…');
 equal(uploadMetaLabel(normalizeUploadResponse({})), '');
 
+deepEqual(normalizeDeleteUploadResponse({ ok: true, id: 'up_1', deleted: true }), {
+  ok: true,
+  id: 'up_1',
+  errors: [],
+});
+deepEqual(
+  normalizeDeleteUploadResponse({
+    ok: false,
+    errors: [{ path: 'upload', message: 'missing' }],
+  }),
+  { ok: false, id: null, errors: [{ path: 'upload', message: 'missing' }] },
+);
+
 deepEqual(byteSizeLabel(512), '512 B');
 deepEqual(byteSizeLabel(2048), '2 KB');
 deepEqual(byteSizeLabel(1.5 * 1024 * 1024), '1.5 MB');
@@ -885,6 +907,14 @@ equal(wrappedDraft.cached, true);
 equal(wrappedDraft.measures[0]?.meter, '4/4');
 equal(wrappedDraft.notes[0]?.writtenPitch, 'B4');
 deepEqual(wrappedDraft.warnings, ['cut-off system']);
+
+const pendingByDefault = normalizeAnalyzeResponse({
+  ok: true,
+  draft: { notes: [{ measure: 1, written_pitch: 'E4' }] },
+});
+equal(pendingByDefault.notes[0]?.review, 'pending');
+equal(JSON.parse(draftJson(pendingByDefault)).notes[0].review, 'pending');
+equal(JSON.parse(draftJson(pendingByDefault)).review, 'pending');
 
 const failedDraft = normalizeAnalyzeResponse({
   ok: false,

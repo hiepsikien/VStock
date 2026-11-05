@@ -20,6 +20,11 @@ UI_ROUTES = {
     ("GET", "/v1/studio/sentence/specs"),
     ("GET", "/v1/studio/sentence/specs/{spec_id}"),
     ("POST", "/v1/studio/sentence/specs/{spec_id}/rollback"),
+    # Phase 1 vision/session calls made by the Studio UI.
+    ("GET", "/v1/musicalize/studio/access"),
+    ("POST", "/v1/musicalize/studio/uploads"),
+    ("GET", "/v1/musicalize/studio/uploads/{upload_id}"),
+    ("POST", "/v1/musicalize/studio/analyze"),
 }
 
 

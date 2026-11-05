@@ -18,8 +18,9 @@ import zlib
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.routers import studio_vision as studio_vision_router
 from app.services import gemini_companion
@@ -311,6 +312,65 @@ def test_upload_quota_returns_429_with_retry_after(
 
     owner = studio_session.owner_id_for("alpha-session-0001")
     assert _quota_used(client, owner, studio_quota.KIND_UPLOAD) == 1
+
+
+def test_content_length_guard_rejects_oversized_multipart() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/uploads",
+            "headers": [(b"content-length", b"999999999")],
+        }
+    )
+    with pytest.raises(HTTPException) as exc:
+        studio_vision_router._content_length_guard(request)
+    assert exc.value.status_code == 413
+
+
+def test_global_quota_stops_session_rotation(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY", "1")
+    first = client.post(
+        f"{BASE}/uploads",
+        headers=SESSION_A,
+        files={"file": ("a.png", _png(seed=1), "image/png")},
+    )
+    assert first.status_code == 201
+    second = client.post(
+        f"{BASE}/uploads",
+        headers=SESSION_B,
+        files={"file": ("b.png", _png(seed=2), "image/png")},
+    )
+    assert second.status_code == 429
+    assert second.json()["detail"]["kind"] == "upload"
+
+
+def test_vision_cache_prunes_old_drafts(tmp_path, monkeypatch) -> None:
+    import os
+    import time
+
+    monkeypatch.setenv("VSTOCK_STUDIO_DIR", str(tmp_path))
+    path = tmp_path / "vision-cache"
+    path.mkdir()
+    old = path / "old.json"
+    old.write_text("{}", encoding="utf-8")
+    stale = time.time() - 40 * 86400
+    os.utime(old, (stale, stale))
+    fresh = path / "fresh.json"
+    fresh.write_text("{}", encoding="utf-8")
+    assert vision.cache_dir() == path
+    assert not old.exists()
+    assert fresh.exists()
+
+
+def test_missing_secret_is_random_not_a_known_constant(monkeypatch) -> None:
+    monkeypatch.delenv("VSTOCK_STUDIO_SECRET", raising=False)
+    secret = studio_session._secret()
+    assert secret != b"vstock-studio-dev-secret"
+    token, _ = studio_session.sign_media_token("owner", "resource", now=1000)
+    assert studio_session.verify_media_token(token, "resource", now=1000) == "owner"
 
 
 def test_upload_quota_is_per_owner(client: TestClient, monkeypatch) -> None:
