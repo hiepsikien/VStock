@@ -48,8 +48,12 @@ import {
   type StudioValidateResponse,
 } from './api';
 import { nextJobPollDelayMs, resolveAudioUrl } from './protocol';
-import { VelocityLane } from './VelocityLane';
-import { normalizeVelocityContour } from './velocity';
+import { VelocityLane, type VelocityLaneSaveInfo } from './VelocityLane';
+import {
+  velocitySlotContours,
+  type MicroVelocity,
+} from './velocity';
+import { saveVelocityContourToSpec } from './velocitySpec';
 import { sessionLabel } from './session';
 import { studioSessionId } from './sessionStorage';
 import {
@@ -2197,6 +2201,11 @@ export function StudioRoom({ wide, onMode }: Props) {
                 audioSupported={Platform.OS === 'web'}
                 canPlayAudio={previewSnapshot !== null}
                 onPlayAudio={() => void playAudio()}
+                specText={specText}
+                onSpecSaved={(nextSpecText) => {
+                  setSpecText(nextSpecText);
+                  setDirty(true);
+                }}
               />
               <PublishedPanel
                 state={published}
@@ -2520,22 +2529,69 @@ function AudioControls({
   );
 }
 
-function PreviewVelocityPanel({ data }: { data: StudioPreviewResponse }) {
+type VelocitySaveState =
+  | { kind: 'idle' }
+  | { kind: 'saved'; slot: number; omitted: boolean }
+  | { kind: 'error'; errors: StudioError[] };
+
+function PreviewVelocityPanel({
+  data,
+  specText,
+  onSpecSaved,
+}: {
+  data: StudioPreviewResponse;
+  specText: string;
+  onSpecSaved: (nextSpecText: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [saveState, setSaveState] = useState<VelocitySaveState>({ kind: 'idle' });
   const notes = Array.isArray(data.notes) ? data.notes : [];
-  const contour = useMemo(
-    () => normalizeVelocityContour(data.microVelocity),
+  const slots = useMemo(
+    () => velocitySlotContours(data.microVelocity),
     [data.microVelocity],
   );
+  const activeSlot =
+    slots.find((item) => item.slot === selectedSlot) ??
+    slots.find((item) => item.contour != null) ??
+    slots[0] ??
+    null;
+  const contour = activeSlot?.contour ?? null;
+  const activeSlotNumber = activeSlot?.slot ?? null;
+
+  useEffect(() => {
+    setSaveState({ kind: 'idle' });
+  }, [data.microVelocity, activeSlotNumber]);
 
   if (!data.ok || notes.length === 0) return null;
 
   const status =
     contour == null
-      ? 'Realized velocities only · authored offsets are not loaded yet'
+      ? slots.length > 1
+        ? 'This slot has no authored contour · realized velocities only'
+        : 'Realized velocities only · no authored offsets'
       : contour.kind === 'rule'
         ? `Rule contour ${contour.ruleId} v${contour.ruleVersion} · needs a flatten table`
-        : 'Authored micro-velocity offsets loaded';
+        : slots.length > 1
+          ? `Authored micro-velocity offsets · ${slots.length} slots`
+          : 'Authored micro-velocity offsets loaded';
+
+  const saveContour = (next: MicroVelocity, info: VelocityLaneSaveInfo) => {
+    if (!activeSlot) return;
+    const saved = saveVelocityContourToSpec({
+      specText,
+      slot: activeSlot.slot,
+      contour: next,
+      needsRule: info.needsRule,
+      hasEdits: info.hasEdits,
+    });
+    if (!saved.ok) {
+      setSaveState({ kind: 'error', errors: saved.errors });
+      return;
+    }
+    onSpecSaved(saved.text);
+    setSaveState({ kind: 'saved', slot: saved.slot, omitted: saved.omitted });
+  };
 
   return (
     <View style={styles.velocityPanel}>
@@ -2553,12 +2609,39 @@ function PreviewVelocityPanel({ data }: { data: StudioPreviewResponse }) {
         <Text style={styles.velocityToggleText}>{open ? 'Hide' : 'Show'}</Text>
       </Pressable>
       {open ? (
-        <VelocityLane
-          notes={notes}
-          contour={contour}
-          editable={contour != null}
-          title="Preview velocity"
-        />
+        <>
+          {slots.length > 1 ? (
+            <View style={styles.chips}>
+              <Text style={styles.fieldLabel}>Slot</Text>
+              {slots.map((item) => (
+                <Chip
+                  key={item.slot}
+                  label={`Slot ${item.slot}`}
+                  active={activeSlotNumber === item.slot}
+                  onPress={() => setSelectedSlot(item.slot)}
+                  accessibilityLabel={`Show slot ${item.slot} velocity contour`}
+                />
+              ))}
+            </View>
+          ) : null}
+          <VelocityLane
+            notes={notes}
+            contour={contour}
+            editable={contour != null}
+            title="Preview velocity"
+            onSaveContour={saveContour}
+          />
+          {saveState.kind === 'saved' ? (
+            <View style={styles.filledBox}>
+              <Text style={styles.successText}>
+                Saved slot {saveState.slot} to the spec JSON
+                {saveState.omitted ? ' · empty microVelocity removed' : ''}. Rerun
+                Preview to reload the authored contour.
+              </Text>
+            </View>
+          ) : null}
+          {saveState.kind === 'error' ? <ErrorList errors={saveState.errors} /> : null}
+        </>
       ) : null}
     </View>
   );
@@ -2572,6 +2655,8 @@ function ResultPanel({
   audioSupported,
   canPlayAudio,
   onPlayAudio,
+  specText,
+  onSpecSaved,
 }: {
   result: StudioResult;
   job: QueuedJobState;
@@ -2580,6 +2665,8 @@ function ResultPanel({
   audioSupported: boolean;
   canPlayAudio: boolean;
   onPlayAudio: () => void;
+  specText: string;
+  onSpecSaved: (nextSpecText: string) => void;
 }) {
   if (result.kind === 'idle') {
     return (
@@ -2715,7 +2802,11 @@ function ResultPanel({
       <ResultBlock label="Matrix" lines={matrix} empty="No matrix returned." />
       <ResultBlock label="Notes" lines={notes} empty="No notes returned." />
 
-      <PreviewVelocityPanel data={data} />
+      <PreviewVelocityPanel
+        data={data}
+        specText={specText}
+        onSpecSaved={onSpecSaved}
+      />
     </View>
   );
 }

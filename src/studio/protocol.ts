@@ -56,8 +56,8 @@ export type StudioPreviewResponse = StudioValidateResponse & {
   /**
    * Authored micro-velocity slot list (docs §6.9), `[{ slot, contour }]`.
    * The contour shape is `{ kind: "offsets" | "rule", ... }`;
-   * `normalizeVelocityContour()` selects the first slot with a contour until
-   * Studio adds a slot selector.
+   * `velocitySlotContours()` keeps every slot for the Studio selector, and
+   * `normalizeVelocityContour()` remains the first-authored-slot fallback.
    */
   microVelocity: unknown;
   renderHash: string | null;

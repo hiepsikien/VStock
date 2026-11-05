@@ -104,15 +104,20 @@ import {
 } from './session';
 import {
   applyOffsetPreview,
+  mergeVelocityEdits,
   normalizeVelocityContour,
   noteKey,
   pinnedLabel,
+  velocityContourIsEmpty,
   velocityLaneDiff,
   velocityLaneExtent,
   velocityLaneLabel,
   velocityLaneRows,
+  velocitySlotContours,
+  velocitySlotLabel,
   type MicroVelocity,
 } from './velocity';
+import { saveVelocityContourToSpec } from './velocitySpec';
 
 function equal<T>(actual: T, expected: T) {
   if (actual !== expected) {
@@ -1928,6 +1933,264 @@ if (!plainOffsets || plainOffsets.kind !== 'offsets') {
 equal(plainOffsets.notes.length, 1);
 equal(plainOffsets.notes[0]?.offset, -2);
 
+// Multi-slot selection follows wire order and keeps a null contour visible so
+// the selector can show an unauthored slot instead of flattening slots.
+const selectedSlots = velocitySlotContours([
+  {
+    slot: 0,
+    contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -3 }] },
+  },
+  { slot: 2, contour: null },
+  {
+    slot: 1,
+    contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0.5, voice: 1, offset: -7 }] },
+  },
+]);
+deepEqual(
+  selectedSlots.map((item) => item.slot),
+  [0, 2, 1],
+);
+equal(selectedSlots[1]?.contour, null);
+if (
+  !selectedSlots[2]?.contour ||
+  selectedSlots[2].contour.kind !== 'offsets'
+) {
+  throw new Error('expected slot 1 offsets');
+}
+equal(selectedSlots[2].contour.notes[0]?.offset, -7);
+equal(velocitySlotLabel(2), 'Slot 2');
+
+// The single-slot path is unchanged: a bare contour maps to slot 0.
+const singleSlot = velocitySlotContours(normalizedContour);
+equal(singleSlot.length, 1);
+equal(singleSlot[0]?.slot, 0);
+deepEqual(singleSlot[0]?.contour, normalizedContour);
+
+// The legacy single-slot normaliser still takes the first *authored* contour.
+const lateContour = normalizeVelocityContour([
+  { slot: 0, contour: null },
+  {
+    slot: 1,
+    contour: { kind: 'offsets', notes: [{ bar: 0, beat: 0, voice: 1, offset: -5 }] },
+  },
+]);
+if (!lateContour || lateContour.kind !== 'offsets') {
+  throw new Error('expected the first authored slot to win');
+}
+equal(lateContour.notes[0]?.offset, -5);
+
+// Lane edits merge into the contour: replace an authored entry, append a new
+// one, and never mutate the original contour.
+const editContour: MicroVelocity = {
+  kind: 'offsets',
+  notes: [{ bar: 0, beat: 0, voice: 1, offset: -6 }],
+};
+const editRows = velocityLaneRows(
+  [
+    { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+    { bar: 0, beat: 1, duration: 1, midi: 65, voice: 1, velocity: 70 },
+  ],
+  editContour,
+);
+const firstEditRow = editRows[0];
+const secondEditRow = editRows[1];
+if (!firstEditRow || !secondEditRow) throw new Error('expected two lane rows');
+const mergedContour = mergeVelocityEdits(editContour, editRows, {
+  [firstEditRow.key]: -2,
+  [secondEditRow.key]: 5,
+});
+if (mergedContour.kind !== 'offsets') throw new Error('expected offsets');
+equal(mergedContour.notes.length, 2);
+equal(mergedContour.notes[0]?.offset, -2);
+equal(mergedContour.notes[1]?.bar, 0);
+equal(mergedContour.notes[1]?.beat, 1);
+equal(mergedContour.notes[1]?.offset, 5);
+if (editContour.kind !== 'offsets') throw new Error('expected offsets');
+equal(editContour.notes[0]?.offset, -6);
+
+// Pinned attacks are locked: an edit can never replace their absolute layer.
+const pinnedEdge: MicroVelocity = {
+  kind: 'offsets',
+  notes: [
+    { bar: 0, beat: 0, voice: 1, pinned: true, velocity: 84, layer: 'snap' },
+    { bar: 0, beat: 1, voice: 1, offset: -4 },
+  ],
+};
+const pinnedEdgeRows = velocityLaneRows(
+  [
+    { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+    { bar: 0, beat: 1, duration: 1, midi: 65, voice: 1, velocity: 70 },
+  ],
+  pinnedEdge,
+);
+const lockedPinnedRow = pinnedEdgeRows.find((row) => row.pinned);
+const lockedOffsetRow = pinnedEdgeRows.find((row) => !row.pinned);
+if (!lockedPinnedRow || !lockedOffsetRow) throw new Error('expected pinned + offset rows');
+const lockedContour = mergeVelocityEdits(pinnedEdge, pinnedEdgeRows, {
+  [lockedPinnedRow.key]: 99,
+  [lockedOffsetRow.key]: -1,
+});
+if (lockedContour.kind !== 'offsets') throw new Error('expected offsets');
+const lockedPinned = lockedContour.notes.find((entry) => entry.pinned === true);
+equal(lockedPinned?.velocity, 84);
+equal(lockedPinned?.offset, undefined);
+equal(lockedPinned?.layer, 'snap');
+equal(lockedContour.notes.find((entry) => entry.beat === 1)?.offset, -1);
+
+// Empty means no notes and no thumb; a rule carrier is never empty.
+equal(velocityContourIsEmpty(null), true);
+equal(velocityContourIsEmpty({ kind: 'offsets', notes: [], thumb: [] }), true);
+equal(
+  velocityContourIsEmpty({
+    kind: 'offsets',
+    notes: [{ bar: 0, beat: 0, voice: 1, offset: -1 }],
+  }),
+  false,
+);
+equal(velocityContourIsEmpty(ruleContour), false);
+
+// Save writes exactly one slot and preserves every other slot field.
+const saveBase = {
+  ...DEFAULT_SAMPLE.spec,
+  id: 'velocity_save',
+  slots: [
+    { start: 0, bars: 2, figure: 8, cell: null, anchor: 'start' },
+    {
+      start: 2,
+      bars: 2,
+      figure: 13,
+      cell: null,
+      anchor: 'start',
+      microVelocity: {
+        kind: 'rule',
+        ruleId: 'old_rule',
+        ruleVersion: 1,
+        params: { step: 2 },
+        notes: [],
+      },
+    },
+  ],
+};
+const saveText = JSON.stringify(saveBase, null, 2);
+const savedContour: MicroVelocity = {
+  kind: 'offsets',
+  notes: [
+    { bar: 0, beat: 0, voice: 1, finger: 'a', offset: -6 },
+    { bar: 0, beat: 2, voice: 1, pinned: true, velocity: 90, layer: 'snap' },
+  ],
+  thumb: [{ bar: 0, beat: 0, voice: 3, finger: 'p', offset: -4 }],
+};
+const savedResult = saveVelocityContourToSpec({
+  specText: saveText,
+  slot: 1,
+  contour: savedContour,
+});
+if (!savedResult.ok) {
+  throw new Error(`save failed: ${savedResult.errors[0]?.message}`);
+}
+equal(savedResult.omitted, false);
+const savedSpec = JSON.parse(savedResult.text) as Record<string, unknown>;
+const savedSlots = savedSpec.slots as Array<Record<string, unknown>>;
+deepEqual(savedSlots[0], saveBase.slots[0]);
+equal(savedSlots[1]?.start, 2);
+equal(savedSlots[1]?.figure, 13);
+deepEqual(savedSlots[1]?.microVelocity, savedContour);
+equal(savedSpec.id, 'velocity_save');
+
+// Saving the same contour twice is byte-identical (spec round-trip).
+const savedAgain = saveVelocityContourToSpec({
+  specText: savedResult.text,
+  slot: 1,
+  contour: savedContour,
+});
+if (!savedAgain.ok) {
+  throw new Error(`second save failed: ${savedAgain.errors[0]?.message}`);
+}
+equal(savedAgain.text, savedResult.text);
+
+// An empty contour omits the field and still preserves the slot.
+const omittedResult = saveVelocityContourToSpec({
+  specText: savedResult.text,
+  slot: 1,
+  contour: null,
+});
+if (!omittedResult.ok) throw new Error('null contour should save by omission');
+equal(omittedResult.omitted, true);
+const omittedSpec = JSON.parse(omittedResult.text) as Record<string, unknown>;
+const omittedSlots = omittedSpec.slots as Array<Record<string, unknown>>;
+equal('microVelocity' in (omittedSlots[1] ?? {}), false);
+equal(omittedSlots[1]?.start, 2);
+
+const emptyContour = saveVelocityContourToSpec({
+  specText: savedResult.text,
+  slot: 1,
+  contour: { kind: 'offsets', notes: [], thumb: [] },
+});
+if (!emptyContour.ok) throw new Error('empty contour should save by omission');
+equal(emptyContour.omitted, true);
+const emptySpec = JSON.parse(emptyContour.text) as Record<string, unknown>;
+equal(
+  'microVelocity' in ((emptySpec.slots as Array<Record<string, unknown>>)[1] ?? {}),
+  false,
+);
+
+// Parse/slot failures are inert and keep the normal pre-flight path shape.
+const invalidSpec = saveVelocityContourToSpec({
+  specText: '{"slots":',
+  slot: 0,
+  contour: null,
+});
+if (invalidSpec.ok) throw new Error('invalid JSON must not save');
+equal(invalidSpec.errors[0]?.path, '$');
+
+const missingSlot = saveVelocityContourToSpec({
+  specText: saveText,
+  slot: 9,
+  contour: null,
+});
+if (missingSlot.ok) throw new Error('missing slot must not save');
+equal(missingSlot.errors[0]?.path, 'slots[9]');
+
+// A rule that still needs flattening is blocked; a fully flattened rule can
+// round-trip unchanged. Edited rule rows are blocked because the carrier stays
+// a rule.
+const blockedRule = saveVelocityContourToSpec({
+  specText: saveText,
+  slot: 1,
+  contour: ruleContour,
+  needsRule: true,
+});
+if (blockedRule.ok) throw new Error('unflattened rule must not save');
+equal(blockedRule.errors[0]?.path, 'slots[1].microVelocity');
+equal(blockedRule.errors[0]?.message.includes('flatten'), true);
+
+const blockedRuleEdits = saveVelocityContourToSpec({
+  specText: saveText,
+  slot: 1,
+  contour: ruleContour,
+  needsRule: false,
+  hasEdits: true,
+});
+if (blockedRuleEdits.ok) throw new Error('edited rule must not save');
+equal(blockedRuleEdits.errors[0]?.path, 'slots[1].microVelocity');
+
+const flattenedRuleSave = saveVelocityContourToSpec({
+  specText: saveText,
+  slot: 1,
+  contour: ruleContour,
+  needsRule: false,
+});
+if (!flattenedRuleSave.ok) {
+  throw new Error(`flattened rule should save: ${flattenedRuleSave.errors[0]?.message}`);
+}
+const flattenedRuleSpec = JSON.parse(flattenedRuleSave.text) as Record<string, unknown>;
+const flattenedRuleSlot = (
+  flattenedRuleSpec.slots as Array<Record<string, unknown>>
+)[1];
+const flattenedRuleContour = flattenedRuleSlot?.microVelocity as Record<string, unknown>;
+equal(flattenedRuleContour.kind, 'rule');
+equal(flattenedRuleContour.ruleId, 'galop1');
+equal(flattenedRuleContour.ruleVersion, 1);
 
 type FakeStore = {
   value: string | null;
