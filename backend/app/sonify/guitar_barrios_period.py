@@ -28,11 +28,14 @@ existing renderer remains the fallback in every one of those cases.
 
 Render
 ------
-`render_period` builds the same bounded context the preview does, but from the
-production melody and chords. It calls `sentence_specs.plan_sentence` and then
+`render_sentence` builds the same bounded context the preview does, but from
+the production melody and chords. It calls `sentence_specs.plan_slots` and then
 `guitar_barrios_figures.render_barrios_figure` for each planned bar. The result
-is voiced and filled on the same grids the production renderer uses, so callers
-receive the same `(lead, support, low, divisions)` shape.
+is raw bar voices plus the plan; the shared production tail (`_finish_voices`)
+then applies the volume wave, dynamics, transitions, scale passages, and the
+post-wave pinned check, so a flagged period cannot drift from production
+shaping. The period owns its ringing Preludio bass per bar, so it asks the tail
+to skip the movement-wide append.
 """
 
 from __future__ import annotations
@@ -56,6 +59,11 @@ from app.sonify.guitar_barrios_figures import (
     render_barrios_figure,
 )
 from app.sonify.model import NoteEvent, Phrase, Run
+from app.sonify.sentence_production import (
+    SentenceVoices,
+    bar_plan,
+    mark_trace,
+)
 from app.sonify.sentence_specs import Select, SentenceSpec, Slot, Span
 
 BARRIOS_PERIOD_ENV = "VSTOCK_BARRIOS_PERIOD"
@@ -170,13 +178,13 @@ def _joined(start: int, pitches: list[int]) -> Phrase:
     return Phrase(start, start + len(pitches), tuple(runs), False)
 
 
-def _plan(ctx: Any) -> list[tuple[int, tuple[int, ...]]] | None:
+def _plan(ctx: Any) -> list[sentence_specs.PlannedSlot] | None:
     if not _eligible(ctx):
         return None
     # The registry entry is deliberately lazy. An env-var audition never calls
     # the context manager, so this is the one place production can install it.
     ensure_registered()
-    planned = sentence_specs.plan_sentence(
+    planned = sentence_specs.plan_slots(
         BARRIOS_PERIOD_PATTERN,
         BARRIOS_PERIOD_METER,
         ctx.bars,
@@ -187,78 +195,33 @@ def _plan(ctx: Any) -> list[tuple[int, tuple[int, ...]]] | None:
     if not planned:
         return None
     covered: list[int] = []
-    for _figure, bars in planned:
-        covered.extend(bars)
+    for slot in planned:
+        if slot.figure is not None:
+            covered.extend(slot.bars)
     if sorted(covered) != list(range(BARRIOS_PERIOD_BARS)):
         return None
     return planned
 
 
-def _shape(
-    lead: list[NoteEvent],
-    support: list[NoteEvent],
-    low: list[NoteEvent],
-    ctx: Any,
-) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
-    """Voicing and rest filling, matching the production renderer's tail."""
-    from app.sonify.guitar_patterns import (
-        _ScaleLead,
-        _fill,
-        _fill_voices,
-        _needs_sixteenths,
-        _needs_twelfths,
-        _resolve,
-        _resolve_voices,
-    )
-
-    bars = ctx.bars
-    epb = ctx.epb
-    lead = _resolve(
-        [replace(event, voice=1) for event in lead if event.midi is not None],
-        epb,
-        1,
-    )
-    support = _resolve_voices(
-        [replace(event, voice=2) for event in support if event.midi is not None],
-        epb,
-        2,
-    )
-    low = _resolve(
-        [replace(event, voice=3) for event in low if event.midi is not None],
-        epb,
-        3,
-    )
-    events = [*lead, *support, *low]
-    if _needs_twelfths(events):
-        divisions = 12
-    elif _needs_sixteenths(events):
-        divisions = 4
-    else:
-        divisions = 2
-    return (
-        _ScaleLead(_fill(lead, bars, epb, 1)),
-        _fill_voices(support, bars, epb, 2),
-        _fill(low, bars, epb, 3),
-        divisions,
-    )
-
-
-def render_period(
-    ctx: Any,
-) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int] | None:
+def render_sentence(ctx: Any) -> SentenceVoices | None:
     """Render the period for an eligible movement, or return None to fall back."""
     planned = _plan(ctx)
     if planned is None:
         return None
+    plan = bar_plan(planned, ctx.bars)
+    if plan is None:
+        return None
+    figures, slot_contours = plan
 
-    ordered = sorted(planned, key=lambda item: item[1][0])
-    patterns = [figure_pattern(figure) for figure, _bars in ordered]
-    slots: list[tuple[int, int, int, int]] = []
+    ordered = sorted(
+        (slot for slot in planned if slot.figure is not None),
+        key=lambda slot: slot.bars[0],
+    )
+    patterns = [figure_pattern(slot.figure) for slot in ordered]
     phrases: list[Phrase] = []
-    for figure, bars in ordered:
-        start = bars[0]
-        count = len(bars)
-        slots.append((start, count, figure, len(phrases)))
+    for slot in ordered:
+        start = slot.bars[0]
+        count = len(slot.bars)
         phrases.append(
             _joined(
                 start * ctx.epb,
@@ -269,9 +232,9 @@ def render_period(
     period_ctx = replace(ctx, phrases=tuple(phrases))
     state = BarriosFigureState.build(period_ctx, patterns)
     bar_slot = {
-        bar: (index, figure, start, count)
-        for start, count, figure, index in slots
-        for bar in range(start, start + count)
+        bar: (index, slot.figure, slot.bars[0], len(slot.bars))
+        for index, slot in enumerate(ordered)
+        for bar in slot.bars
     }
 
     lead: list[NoteEvent] = []
@@ -291,8 +254,12 @@ def render_period(
         support.extend(part_support)
         low.extend(part_low)
 
-    from app.sonify.guitar_patterns import _TRACE_LINE, _TRACE_PRICE_LINE
-
-    _TRACE_LINE.set(list(ctx.melody))
-    _TRACE_PRICE_LINE.set(list(ctx.melody))
-    return _shape(lead, support, low, ctx)
+    mark_trace(ctx)
+    return SentenceVoices(
+        lead,
+        support,
+        low,
+        figures,
+        slot_contours=slot_contours,
+        owns_preludio_bass=True,
+    )

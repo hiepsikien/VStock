@@ -13,6 +13,9 @@ bar-level figure renderers stay in `guitar_torroba.py`; the galop cells stay in
 `plan_sentence()` returns `None` when the pattern/meter pair has no data yet, so
 callers fall back to the code path during the migration. An empty list means the
 registry covers the pair but the length/selection does not match.
+`plan_slots()` runs the same selection and returns one `PlannedSlot` per
+occurrence with its authored slot index, absolute origin, and optional
+micro-velocity contour; `plan_sentence()` keeps its `(figure, bars)` shape.
 
 A slot holds exactly one realizer: a `figure` (an id the owner renders through
 its figure table), a `cell` (an id the owner resolves itself, like the galop
@@ -142,6 +145,32 @@ class SentenceSpec:
     select: Select
     span: Span
     slots: tuple[Slot, ...]
+
+
+@dataclass(frozen=True)
+class PlannedSlot:
+    """One realized slot occurrence, with the data a renderer needs to voice it.
+
+    ``plan_sentence`` deliberately returns only ``(figure, bars)`` spans. The
+    micro-velocity layer needs two more facts that are not in that shape: which
+    authored slot produced the occurrence (``slot_index``) and the absolute bar
+    its contour origin sits on (``slot_start``). ``bars`` are absolute too.
+
+    ``slot_start`` is the occurrence origin before clipping, so a contour entry
+    authored on a bar this occurrence clipped away simply matches nothing. A
+    repeating tile emits one instance per chunk, each with its own origin.
+
+    ``micro_velocity`` is the authored slot contour, unchanged. It is data:
+    planning never applies it.
+    """
+
+    slot_index: int
+    slot_start: int
+    bars: tuple[int, ...]
+    figure: int | None = None
+    cell: str | None = None
+    procedure: str | None = None
+    micro_velocity: MicroVelocity | None = None
 
 
 SENTENCE_SPECS: dict[tuple[str, str], tuple[SentenceSpec, ...]] = {}
@@ -475,8 +504,10 @@ def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -
     return rise >= select.rise_min
 
 
-def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
-    """The clipped `(low, high)` bar range a slot covers inside one chunk."""
+def _placement(
+    slot: Slot, chunk: int, total: int
+) -> tuple[int, int, int] | None:
+    """The slot's unclipped origin plus the clipped `(low, high)` bar range."""
     if slot.anchor == "end":
         base = total - slot.bars
     elif slot.anchor == "middle":
@@ -487,6 +518,15 @@ def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
     high = min(base + slot.bars, chunk)
     if low >= high:
         return None
+    return base, low, high
+
+
+def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
+    """The clipped `(low, high)` bar range a slot covers inside one chunk."""
+    found = _placement(slot, chunk, total)
+    if found is None:
+        return None
+    _base, low, high = found
     return low, high
 
 
@@ -509,6 +549,35 @@ def _slots(
     return spans
 
 
+def _slot_entries(
+    spec: SentenceSpec, offset: int, chunk: int, total: int
+) -> list[PlannedSlot]:
+    """Every slot occurrence in this chunk, with its contour origin.
+
+    Unlike `_slots`, this keeps the authored slot index and the unclipped
+    origin, and it includes cell/procedure slots so an owner can see the whole
+    layout. `plan_sentence` still emits figure spans only.
+    """
+    entries: list[PlannedSlot] = []
+    for index, slot in enumerate(spec.slots):
+        found = _placement(slot, chunk, total)
+        if found is None:
+            continue
+        base, low, high = found
+        entries.append(
+            PlannedSlot(
+                slot_index=index,
+                slot_start=offset + base,
+                bars=tuple(range(offset + low, offset + high)),
+                figure=slot.figure,
+                cell=slot.cell,
+                procedure=slot.procedure,
+                micro_velocity=slot.micro_velocity,
+            )
+        )
+    return entries
+
+
 def _cells(
     spec: SentenceSpec, offset: int, chunk: int, total: int
 ) -> list[tuple[str, tuple[int, ...]]]:
@@ -527,8 +596,8 @@ def _cells(
 def _tile(
     spec: SentenceSpec,
     length: int,
-    place: Callable[[SentenceSpec, int, int, int], list[tuple]] | None = None,
-) -> list[tuple]:
+    place: Callable[[SentenceSpec, int, int, int], list] | None = None,
+) -> list:
     if place is None:
         place = _slots
     span = spec.span
@@ -596,6 +665,32 @@ def plan_sentence(
     for spec in specs:
         if _matches(spec, length, n, closes, rise):
             return _tile(spec, length)
+    return []
+
+
+def plan_slots(
+    pattern: str,
+    meter: str,
+    length: int,
+    n: int,
+    *,
+    closes: bool = False,
+    rise: int = 0,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
+) -> list[PlannedSlot] | None:
+    """Slot occurrences for one phrase, or `None` when the pair has no data.
+
+    This is the planner seam for consumers that need more than a figure span:
+    the authored slot index, its absolute origin, and its `micro_velocity`.
+    The selection and tiling are identical to `plan_sentence`, so the two
+    planners always cover the same bars for the same inputs.
+    """
+    specs = _lookup(pattern, meter, registry)
+    if specs is None:
+        return None
+    for spec in specs:
+        if _matches(spec, length, n, closes, rise):
+            return _tile(spec, length, _slot_entries)
     return []
 
 

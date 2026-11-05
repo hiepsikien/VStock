@@ -54,7 +54,7 @@ from app.sonify.production_flags import (
 )
 from app.sonify.sentence_production import (
     SentenceVoices,
-    bar_figures,
+    bar_plan,
     has_pedal_bars,
     mark_trace,
     phrase_at,
@@ -149,13 +149,15 @@ def eligible(ctx: Any) -> bool:
     return not has_pedal_bars(ctx)
 
 
-def _plan(ctx: Any) -> dict[int, int] | None:
+def _plan(
+    ctx: Any,
+) -> tuple[dict[int, int], dict[int, Any]] | None:
     if not enabled() or not eligible(ctx):
         return None
     # The registry entry is deliberately lazy. An env-var audition never calls
     # the context manager, so this is the one place production installs it.
     ensure_registered()
-    planned = sentence_specs.plan_sentence(
+    planned = sentence_specs.plan_slots(
         SUITE_MAZURKA_PATTERN,
         SUITE_MAZURKA_METER,
         ctx.bars,
@@ -163,7 +165,7 @@ def _plan(ctx: Any) -> dict[int, int] | None:
         closes=False,
         rise=0,
     )
-    return bar_figures(planned, ctx.bars)
+    return bar_plan(planned, ctx.bars)
 
 
 def selectable(ctx: Any) -> bool:
@@ -180,9 +182,10 @@ def selectable(ctx: Any) -> bool:
 
 def render_sentence(ctx: Any) -> SentenceVoices | None:
     """Render the AABA for an eligible movement, or return None to fall back."""
-    figures = _plan(ctx)
-    if figures is None:
+    plan = _plan(ctx)
+    if plan is None:
         return None
+    figures, slot_contours = plan
 
     lead: list = []
     support: list = []
@@ -201,4 +204,6 @@ def render_sentence(ctx: Any) -> SentenceVoices | None:
         for bar, figure in figures.items()
         if figure in FIGURE_CONTOURS
     }
-    return SentenceVoices(lead, support, low, figures, contours)
+    return SentenceVoices(
+        lead, support, low, figures, contours, slot_contours=slot_contours
+    )

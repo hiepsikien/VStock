@@ -3455,20 +3455,6 @@ def render_patterned_voices(
         return [], [], [], 2
     _TRACE_OWNED.set([])
     _TRACE_SUPPRESS.set(set())
-    # Feature-gated *La Catedral* period. Off by default, so this branch is not
-    # taken and the existing Barrios path below stays byte-identical. On, it
-    # replaces the movement only when a 12-bar 4/4 plan covers every bar; every
-    # other case falls through to the same path.
-    if ctx.ensemble == "barrios":
-        from app.sonify.guitar_barrios_period import (
-            barrios_period_enabled,
-            render_period,
-        )
-
-        if barrios_period_enabled():
-            period = render_period(ctx)
-            if period is not None:
-                return period
     from app.sonify.micro_velocity_writer import (
         apply_etude1,
         apply_etude11,
@@ -3841,6 +3827,15 @@ def _gated_sentence(ctx: _Ctx):
     Each module answers only a whole movement it can cover. The result is raw
     bar voices plus the figure plan, never a finished render.
     """
+    if ctx.ensemble == "barrios":
+        from app.sonify.guitar_barrios_period import (
+            barrios_period_enabled,
+            render_sentence as render_barrios_period,
+        )
+
+        if barrios_period_enabled():
+            return render_barrios_period(ctx)
+        return None
     if ctx.ensemble == "villa":
         from app.sonify.production_flags import (
             suite_mazurka_enabled,
@@ -3899,6 +3894,7 @@ def _render_sentence_tail(
         micro_velocity_writers=micro_velocity_writers,
         micro_velocity_token=micro_velocity_token,
         original_melody=list(ctx.melody),
+        preludio_bass=not sentence.owns_preludio_bass,
     )
 
 
@@ -3915,11 +3911,15 @@ def _finish_voices(
     original_melody: list[int] | None = None,
     lowered_eighths: set[int] | None = None,
     figure_at: dict | None = None,
+    preludio_bass: bool = True,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     """The shared post-wave tail: bells, transitions, scale, wave, pinned, fill.
 
     The historical bar loop and the feature-gated sentences both end here, so a
-    gated movement cannot drift from production shaping.
+    gated movement cannot drift from production shaping. ``preludio_bass`` is
+    False for a sentence whose per-bar writer already emitted the ringing
+    Preludio pedal (the Barrios period); every other caller keeps the historical
+    movement-wide append.
     """
     musical_bars = ctx.bars
     epb = ctx.epb
@@ -3932,7 +3932,8 @@ def _finish_voices(
     lowered_eighths = set() if lowered_eighths is None else lowered_eighths
     figure_at = {} if figure_at is None else figure_at
     # Preludio bass rings for two bars, counted from each contiguous region.
-    low.extend(_preludio_bass(ctx, patterns))
+    if preludio_bass:
+        low.extend(_preludio_bass(ctx, patterns))
     ringing = {
         bar
         for bar in range(musical_bars)

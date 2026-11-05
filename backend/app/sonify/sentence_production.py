@@ -15,9 +15,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.sonify.model import NoteEvent
+
+if TYPE_CHECKING:
+    from app.sonify.sentence_specs import PlannedSlot
+    from app.studio.micro_velocity import MicroVelocity
 
 # A planned span as `plan_sentence` returns it: `(figure, bar indexes)`.
 PlannedSpans = Iterable[tuple[int, tuple[int, ...]]]
@@ -33,6 +37,15 @@ class SentenceVoices:
     id; `contours` is bar -> extracted contour id for the figures that own one
     (today the two Villa étude figures). An empty `contours` map is the zero-diff
     path.
+
+    `slot_contours` is origin bar -> the authored contour of the plan slot that
+    starts there. `texture_contour` is the optional pattern-level contour. Both
+    are applied after the figure defaults and before the volume wave; both are
+    empty/None on the byte-identical path.
+
+    `owns_preludio_bass` tells the shared tail that the sentence's bar writers
+    already emitted the ringing Preludio pedal, so the historical movement-wide
+    append must be skipped. The Barrios period is the only such owner today.
     """
 
     lead: list[NoteEvent]
@@ -40,6 +53,9 @@ class SentenceVoices:
     low: list[NoteEvent]
     figures: dict[int, int]
     contours: dict[int, str] = field(default_factory=dict)
+    slot_contours: dict[int, MicroVelocity] = field(default_factory=dict)
+    texture_contour: MicroVelocity | None = None
+    owns_preludio_bass: bool = False
 
 
 def bar_figures(planned: PlannedSpans | None, bars: int) -> dict[int, int] | None:
@@ -60,17 +76,50 @@ def bar_figures(planned: PlannedSpans | None, bars: int) -> dict[int, int] | Non
     return found
 
 
+def bar_plan(
+    planned: Sequence[PlannedSlot] | None, bars: int
+) -> tuple[dict[int, int], dict[int, MicroVelocity]] | None:
+    """Figures per bar plus authored slot contours, or `None` to fall back.
+
+    This is the `plan_slots` counterpart to :func:`bar_figures`. The coverage
+    rule is identical: only a plan that covers every bar is usable. Slot
+    contours are keyed by their occurrence origin, so a repeated tile keeps one
+    entry per repetition and each one stays slot-relative. A slot with no
+    contour, or a canonical empty one, contributes nothing and keeps the
+    byte-identical path.
+    """
+    if not planned:
+        return None
+    from app.studio.micro_velocity import is_empty
+
+    figures: dict[int, int] = {}
+    contours: dict[int, MicroVelocity] = {}
+    for slot in planned:
+        if slot.figure is None:
+            continue
+        for bar in slot.bars:
+            if 0 <= bar < bars:
+                figures[bar] = slot.figure
+        if not is_empty(slot.micro_velocity):
+            contours[slot.slot_start] = slot.micro_velocity
+    if sorted(figures) != list(range(bars)):
+        return None
+    return figures, contours
+
+
 def shape_voices(
     ctx: Any,
     lead: list[NoteEvent],
     support: list[NoteEvent],
     low: list[NoteEvent],
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
-    """Resolve and fill the three voices, matching `render_patterned_voices`.
+    """Resolve and fill the three voices without the post-wave tail.
 
-    This is the same tail the Barrios period uses. The bar writers already own
-    pitch and velocity; this pass only resolves overlaps, stamps voices, fills
-    rests, and picks the engraving division.
+    The bar writers already own pitch and velocity; this pass only resolves
+    overlaps, stamps voices, fills rests, and picks the engraving division.
+    Production and the Barrios period use `guitar_patterns._finish_voices`,
+    which runs this pass and then the wave, dynamics, transitions, and pinned
+    checks.
     """
     from app.sonify.guitar_patterns import (
         _ScaleLead,
@@ -135,21 +184,64 @@ def _replace_bar(
     return result
 
 
+def _apply_contour(
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    contour: MicroVelocity | None,
+    *,
+    origin_bar: int,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Apply one authored relative contour to all three voices.
+
+    Pinned entries are never applied here. The occurrence is recorded instead,
+    so `check_occurrences` can verify the absolute writers after the wave. An
+    absent or canonical empty contour returns the same lists.
+    """
+    from app.sonify.micro_velocity_writer import record_occurrence
+    from app.studio.micro_velocity import apply_relative_offsets, is_empty
+
+    if is_empty(contour):
+        return lead, support, low
+    record_occurrence(contour, origin_bar)
+    assert contour is not None
+    return (
+        apply_relative_offsets(lead, contour, origin_bar=origin_bar),
+        apply_relative_offsets(support, contour, origin_bar=origin_bar),
+        apply_relative_offsets(low, contour, origin_bar=origin_bar),
+    )
+
+
 def apply_default_contours(
     ctx: Any,
     voices: SentenceVoices,
     *,
     enabled: bool,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Apply extracted figure contours before the volume wave.
+    """Apply figure defaults, then slot, then texture contours, before the wave.
 
-    This mirrors the historical per-bar branches: Étude No. 1 and Étude No. 11
-    rewrite the middle voice on the 4/4 grid. Other figures either have no
-    extracted contour or are not used by the current gated plans. `enabled` is
-    the `VSTOCK_MICRO_VELOCITY_WRITERS` gate, so the flag off path returns the
-    untouched voices.
+    Order is deliberate and matches the authored layer contract:
+
+    1. the extracted figure contour (``voices.contours``), which is the shape
+       the owner's writer already had;
+    2. the authored slot override (``voices.slot_contours``), relative to that
+       slot occurrence's origin;
+    3. the pattern/texture override (``voices.texture_contour``), relative to
+       the movement.
+
+    This mirrors the historical per-bar branches for Étude No. 1 and Étude No.
+    11, which rewrite the middle voice on the 4/4 grid. `enabled` is the
+    `VSTOCK_MICRO_VELOCITY_WRITERS` gate, so the flag off path returns the
+    untouched voices. Every applied contour is recorded for the post-wave pinned
+    check; a canonical empty contour records nothing and changes no event.
     """
-    if not enabled or not voices.contours:
+    if not enabled:
+        return voices.lead, voices.support, voices.low
+    if (
+        not voices.contours
+        and not voices.slot_contours
+        and voices.texture_contour is None
+    ):
         return voices.lead, voices.support, voices.low
 
     from app.sonify.guitar_patterns import _etude11_hairpin_at
@@ -179,6 +271,14 @@ def apply_default_contours(
                     band_at=lambda event: ctx.band(event.bar),
                 ),
             )
+    for origin_bar, contour in sorted(voices.slot_contours.items()):
+        lead, support, low = _apply_contour(
+            lead, support, low, contour, origin_bar=origin_bar
+        )
+    if voices.texture_contour is not None:
+        lead, support, low = _apply_contour(
+            lead, support, low, voices.texture_contour, origin_bar=0
+        )
     return lead, support, low
 
 
