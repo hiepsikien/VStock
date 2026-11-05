@@ -6,6 +6,7 @@ The preview must go through the real renderers and leave the global
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 
@@ -27,6 +28,7 @@ from app.sonify.guitar_torroba import (
 from app.sonify.sentence_specs import plan_sentence
 from app.studio import preview
 from app.studio.export import SPECS_DIR
+from app.studio.micro_velocity import MicroVelocity, VelocityOffset
 from app.studio.preview import preview_spec, validate_spec
 from app.studio.sentence_spec import spec_to_mapping
 
@@ -39,6 +41,18 @@ def _assert_restored(snapshot: dict) -> None:
     assert specs.SENTENCE_SPECS == snapshot
     # The object identity must survive too: other modules hold the same dict.
     assert specs.SENTENCE_SPECS is not snapshot
+
+
+def _contoured(
+    entries: tuple[VelocityOffset, ...],
+    *,
+    base: object = CASTILLO_34_WALK,
+) -> object:
+    contour = MicroVelocity(notes=entries)
+    return replace(
+        base,
+        slots=(replace(base.slots[0], micro_velocity=contour),),
+    )
 
 
 def test_validate_accepts_real_torroba_specs() -> None:
@@ -135,6 +149,69 @@ def test_preview_is_deterministic() -> None:
     assert first.render_hash == second.render_hash
     assert first.notes == second.notes
     assert first.matrix == second.matrix
+
+
+def test_render_hash_without_a_contour_matches_the_legacy_payload() -> None:
+    """The optional contour key must not move a no-contour hash (zero diff)."""
+    result = preview_spec(CASTILLO_34_WALK, {"bars": 2})
+    assert result.ok and result.render_hash is not None
+    assert result.micro_velocity == ()
+
+    payload = {"plan": result.plan, "row": result.row, "notes": result.notes}
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    legacy = "sha256:" + hashlib.sha256(encoded.encode("ascii")).hexdigest()
+
+    assert result.render_hash == legacy
+    assert result.render_hash == (
+        "sha256:a896a0d2236813e4df95b37b3c391964a1825f7751b6d726153b46f8ea717b29"
+    )
+
+
+def test_a_contour_changes_the_render_hash_but_not_the_notes() -> None:
+    plain = preview_spec(CASTILLO_34_WALK)
+    soft = preview_spec(_contoured((VelocityOffset(bar=0, beat=0.0, voice=1, offset=-6),)))
+    loud = preview_spec(_contoured((VelocityOffset(bar=0, beat=0.0, voice=1, offset=6),)))
+
+    assert plain.ok and soft.ok and loud.ok
+    assert soft.notes == plain.notes == loud.notes
+    assert soft.render_hash != plain.render_hash
+    assert loud.render_hash != plain.render_hash
+    assert soft.render_hash != loud.render_hash
+    assert soft.micro_velocity != loud.micro_velocity
+    assert all(
+        row["renderHash"] in {None, soft.render_hash} for row in soft.matrix
+    )
+
+
+def test_render_hash_ignores_contour_entry_order() -> None:
+    first = preview_spec(
+        _contoured(
+            (
+                VelocityOffset(bar=0, beat=0.5, voice=1, offset=2),
+                VelocityOffset(bar=0, beat=0.0, voice=1, offset=-2),
+            )
+        )
+    )
+    second = preview_spec(
+        _contoured(
+            (
+                VelocityOffset(bar=0, beat=0.0, voice=1, offset=-2),
+                VelocityOffset(bar=0, beat=0.5, voice=1, offset=2),
+            )
+        )
+    )
+
+    assert first.ok and second.ok
+    assert first.notes == second.notes
+    assert first.micro_velocity == second.micro_velocity
+    assert first.render_hash == second.render_hash
+    # The preview publishes the canonical coordinate order.
+    assert [
+        (entry["bar"], entry["beat"], entry["voice"])
+        for entry in first.micro_velocity[0]["contour"]["notes"]
+    ] == [(0, 0.0, 1), (0, 0.5, 1)]
 
 
 def test_preview_does_not_leak_the_authoring_spec() -> None:

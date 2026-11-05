@@ -25,6 +25,7 @@ from app.studio.micro_velocity import (
     MicroVelocitySpecError,
     VelocityOffset,
     apply_relative_offsets,
+    canonical_micro_velocity_mapping,
     check_pinned_attacks,
     is_empty,
     micro_velocity_to_mapping,
@@ -81,6 +82,65 @@ def test_offsets_json_round_trip():
     assert parsed.thumb[0].voice == 3
     assert micro_velocity_to_mapping(parsed) == payload
     assert parse_micro_velocity(micro_velocity_to_mapping(parsed)) == parsed
+
+
+def test_canonical_mapping_sorts_entries_without_changing_their_spelling():
+    authored = _contour(
+        notes=[
+            _entry(bar=1, beat=0.0, voice=1, offset=-2),
+            _entry(bar=0, beat=0.5, voice=2, finger="i", offset=3),
+            _entry(bar=0, beat=0.0, voice=1, finger="a", offset=-6),
+            _entry(bar=0, beat=0.0, voice=1, offset=-1),
+        ],
+        thumb=[_entry(bar=2, beat=0.0, voice=3, finger="p", offset=-4)],
+    )
+    parsed = parse_micro_velocity(authored)
+
+    canonical = canonical_micro_velocity_mapping(parsed)
+
+    # Slot order is (bar, beat, voice, finger): a finger-agnostic entry sorts
+    # before a finger-specific one at the same coordinate, then by finger.
+    assert [
+        (entry["bar"], entry["beat"], entry["voice"], entry.get("finger"))
+        for entry in canonical["notes"]
+    ] == [
+        (0, 0.0, 1, None),
+        (0, 0.0, 1, "a"),
+        (0, 0.5, 2, "i"),
+        (1, 0.0, 1, None),
+    ]
+    assert canonical["thumb"] == authored["thumb"]
+    # Canonical sorting changes list order only, never an entry's fields.
+    assert sorted(
+        canonical["notes"], key=lambda entry: json.dumps(entry, sort_keys=True)
+    ) == sorted(
+        authored["notes"], key=lambda entry: json.dumps(entry, sort_keys=True)
+    )
+    assert canonical_micro_velocity_mapping(parsed) == canonical
+
+
+def test_canonical_mapping_is_independent_of_authored_order():
+    first = parse_micro_velocity(
+        _contour(
+            notes=[
+                _entry(bar=0, beat=0.5, voice=1, offset=2),
+                _entry(bar=0, beat=0.0, voice=1, offset=-2),
+            ]
+        )
+    )
+    second = parse_micro_velocity(
+        _contour(
+            notes=[
+                _entry(bar=0, beat=0.0, voice=1, offset=-2),
+                _entry(bar=0, beat=0.5, voice=1, offset=2),
+            ]
+        )
+    )
+
+    assert canonical_micro_velocity_mapping(first) == canonical_micro_velocity_mapping(
+        second
+    )
+    assert micro_velocity_to_mapping(first) != micro_velocity_to_mapping(second)
 
 
 def test_rule_json_round_trip():

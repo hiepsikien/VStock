@@ -48,6 +48,7 @@ __all__ = [
     "MicroVelocitySpecError",
     "VelocityOffset",
     "apply_relative_offsets",
+    "canonical_micro_velocity_mapping",
     "check_pinned_attacks",
     "is_empty",
     "micro_velocity_to_mapping",
@@ -528,6 +529,35 @@ def micro_velocity_to_mapping(value: MicroVelocity) -> dict[str, Any]:
     return mapping
 
 
+def canonical_micro_velocity_mapping(value: MicroVelocity) -> dict[str, Any]:
+    """Return the canonical mapping with entries in coordinate order.
+
+    :func:`micro_velocity_to_mapping` preserves the authored ``notes``/``thumb``
+    order so a file round-trips unchanged. Identity (a Studio render hash or
+    audio cache key) must not depend on that order, so this variant sorts both
+    lanes by ``(bar, beat, voice, finger)``. The spelling is otherwise the same,
+    which keeps a single-entry contour byte-identical.
+    """
+    mapping = micro_velocity_to_mapping(value)
+    for lane in ("notes", "thumb"):
+        mapping[lane] = sorted(mapping[lane], key=_canonical_entry_key)
+    return mapping
+
+
+def _canonical_entry_key(entry: Mapping[str, Any]) -> tuple[Any, ...]:
+    finger = entry.get("finger")
+    return (
+        _sort_int(entry.get("bar")),
+        _sort_float(entry.get("beat")),
+        _sort_int(entry.get("voice")),
+        finger is not None,
+        finger if isinstance(finger, str) else "",
+        bool(entry.get("pinned", False)),
+        _sort_int(entry.get("offset")),
+        _sort_int(entry.get("velocity")),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Apply (relative) and check (pinned absolute)
 # ---------------------------------------------------------------------------
@@ -713,6 +743,16 @@ def _is_number(value: Any) -> bool:
         and not isinstance(value, bool)
         and math.isfinite(float(value))
     )
+
+
+def _sort_int(value: Any, default: int = 0) -> int:
+    """A comparable integer for canonical ordering, never raising."""
+    return value if _is_int(value) else default
+
+
+def _sort_float(value: Any, default: float = 0.0) -> float:
+    """A comparable finite float for canonical ordering, never raising."""
+    return float(value) if _is_number(value) else default
 
 
 def _mapping(value: Any, path: str) -> dict[str, Any]:
