@@ -20,7 +20,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Loader | `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True` |
 | Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}`; dispatch theo pattern (Torroba/Sor, Villa, Barrios, Brouwer) |
 | Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix; cùng một response shape cho mọi family |
-| Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 5 candidate) để UI không copy JSON tay |
+| Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 8 candidate = 46) để UI không copy JSON tay |
 | Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |
 | Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
@@ -49,10 +49,10 @@ Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycl
 | Audio | Synth code-only 22.05 kHz, 96 BPM, cache theo `renderHash` | §8.2 MuseScore + global queue — **chưa** |
 | Publish | SQLite version bất biến + rollback `rollbackOf`; compiler trả bundle JSON | §11 PR automation + `preview.wav` — **chưa** |
 | UI | Studio pill, editor, validate/preview/audio/publish/rollback, examples, upload/crop ảnh web, Gemini draft + notes table, TextureSpec draft/validate | §10 native picker/crop, apply SentenceSpec — **chưa** |
-| Candidates | Villa/Barrios/Brouwer preview; Barrios flag off; Bach exposition preview | §3.2 Suite 5 movement + §13 Phase 2 — **chưa** |
-| Matrix/codegen/registry | Sentence + pattern + render matrix; registry codegen + `PATTERN_NAMES` derived; `texture_registry.py` chưa | §7.2 — **một phần** |
+| Candidates | Villa/Barrios/Brouwer + 5 Suite movement; production gate default off; Bach exposition preview | §3.2 Suite palette — **đã có gated** |
+| Matrix/codegen/registry | Sentence + pattern + render matrix; registry codegen + `PATTERN_NAMES` derived; `texture_registry.py` loader + 2 proof spec | §7.2 — **một phần** |
 | Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token, spec `owner_id`/`visibility` + scoped publish/list/get/rollback/export | preview queue — **một phần** |
-| Runtime | Code-backed; không interpreter | §1.1 Phase 2/3 — **chưa** |
+| Runtime | Code-backed; interpreter proof 2 bar `chord_melody` sau flag default off | §1.1 Phase 2/3 — **một phần** |
 
 Đọc thân bài: mọi câu “Đề xuất/Phase/Gate” là **kế hoạch**, không phải mô tả code hiện tại. Chỉ §0, §13.1–13.5 (sentence) và §13.6 (Barrios flag) phản ánh code hôm nay.
 
@@ -589,7 +589,7 @@ Nếu `unsupported: true`, phải có `reason`; selection matrix không được
 
 #### Test
 
-> **Trạng thái code:** đã có cả ba matrix: `sentence_selection_matrix.json` (2.016 dòng), `pattern_selection_matrix.json` (44 row = 38 `PROFILES` + `pedal`), `render_matrix.json` (41 row), với test drift. `pattern_selection_matrix` dùng real chooser (`_select_body` 33 row, `_patterns` 6 row); `(torroba, sonatina)` là `expected_empty` duy nhất vì không có rule chọn production. Không dùng `conftest.py`; fixture là module trực tiếp.
+> **Trạng thái code:** đã có cả ba matrix: `sentence_selection_matrix.json` (2.016 dòng), `pattern_selection_matrix.json` (44 row = 38 `_select_body` + 6 `_patterns`), `render_matrix.json` (46 row), với test drift. `pattern_selection_matrix` có **6 `expected_empty`** có reason: `(torroba, sonatina)` không có rule chọn, và 5 Suite movement vì flag default off. Không dùng `conftest.py`; fixture là module trực tiếp.
 
 - `backend/tests/test_texture_selection_matrix.py`
 - `backend/tests/test_texture_render_matrix.py`
@@ -1800,7 +1800,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - `VSTOCK_VILLA_PRODUCTION`, `VSTOCK_BROUWER_PRODUCTION`, `VSTOCK_SUITE_MAZURKA`, `VSTOCK_SUITE_VALSA`, `VSTOCK_SUITE_GAVOTTA`, `VSTOCK_SUITE_SCHOTTISH`, `VSTOCK_SUITE_CHOROS1` — default **off**, context-manager override.
 - Cả 5 Suite movement (Mazurka/Valsa/Gavotta/Schottish/Choros1) đã register metadata/title/profile/door; selection + render chỉ khi flag on. Schottish là 4/4 stand-in cho 2/4; Choros No.1 provisional 4/4; Gavotta bar-0 caveat.
 - Villa/Brouwer dùng candidate ABA hiện có; Barrios giữ flag riêng.
-- Gated Suite/Villa/Brouwer giờ trả **raw bar voices + plan** cho shared tail: scale/bells/transitions/wave/hairpin/fans/pinned/divisions; default figure contours chạy trước wave khi writer flag on. Flag off byte-identical. Barrios period vẫn giữ early-return riêng.
+- Gated Suite/Villa/Brouwer **và Barrios period** trả raw bar voices + plan cho shared tail: scale/bells/transitions/wave/hairpin/fans/pinned/divisions; Barrios khác ở `owns_preludio_bass=True` để không lặp pedal. Flag off byte-identical.
 - Slot override đã wire qua `plan_slots` → `SentenceVoices.slot_contours`; texture override có seam `texture_contour` nhưng chưa có runtime consumer. Cathedral default contour vẫn chưa wire vào writer.
 
 ### 13.11. Quy trình `v2` (chốt 2026-11)
@@ -1849,7 +1849,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 28. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp **trừ attack `pinned`** do absolute writer (snap/stab/fan/trim); Studio click figure → velocity lane và cho sửa.
 29. **Extraction zero-diff:** Tremolo 4/4–3/4, Galop 1/2, Etude1, Etude11, **Cathedral Preludio** phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”. Cathedral dùng rule context `canto_at`/`raw_at`/`beats_per_bar`, không lưu offset bịa.
-30. **Writer zero-diff:** `VSTOCK_MICRO_VELOCITY_WRITERS` default off; off byte-identical. On: Tremolo 4/4–3/4, Etude1, Etude11, Galop1/2 apply extracted contours before the wave and pinned checks after the last absolute writer; every NoteEvent/golden digest identical. Cathedral writer path and slot/texture overrides remain open.
+30. **Writer zero-diff:** `VSTOCK_MICRO_VELOCITY_WRITERS` default off; off byte-identical. On: figure defaults + slot override apply before the wave and pinned checks after the last absolute writer; every NoteEvent/golden digest identical. Cathedral writer path and texture override runtime consumer remain open.
 
 ---
 
