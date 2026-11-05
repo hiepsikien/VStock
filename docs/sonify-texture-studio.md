@@ -988,7 +988,7 @@ Quy tắc:
 
 ### 6.9. Micro-velocity contour (optional, authored)
 
-> **Trạng thái code:** **chưa implement**. `sentence_spec.py`/`texture_spec.py` chưa parse `microVelocity`/`velocityOffset`; schema dưới đây là đích Phase 2/Sprint 9. Hiện chỉ có offset hardcode trong renderer.
+> **Trạng thái code:** **một phần**. Studio đã có pure lane model + `VelocityLane` panel (`src/studio/velocity.ts`, `VelocityLane.tsx`), realized-velocity read-only khi chưa có contour, local edit/view-only toggle. Backend `microVelocity`/`velocityOffset` parsing/API **chưa implement**; schema dưới đây vẫn là đích Sprint 9B. Hiện chỉ có offset hardcode trong renderer.
 
 Mỗi figure/pattern/sentence có thể mang **offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối. Không khai báo = offset 0 cho mọi nốt, kể cả thumb. Offset 0 phải cho **NoteEvent byte-identical** với code hiện tại.
 
@@ -1080,7 +1080,7 @@ figure writer (level gốc)
 - Click figure/slot → **velocity lane**: x = bar/eighth/note, y = offset; nhóm voice 1–4; thumb lane riêng.
 - Empty = 0; pinned attack hiện nhãn layer (snap/stab/fan/trim) và velocity tuyệt đối, không cho kéo offset.
 - Toggle “authored offsets → sau wave/humanize” **chỉ để xem**, không đổi dữ liệu lưu và không tạo hai render mode.
-- Sửa offset lưu vào figure/slot; không sửa velocity tuyệt đối của note thường.
+- Sửa offset lưu vào figure/slot; không sửa velocity tuyệt đối của note thường. Preview notes cần `finger` (hoặc note-level `velocityOffset`) để match contour theo ngón; chưa có thì chỉ match entry không finger.
 
 #### Nguồn để bóc tách (hardcode hiện tại, chưa phải contour data)
 
