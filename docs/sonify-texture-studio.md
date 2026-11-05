@@ -1670,6 +1670,17 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ---
 
+### 13.11. Quy trình `v2` (chốt 2026-11)
+
+- `v2` là **nhánh tích hợp + chạy thật**, không phải nhánh chờ merge.
+- Feature branch merge **local vào `v2`** sau review + full test; không mở PR `main`.
+- Phase 1 xong **không** merge `main`; đánh dấu bằng tag `v2-studio-phase1` (và các tag phase sau).
+- Chạy `v2` thật một thời gian, thu feedback, sửa lỗi trực tiếp trên `v2`.
+- Chỉ mở **một** PR `main ← v2` khi người phụ trách xác nhận `v2` ổn định; PR #163 đã đóng để tránh merge nhầm.
+- Tiêu chí ổn định tối thiểu: full backend + frontend tests xanh, không lỗi P0/P1 trong thời gian chạy thật, không regression ngoài Studio.
+
+---
+
 ## 14. Tiêu chí nghiệm thu
 
 > Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **meter runtime resolver**, **sentence + pattern + render matrices**, **compiler bundle JSON**, **registry codegen**, **session/quota/upload/Gemini analyze**, **spec owner/visibility** và UI draft. Các mục preview `slice_score`, preview job queue, crop/apply, switch `PATTERN_NAMES`, renderer-profile playability/derived golden, interpreter và Suite vẫn là **mục tiêu**.
