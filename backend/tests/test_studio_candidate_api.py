@@ -214,8 +214,8 @@ def test_preview_rejects_an_unknown_pattern_at_spec_dot_pattern() -> None:
         {
             "path": "spec.pattern",
             "message": (
-                "unknown pattern 'nope'; expected a Torroba/Sor, Villa, or "
-                "Barrios pattern"
+                "unknown pattern 'nope'; expected a Torroba/Sor, Villa, "
+                "Barrios, or Brouwer pattern"
             ),
         }
     ]
@@ -268,14 +268,14 @@ def test_validate_reports_candidate_family_errors() -> None:
 # examples
 
 
-def test_examples_include_torroba_sor_villa_and_barrios() -> None:
+def test_examples_include_torroba_sor_villa_barrios_and_brouwer() -> None:
     client = _client()
     rows = _examples(client)
     patterns = {row["pattern"] for row in rows}
 
     assert set(PILOT_PATTERNS) <= patterns
-    assert {"villa_pattern", "preludio"} <= patterns
-    assert len(rows) == 40
+    assert {"villa_pattern", "preludio", "brouwer_etude"} <= patterns
+    assert len(rows) == 41
     for row in rows:
         assert set(row) == {"pattern", "meter", "id", "payload"}
         assert row["payload"]["pattern"] == row["pattern"]
@@ -305,6 +305,10 @@ def test_examples_can_be_filtered_by_pattern() -> None:
     }
     barrios = client.get(f"{EXAMPLES}/preludio").json()
     assert [row["id"] for row in barrios["examples"]] == ["barrios_cathedral_period"]
+    brouwer = client.get(f"{EXAMPLES}/brouwer_etude").json()
+    assert [row["id"] for row in brouwer["examples"]] == [
+        "brouwer_etude_noviembre_aba"
+    ]
 
     unknown = client.get(f"{EXAMPLES}/nope").json()
     assert unknown["ok"] is False

@@ -20,9 +20,10 @@ export type PatternId =
   | 'danza'
   | 'galop'
   | 'villa_pattern'
-  | 'preludio';
+  | 'preludio'
+  | 'brouwer_etude';
 
-export type Composer = 'Torroba' | 'Sor' | 'Villa' | 'Barrios';
+export type Composer = 'Torroba' | 'Sor' | 'Villa' | 'Barrios' | 'Brouwer';
 
 export type PatternOption = {
   id: PatternId;
@@ -57,6 +58,12 @@ export const PATTERNS: PatternOption[] = [
     id: 'preludio',
     label: 'Barrios cathedral',
     composer: 'Barrios',
+    meters: ['4/4'],
+  },
+  {
+    id: 'brouwer_etude',
+    label: 'Brouwer etude',
+    composer: 'Brouwer',
     meters: ['4/4'],
   },
 ];

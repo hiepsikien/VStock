@@ -104,6 +104,17 @@ def test_a_cache_hit_does_not_synthesize_again(monkeypatch) -> None:
     assert len(list(studio_audio.audio_root().glob("*.wav"))) == 1
 
 
+def test_candidate_audio_uses_the_dispatched_preview() -> None:
+    from app.studio.candidates import villa_candidate_spec
+
+    result = studio_audio.preview_audio(
+        villa_candidate_spec(), {"length": 6, "n": 0}
+    )
+    assert result.ok, result.errors
+    assert result.asset is not None
+    assert result.render_hash is not None
+
+
 def test_audio_rejects_when_synthesis_slots_are_full(monkeypatch) -> None:
     import threading
 

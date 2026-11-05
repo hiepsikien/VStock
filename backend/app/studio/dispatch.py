@@ -14,6 +14,9 @@ family            patterns               module
 `barrios`         the Barrios figure     `app.studio.barrios_preview`
                   patterns (the pilot
                   is `preludio`)
+`brouwer`         the Brouwer figure     `app.studio.brouwer_preview`
+                  patterns (the pilot
+                  is `brouwer_etude`)
 ================  =====================  ==================================
 
 The candidate modules already return `preview.PreviewResult`, so the API keeps
@@ -32,19 +35,22 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from app.sonify.guitar_barrios_figures import BARRIOS_PATTERNS
+from app.sonify.guitar_brouwer_figures import BROUWER_PATTERNS
 from app.sonify.sentence_specs import SentenceSpec
-from app.studio import barrios_preview, preview, villa_preview
+from app.studio import barrios_preview, brouwer_preview, preview, villa_preview
 from app.studio.export import PILOT_PATTERNS
 
 TORROBA_SOR = "torroba_sor"
 VILLA = "villa"
 BARRIOS = "barrios"
+BROUWER = "brouwer"
 
 # `PILOT_PATTERNS` is exactly the registered Torroba/Sor set today; it is the
 # public order-stable list that the exporter already owns.
 _TORROBA_SOR_PATTERNS = frozenset(PILOT_PATTERNS)
 _VILLA_PATTERNS = villa_preview.VILLA_PATTERNS
 _BARRIOS_PATTERNS = frozenset(BARRIOS_PATTERNS)
+_BROUWER_PATTERNS = frozenset(BROUWER_PATTERNS)
 
 
 def family_for(pattern: object) -> str | None:
@@ -57,14 +63,16 @@ def family_for(pattern: object) -> str | None:
         return VILLA
     if pattern in _BARRIOS_PATTERNS:
         return BARRIOS
+    if pattern in _BROUWER_PATTERNS:
+        return BROUWER
     return None
 
 
 def _unknown(pattern: object) -> preview.Error:
     return preview.Error(
         "spec.pattern",
-        f"unknown pattern {pattern!r}; expected a Torroba/Sor, Villa, or "
-        "Barrios pattern",
+        f"unknown pattern {pattern!r}; expected a Torroba/Sor, Villa, "
+        "Barrios, or Brouwer pattern",
     )
 
 
@@ -77,7 +85,9 @@ def validate(spec: SentenceSpec) -> list[preview.Error]:
         return preview.validate_spec(spec)
     if family == VILLA:
         return villa_preview.validate_villa_spec(spec)
-    return barrios_preview.validate_barrios_period(spec)
+    if family == BARRIOS:
+        return barrios_preview.validate_barrios_period(spec)
+    return brouwer_preview.validate_brouwer_spec(spec)
 
 
 def _normalize(result: Any) -> preview.PreviewResult:
@@ -111,6 +121,8 @@ def preview_sentence(
         result = preview.preview_spec(spec, fixture)
     elif family == VILLA:
         result = villa_preview.preview_villa_sentence(spec, fixture)
-    else:
+    elif family == BARRIOS:
         result = barrios_preview.preview_barrios_period(spec, fixture)
+    else:
+        result = brouwer_preview.preview_brouwer_sentence(spec, fixture)
     return _normalize(result)

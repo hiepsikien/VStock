@@ -17,19 +17,20 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | JSON | `backend/app/studio/specs/*.json` — 7 file / 38 spec, wrapper `{schema_version, runtime: "code", specs}` |
 | Export | `python3 -m app.studio.export` và `--check` (stale detector) |
 | Loader | `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True` |
-| Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}` |
-| Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix |
+| Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}`; dispatch theo pattern (Torroba/Sor, Villa, Barrios, Brouwer) |
+| Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix; cùng một response shape cho mọi family |
+| Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 3 candidate) để UI không copy JSON tay |
 | Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; preview báo “not implemented”, chưa render |
-| Candidates | **Villa** `villa_arpeggio_aba` (3 ô A-B-A) và **Barrios** `barrios_cathedral_period` (12 ô preludio→tremolo→preludio); preview-only, không register, **chưa có endpoint/UI** (module + test) |
-| UI | Studio room: JSON editor, Validate, Preview; nút audio để sprint sau |
+| Candidates | **Villa** `villa_arpeggio_aba`, **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, không register, đi qua endpoint chung |
+| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list; examples load từ API |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
 | Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** nút audio trên UI, wire Villa/Barrios candidate vào production plan/endpoint, Brouwer, Bach exposition, Phase 2 interpreter.
+**Chưa làm:** wire candidate vào production plan, Bach exposition, Phase 2 interpreter, publish/audio cho mọi family ngoài preview (nếu cần chính sách riêng).
 
 ---
 

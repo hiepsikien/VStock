@@ -92,10 +92,12 @@ deepEqual(
     'galop',
     'villa_pattern',
     'preludio',
+    'brouwer_etude',
   ],
 );
 equal(PATTERNS.filter((item) => item.composer === 'Torroba').length, 4);
 equal(PATTERNS.filter((item) => item.composer === 'Sor').length, 1);
+equal(PATTERNS.filter((item) => item.composer === 'Brouwer').length, 1);
 equal(PATTERNS.filter((item) => item.composer === 'Villa').length, 1);
 equal(PATTERNS.filter((item) => item.composer === 'Barrios').length, 1);
 equal(patternIds(SAMPLES).length, 5);

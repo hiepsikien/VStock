@@ -76,6 +76,14 @@ def test_publish_persists_and_round_trips(client: TestClient) -> None:
     assert CASTILLO_34_WALK in specs.SENTENCE_SPECS[("castillo", "3/4")]
 
 
+def test_publish_accepts_a_candidate_spec(client: TestClient) -> None:
+    from app.studio.candidates import villa_candidate_spec
+
+    data = _publish(client, spec_to_mapping(villa_candidate_spec()))
+    assert data["ok"] is True
+    assert data["pattern"] == "villa_pattern"
+
+
 def test_versions_increment_per_pattern_and_meter(client: TestClient) -> None:
     body = spec_to_mapping(CASTILLO_34_WALK)
     assert _publish(client, body)["version"] == 1

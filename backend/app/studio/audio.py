@@ -409,9 +409,9 @@ def preview_audio(
     spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
 ) -> AudioResult:
     """Validate/render a preview and return its cached short WAV."""
-    from app.studio import preview
+    from app.studio import dispatch
 
-    result = preview.preview_spec(spec, fixture)
+    result = dispatch.preview_sentence(spec, fixture)
     if not result.ok or result.render_hash is None:
         return AudioResult(
             ok=False,
