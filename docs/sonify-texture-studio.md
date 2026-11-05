@@ -1085,7 +1085,7 @@ figure writer (level gốc)
 
 #### UI
 
-- Click figure/slot → **velocity lane**: x = bar/beat/note, y = offset; nhóm voice 1–4; thumb lane riêng. Khi preview trả nhiều slot, có slot selector; **Save to spec** ghi vào `slots[slot].microVelocity`, empty thì bỏ field, pinned/rule được khoá; preview chưa trả slot bar origin nên `slot.start > 0` cần origin trước khi map đúng.
+- Click figure/slot → **velocity lane**: x = bar/beat/note, y = offset; nhóm voice 1–4; thumb lane riêng. Khi preview trả nhiều slot, có slot selector; **Save to spec** ghi vào `slots[slot].microVelocity`, empty thì bỏ field, pinned/rule được khoá; preview trả `start`/`bars` (anchor-resolved); lane dùng origin cho preview bars, Save vẫn slot-relative. Tile/period chưa trả nên bar sau slot không lặp vẫn có thể wrap — còn gap.
 - Empty = 0; pinned attack hiện nhãn layer (snap/stab/fan/trim) và velocity tuyệt đối, không cho kéo offset.
 - Toggle “authored offsets → sau wave/humanize” **chỉ để xem**, không đổi dữ liệu lưu và không tạo hai render mode.
 - Sửa offset lưu vào figure/slot; không sửa velocity tuyệt đối của note thường. Preview notes cần `finger` (hoặc note-level `velocityOffset`) để match contour theo ngón; chưa có thì chỉ match entry không finger.
