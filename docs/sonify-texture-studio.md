@@ -20,16 +20,16 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Loader | `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True` |
 | Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}`; dispatch theo pattern (Torroba/Sor, Villa, Barrios, Brouwer) |
 | Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix; cùng một response shape cho mọi family |
-| Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 4 candidate) để UI không copy JSON tay |
+| Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 5 candidate) để UI không copy JSON tay |
 | Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |
 | Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
-| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** `suite_mazurka_arpeggio_aaba` (3/4), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
+| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** `suite_mazurka_arpeggio_aaba` (3/4), `suite_valsa_arpeggio_period` (3/4), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + crop web + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (native picker chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
-| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (39 row) + `render_matrix.json` (42 row); pattern-level matrix có 1 `expected_empty` có lý do |
+| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (39 row) + `render_matrix.json` (43 row); pattern-level matrix có 1 `expected_empty` có lý do |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
 | Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
 
@@ -263,7 +263,7 @@ Năm movement, nhưng trong engine chúng là **pattern thuộc palette Villa**,
 | Gavotta-Choro | `METER_44` — pickup/bar 0 **chưa chắc** | `suite_gavotta` | Gavotta-Choro |
 | Choros No. 1 | `METER_44` tạm — 2/4 vs 4/4 **chưa chốt** | `suite_choros1` | Choros No. 1 |
 
-Audit data-only: `backend/app/studio/villa_suite_audit.py` + `tests/test_villa_suite_audit.py`. Đề xuất movement đầu: **Mazurka-Choro 3/4**; candidate preview `suite_mazurka_arpeggio_aaba` đã có, pattern registration vẫn chưa.
+Audit data-only: `backend/app/studio/villa_suite_audit.py` + `tests/test_villa_suite_audit.py`. Đề xuất movement đầu: **Mazurka-Choro 3/4**; candidate preview `suite_mazurka_arpeggio_aaba` và `suite_valsa_arpeggio_period` đã có; pattern registration chỉ mới cho Mazurka.
 
 Quy tắc tên:
 
