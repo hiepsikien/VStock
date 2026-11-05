@@ -681,7 +681,7 @@ Chi tiết schema/validator/inventory: [`sonify-guitar-model.md`](./sonify-guita
 
 ## 6. Spec model: authored / derived / rendered
 
-> **Trạng thái code:** **schema + validator** đã có trong `app/studio/texture_spec.py` (`MeterSpec`, `PitchRef`, `AuthoredEvent`, `TextureSpec`, per-voice geometry, publish gate). Chưa có compiler/resolver sang `NoteEvent`, `derived`, hay `assert_authored_playable` đầy đủ (render-context checks). Authoring runtime hiện vẫn là `SentenceSpec`.
+> **Trạng thái code:** **schema + validator** đã có trong `app/studio/texture_spec.py`; `app/studio/texture_resolve.py` resolve 5 pitch kind, authored → `NoteEvent`, và check register/voice order/string-fret/written-sounding/hand span (checks thiếu data trả `skipped`/`partial`). Chưa có renderer-profile exceptions, string/fret-vs-pitch, `derived`/golden hash hay compiler đầy đủ. Authoring runtime hiện vẫn là `SentenceSpec`.
 
 ### 6.1. Ba tầng
 
@@ -1621,7 +1621,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
-| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; sentence-level matrix; compiler bundle; registry codegen | pattern-level `_select_body` matrix, render-context `assert_authored_playable`, switch `PATTERN_NAMES`, Phase 3 runtime 12/8 |
+| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence-level matrix; compiler bundle; registry codegen | pattern-level `_select_body` matrix, renderer-profile playability, switch `PATTERN_NAMES`, Phase 3 runtime 12/8 |
 | 1 | Studio room + pill, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON | crop/native picker, apply draft → editor, validation queue, spec owner/visibility, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
