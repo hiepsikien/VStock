@@ -1,0 +1,46 @@
+{
+  "runtime": "code",
+  "schema_version": 1,
+  "specs": [
+    {
+      "id": "brouwer_etude_noviembre_aba",
+      "meter": "4/4",
+      "pattern": "brouwer_etude",
+      "select": {
+        "closes": null,
+        "length_max": null,
+        "length_min": 3,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 2,
+          "start": 1
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 2
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": false,
+        "remainder": "same_figure",
+        "tile": 3,
+        "truncate_to_length": true
+      }
+    }
+  ]
+}
