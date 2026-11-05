@@ -642,7 +642,7 @@ Status theo composer:
 
 - **Flag:** `VSTOCK_BARRIOS_PERIOD`, đọc lúc render; chỉ `1/true/yes/on` bật, mọi giá trị khác (kể cả `rollback`) tắt.
 - **Điều kiện:** movement Barrios đúng **12 bar 4/4**, không có pedal/frame bar, plan phủ đủ 12 bar. Ngoài điều kiện này fallback path cũ, byte-identical.
-- **Registry:** `("preludio", "4/4")` chỉ được register khi flag bật; `valid_figures=BARRIOS_FIGURES`; `use_barrios_period(...)` là context manager cho test/audition và dọn đúng entry nó thêm.
+- **Registry:** `("preludio", "4/4")` chỉ được register khi flag bật; `valid_figures=BARRIOS_FIGURES`; `use_barrios_period(...)` là context manager cho test/audition và dọn đúng entry nó thêm. Audition bằng env (`VSTOCK_BARRIOS_PERIOD=on`) giữ entry lại đến hết process; gọi `unregister()` nếu muốn dọn thủ công. Tắt flag vẫn fallback path cũ vì check flag đứng trước registry.
 - **Owner:** `app/sonify/guitar_barrios_period.py`; test `tests/test_barrios_period_production.py`.
 - **Audition:** `VSTOCK_BARRIOS_PERIOD=on` rồi render một form 12 bar 4/4; span production tiêu chuẩn hiện không tạo form này.
 

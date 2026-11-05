@@ -227,12 +227,25 @@ def test_env_flag_auditions_without_the_context(monkeypatch) -> None:
 
 
 def test_use_context_removes_only_its_own_registration(monkeypatch) -> None:
-    # Simulate a pre-existing, different table by asserting the key is absent
-    # first; the context must add and remove exactly the authored tuple.
+    # The context adds exactly the authored tuple and removes it on exit,
+    # including when nested; a different spec at the same key is tested below.
     assert PERIOD_KEY not in specs.SENTENCE_SPECS
     with period.use_barrios_period(True):
         assert PERIOD_KEY in specs.SENTENCE_SPECS
         with period.use_barrios_period(True):
             assert PERIOD_KEY in specs.SENTENCE_SPECS
         assert PERIOD_KEY in specs.SENTENCE_SPECS
+    assert PERIOD_KEY not in specs.SENTENCE_SPECS
+
+
+def test_ensure_registered_refuses_to_replace_a_different_spec() -> None:
+    import dataclasses
+
+    other = dataclasses.replace(period.BARRIOS_CATHEDRAL_PERIOD, id="future_archetype")
+    specs.SENTENCE_SPECS[PERIOD_KEY] = (other,)
+    try:
+        with pytest.raises(ValueError, match="would replace it"):
+            period.ensure_registered()
+    finally:
+        del specs.SENTENCE_SPECS[PERIOD_KEY]
     assert PERIOD_KEY not in specs.SENTENCE_SPECS

@@ -20,9 +20,10 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}`; dispatch theo pattern (Torroba/Sor, Villa, Barrios, Brouwer) |
 | Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix; cùng một response shape cho mọi family |
 | Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 3 candidate) để UI không copy JSON tay |
-| Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |\n| Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
+| Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |
+| Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
-| Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`, nhưng `bach_exposition` đã có **preview-only** renderer |
+| Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
 | Candidates | **Villa** `villa_arpeggio_aba`, **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline kèm lineage; examples load từ API |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
