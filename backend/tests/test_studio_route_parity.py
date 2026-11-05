@@ -14,6 +14,8 @@ from app.main import app
 UI_ROUTES = {
     ("POST", "/v1/studio/sentence/validate"),
     ("POST", "/v1/studio/sentence/preview"),
+    ("POST", "/v1/studio/jobs"),
+    ("GET", "/v1/studio/jobs/{job_id}"),
     ("POST", "/v1/studio/sentence/audio"),
     ("POST", "/v1/studio/sentence/publish"),
     ("GET", "/v1/studio/sentence/examples"),
