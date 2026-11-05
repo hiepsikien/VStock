@@ -26,7 +26,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
 | Candidates | **Villa** `villa_arpeggio_aba`, **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
-| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + Gemini draft + notes table**; analyze cũ bị abort khi đổi ảnh (crop/native/apply chưa) |
+| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (crop/native chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
 | Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (39 row) + `render_matrix.json` (41 row); pattern-level matrix có 1 `expected_empty` có lý do |
@@ -35,7 +35,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, `texture_registry.py`, crop/native UI, preview queue.
+**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, `texture_registry.py`, crop/native UI, preview queue. TextureSpec draft đã apply/validate offline nhưng chưa render/register/publish.
 
 ### 0.1. Đối chiếu nhanh với proposal trong thân bài
 
@@ -1358,6 +1358,7 @@ backend/app/routers/studio_publish.py  # publish, specs, specs/{id}, rollback
 backend/app/routers/studio_audio.py    # audio + WAV
 backend/app/routers/studio_export.py   # compile/export bundle (JSON, no writes)
 backend/app/routers/studio_vision.py   # access, uploads, analyze
+backend/app/routers/studio_texture.py  # POST /texture/validate (offline)
 backend/app/studio/                    # sentence_spec, texture_spec, preview, dispatch, compiler, publish, audio, session, quota, store, vision, candidates
 ```
 
@@ -1622,7 +1623,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
 | 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen + derived `PATTERN_NAMES` | renderer-profile playability, Phase 3 runtime 12/8 |
-| 1 | Studio room, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON, spec owner/visibility | crop/native picker, apply draft → editor, validation queue, preview queue, `preview.wav`/export files, PR automation |
+| 1 | Studio room, editor, examples, validate/preview, audio, publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table + TextureSpec draft/validate, export bundle JSON, spec owner/visibility | crop/native picker, preview job queue, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
 
