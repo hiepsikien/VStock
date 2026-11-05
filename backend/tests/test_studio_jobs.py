@@ -215,6 +215,37 @@ def test_renderer_error_is_stored_as_a_job_error(registry, monkeypatch) -> None:
     ]
 
 
+def test_job_poll_is_scoped_to_its_owner(registry) -> None:
+    client = _client()
+    response = client.post(
+        "/v1/studio/jobs",
+        json={"kind": "validate", "spec": _castillo_payload()},
+        headers={"X-Studio-Session": "owner-a"},
+    )
+    assert response.status_code == 202
+    job_id = response.json()["jobId"]
+
+    foreign = client.get(
+        f"/v1/studio/jobs/{job_id}",
+        headers={"X-Studio-Session": "owner-b"},
+    )
+    assert foreign.status_code == 404
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        own = client.get(
+            f"/v1/studio/jobs/{job_id}",
+            headers={"X-Studio-Session": "owner-a"},
+        )
+        if own.status_code == 200:
+            break
+        assert own.status_code == 409
+        time.sleep(0.01)
+    else:  # pragma: no cover - timing guard
+        raise AssertionError("owner job did not finish")
+    assert own.json()["status"] == "ok"
+
+
 def test_unknown_job_is_404(registry) -> None:
     response = _client().get("/v1/studio/jobs/job_missing")
     assert response.status_code == 404

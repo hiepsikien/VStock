@@ -226,7 +226,6 @@ class JobRegistry:
             created_at=now,
         )
         with self._lock:
-            self._make_room_locked(now)
             active_for_owner = sum(
                 1
                 for existing in self._jobs.values()
@@ -236,6 +235,7 @@ class JobRegistry:
                 raise JobOwnerFull(
                     f"Studio job owner already has {self._max_per_owner} active jobs"
                 )
+            self._make_room_locked(now)
             self._jobs[job.id] = job
             snapshot = _snapshot(job)
 
@@ -247,13 +247,24 @@ class JobRegistry:
             raise
         return snapshot
 
-    def get(self, job_id: str) -> JobStatus | None:
-        """One snapshot, pruning expired finished jobs first."""
+    def get(
+        self, job_id: str, *, owner_id: str | None = None
+    ) -> JobStatus | None:
+        """One snapshot, pruning expired finished jobs first.
+
+        When `owner_id` is supplied, a job owned by another namespace reads as
+        missing (404), so a job id cannot be used across sessions. Direct
+        registry/test callers can omit it.
+        """
         now = self._clock()
         with self._lock:
             self._prune_locked(now)
             job = self._jobs.get(job_id)
-            return None if job is None else _snapshot(job)
+            if job is None:
+                return None
+            if owner_id is not None and job.owner_id != owner_id:
+                return None
+            return _snapshot(job)
 
     def prune(self) -> int:
         """Drop finished jobs older than the TTL; return how many were dropped."""

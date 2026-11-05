@@ -97,9 +97,12 @@ def submit_job(
         409: {"description": "Still queued or running; see Retry-After"},
     },
 )
-def get_job(job_id: str) -> JSONResponse:
+def get_job(
+    job_id: str,
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
+) -> JSONResponse:
     """Poll one job. This handler is sync so FastAPI keeps it off the loop."""
-    status = jobs.get_registry().get(job_id)
+    status = jobs.get_registry().get(job_id, owner_id=owner_id)
     if status is None:
         return _missing(job_id)
 

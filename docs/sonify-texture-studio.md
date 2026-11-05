@@ -1180,7 +1180,7 @@ preview.wav / rendered.json
 
 ### 8.2. Audio, không phải MIDI
 
-> **Trạng thái code:** validate/preview có **job queue** `app/studio/jobs.py`: in-memory 64 job, TTL 10 phút, một `ThreadPoolExecutor(max_workers=1)`, cap **8 active job/owner** (`VSTOCK_STUDIO_JOBS_PER_OWNER`), `POST /v1/studio/jobs` (202) + `GET /v1/studio/jobs/{id}` (404/409/200). Job terminal giải phóng `spec/fixture`. Audio preview vẫn là synth code-only (`app/studio/audio.py`, 22.05 kHz, 96 BPM, `renderHash`, semaphore riêng); MuseScore/audio queue vẫn chưa.
+> **Trạng thái code:** validate/preview có **job queue** `app/studio/jobs.py`: in-memory 64 job, TTL 10 phút, một `ThreadPoolExecutor(max_workers=1)`, cap **8 active job/owner** (`VSTOCK_STUDIO_JOBS_PER_OWNER`, owner từ `X-Studio-Session`, thiếu header → `anonymous` dùng chung), `POST /v1/studio/jobs` (202) + `GET /v1/studio/jobs/{id}` (404/409/200; owner khác → 404). Job terminal giải phóng `spec/fixture`. Audio preview vẫn là synth code-only (`app/studio/audio.py`, 22.05 kHz, 96 BPM, `renderHash`, semaphore riêng); MuseScore/audio queue vẫn chưa.
 
 - App dùng `expo-audio`, không có MIDI player.
 - Guitar audio đi qua `audio.py` → MuseScore.
@@ -1476,7 +1476,7 @@ backend/app/routers/studio_jobs.py     # POST /v1/studio/jobs, GET /jobs/{id}
 backend/app/studio/                    # sentence_spec, texture_spec, preview, dispatch, compiler, jobs, publish, audio, session, quota, store, vision, candidates
 ```
 
-Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. Job queue là **in-memory/process-local** (không durable): cap global 64, cap 8 active/owner, terminal job giải phóng `spec/fixture`; vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
+Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. Job queue là **in-memory/process-local** (không durable): cap global 64, cap 8 active/owner, `GET` scope theo owner (owner khác → 404), terminal job giải phóng `spec/fixture`; vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
 
 **Vận hành MVP:** production nên set `VSTOCK_STUDIO_SECRET`; thiếu env thì server dùng secret random per-process (token chết sau restart, không còn hardcoded secret). Upload có `Content-Length` guard + chunk cap; ngoài quota per-owner còn global cap `VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY`/`..._ANALYSES_PER_DAY`/`..._SPECS_PER_DAY` để chặn session rotation; publish cũng enforce `specsPerDay` (429 + Retry-After). Vision cache prune theo `VSTOCK_STUDIO_VISION_CACHE_DAYS` (default 30).
 
