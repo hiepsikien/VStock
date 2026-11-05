@@ -530,6 +530,24 @@ def test_publish_quota_is_enforced_per_session(
     assert "quota" in response.json()["detail"]["message"]
 
 
+def test_global_spec_quota_stops_session_rotation(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("VSTOCK_STUDIO_GLOBAL_SPECS_PER_DAY", "1")
+    body = spec_to_mapping(CASTILLO_34_WALK)
+    first = _publish(client, body, session="global-a")
+    assert first["ok"] is True
+
+    response = client.post(
+        PUBLISH,
+        json=spec_to_mapping(replace(CASTILLO_34_WALK, id="castillo_global_2")),
+        headers={"X-Studio-Session": "global-b"},
+    )
+    assert response.status_code == 429
+    assert response.json()["detail"]["kind"] == "spec"
+    assert "Server-wide" in response.json()["detail"]["message"]
+
+
 def test_invalid_visibility_is_rejected_before_storing(client: TestClient) -> None:
     response = client.post(
         PUBLISH,
