@@ -309,9 +309,10 @@ def test_preview_returns_slot_contours_without_changing_notes() -> None:
     assert plain.micro_velocity == ()
     assert contoured.micro_velocity == ({"slot": 0, "contour": CONTOUR},)
 
-    # The contour is authored data: the render itself must stay identical.
+    # The contour is authored data: the render itself stays identical, but the
+    # hash (and therefore the audio cache key) must tell the two specs apart.
     assert contoured.notes == plain.notes
-    assert contoured.render_hash == plain.render_hash
+    assert contoured.render_hash != plain.render_hash
 
     assert "microVelocity" not in plain.as_response()
     assert contoured.as_response()["microVelocity"] == [

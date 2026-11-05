@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import wave
+from dataclasses import replace
 
 import pytest
 from fastapi import FastAPI
@@ -19,6 +20,8 @@ from app.sonify import sentence_specs
 from app.sonify.guitar_torroba import CASTILLO_34_WALK
 from app.studio import audio as studio_audio
 from app.studio.export import SPECS_DIR
+from app.studio.micro_velocity import MicroVelocity, VelocityOffset
+from app.studio.preview import preview_spec
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +82,42 @@ def test_the_same_spec_produces_identical_bytes() -> None:
     assert hashlib.sha256(first_bytes).hexdigest() == hashlib.sha256(
         second.asset.path.read_bytes()
     ).hexdigest()
+
+
+def test_different_contours_cannot_share_a_hash_or_audio_cache_key() -> None:
+    def contoured(offset: int):
+        contour = MicroVelocity(
+            notes=(VelocityOffset(bar=0, beat=0.0, voice=1, offset=offset),)
+        )
+        return replace(
+            CASTILLO_34_WALK,
+            slots=(
+                replace(CASTILLO_34_WALK.slots[0], micro_velocity=contour),
+            ),
+        )
+
+    fixture = {"length": 9, "bars": 2}
+    soft_spec = contoured(-6)
+    loud_spec = contoured(6)
+    soft_preview = preview_spec(soft_spec, fixture)
+    loud_preview = preview_spec(loud_spec, fixture)
+
+    assert soft_preview.ok and loud_preview.ok
+    # The contour is metadata: plan, row, and notes are identical.
+    assert soft_preview.plan == loud_preview.plan
+    assert soft_preview.row == loud_preview.row
+    assert soft_preview.notes == loud_preview.notes
+    assert soft_preview.render_hash != loud_preview.render_hash
+
+    soft = studio_audio.preview_audio(soft_spec, fixture)
+    loud = studio_audio.preview_audio(loud_spec, fixture)
+    assert soft.ok and loud.ok and soft.asset and loud.asset
+    assert soft.render_hash == soft_preview.render_hash
+    assert loud.render_hash == loud_preview.render_hash
+    assert soft.asset.key == studio_audio.cache_key(soft.render_hash, 3)
+    assert loud.asset.key == studio_audio.cache_key(loud.render_hash, 3)
+    assert soft.asset.key != loud.asset.key
+    assert len(list(studio_audio.audio_root().glob("*.wav"))) == 2
 
 
 def test_a_cache_hit_does_not_synthesize_again(monkeypatch) -> None:

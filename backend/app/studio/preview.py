@@ -79,7 +79,8 @@ from app.sonify.model import Phrase, Run
 from app.sonify import sentence_specs
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
 from app.studio.micro_velocity import (
-    micro_velocity_to_mapping,
+    canonical_micro_velocity_mapping,
+    is_empty as micro_velocity_is_empty,
     validate_micro_velocity,
 )
 from app.studio.preview_fixture import (
@@ -711,8 +712,22 @@ def _notes(events: list) -> tuple[dict[str, Any], ...]:
     return tuple(ordered)
 
 
-def _render_hash(plan: dict[str, Any], row: list[str], notes: tuple[dict[str, Any], ...]) -> str:
-    payload = {"plan": plan, "row": row, "notes": notes}
+def _render_hash(
+    plan: dict[str, Any],
+    row: list[str],
+    notes: tuple[dict[str, Any], ...],
+    micro_velocity: tuple[dict[str, Any], ...] = (),
+) -> str:
+    """Hash the rendered fixture plus any authored contour metadata.
+
+    A contour does not change the notes yet, so without this field two specs
+    that differ only in velocity offsets would share a render hash and an audio
+    cache entry. The key is added only when a contour is present: the no-contour
+    payload is byte-identical to the pre-contour hash.
+    """
+    payload: dict[str, Any] = {"plan": plan, "row": row, "notes": notes}
+    if micro_velocity:
+        payload["microVelocity"] = list(micro_velocity)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return _HASH_PREFIX + hashlib.sha256(encoded.encode("ascii")).hexdigest()
 
@@ -803,14 +818,16 @@ def _slot_contours(spec: SentenceSpec) -> tuple[dict[str, Any], ...]:
     A slot can repeat inside a tile, but its contour is authored *relative to
     that slot*, so repeating the same mapping is unambiguous. Slots without a
     contour are omitted; the preview never aggregates contours across slots.
+    Entries use the canonical coordinate order so the same contour hashes the
+    same regardless of how it was authored.
     """
     return tuple(
         {
             "slot": index,
-            "contour": micro_velocity_to_mapping(slot.micro_velocity),
+            "contour": canonical_micro_velocity_mapping(slot.micro_velocity),
         }
         for index, slot in enumerate(spec.slots)
-        if slot.micro_velocity is not None
+        if not micro_velocity_is_empty(slot.micro_velocity)
     )
 
 
@@ -844,7 +861,8 @@ def preview_spec(
             events, row = _figure_notes(spec, resolved)
 
     notes = _notes(events)
-    render_hash = _render_hash(plan, row, notes)
+    contours = _slot_contours(spec)
+    render_hash = _render_hash(plan, row, notes, contours)
     matrix = _matrix(spec, resolved, render_hash)
     return PreviewResult(
         ok=True,
@@ -853,5 +871,5 @@ def preview_spec(
         notes=notes,
         render_hash=render_hash,
         matrix=matrix,
-        micro_velocity=_slot_contours(spec),
+        micro_velocity=contours,
     )
