@@ -1055,7 +1055,7 @@ Mỗi entry dùng toạ độ **tương đối trong figure/slot**, không phả
 - `kind: "rule"` lưu rule/step table gốc; UI flatten thành per-note cho fixture đang chọn, nhưng dữ liệu lưu vẫn là rule. Mỗi `ruleId` phải khai `params` tối thiểu (ví dụ `galop1: {step, floor, peakQuarter}`) để flatten không phụ thuộc default ẩn.
 - Với `TextureSpec`, offline validator chỉ bound **beat** trong bar; `bar` không bound vì spec không khai length/window — compiler/preview bound theo meter/window đã chọn. Nhiều meter variant cũng vì vậy không chọn hộ.
 - `ruleVersion` phải bump khi writer mirror đổi (`_galop*_steps`, `_etude11_middle_vel`). `flatten_rule(base_at=...)` khi wire vào writer phải truyền **neutral level**, không dùng default `event.velocity` (chỉ dùng cho extraction harness).
-- Khi wire writer: **renderHash và audio cache key phải gồm contour** (hoặc digest contour) để preview/audio không cache lẫn giữa các contour khác nhau; hiện preview chưa áp contour nên hash chưa đổi.
+- **renderHash và audio cache key đã gồm contour**: canonical mapping theo slot, entry sort `(bar, beat, voice, finger)`. Hai spec cùng plan/row/notes nhưng khác offset không dùng chung cache. Preview vẫn chưa áp contour vào notes/velocity; writer integration là bước riêng.
 - Không có `base` áp vào velocity. Nếu UI cần mốc hiển thị, dùng level figure viết ra làm reference; không lưu/không cộng `base`.
 
 #### Thứ tự render và exception
