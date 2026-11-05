@@ -298,6 +298,30 @@ PATTERN_UNREACHABLE_REASONS = {
         "the movement is a whole 3/4 Villa body with no pedal bars. This "
         "matrix runs with the flag off, so the historical Villa ladder answers."
     ),
+    "suite_valsa": (
+        "Villa returns suite_valsa only when VSTOCK_SUITE_VALSA is on and the "
+        "movement is a whole 3/4 Villa body of at least eight bars with no "
+        "pedal bars. This matrix runs with the flag off, so the historical "
+        "Villa ladder answers."
+    ),
+    "suite_gavotta": (
+        "Villa returns suite_gavotta only when VSTOCK_SUITE_GAVOTTA is on and "
+        "the movement is a whole 4/4 Villa body of at least four bars with no "
+        "pedal bars. This matrix runs with the flag off, so the historical "
+        "Villa ladder answers."
+    ),
+    "suite_schottish": (
+        "Villa returns suite_schottish only when VSTOCK_SUITE_SCHOTTISH is on "
+        "and the movement is a whole 4/4 Villa body of at least four bars with "
+        "no pedal bars. This matrix runs with the flag off, so the historical "
+        "Villa ladder answers."
+    ),
+    "suite_choros1": (
+        "Villa returns suite_choros1 only when VSTOCK_SUITE_CHOROS1 is on and "
+        "the movement is a whole 4/4 Villa body of at least four bars with no "
+        "pedal bars. This matrix runs with the flag off, so the historical "
+        "Villa ladder answers."
+    ),
 }
 
 

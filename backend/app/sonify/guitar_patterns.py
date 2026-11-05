@@ -76,6 +76,10 @@ _FAMILY = {
     "hemiola": "dance",
     "vals": "dance",
     "suite_mazurka": "dance",
+    "suite_valsa": "dance",
+    "suite_gavotta": "dance",
+    "suite_schottish": "dance",
+    "suite_choros1": "dance",
     "noviembre": "brouwer",
     "brouwer_etude": "brouwer",
     "elogio_pizz": "brouwer",
@@ -117,6 +121,10 @@ _PROFILE = {
     "hemiola": "barrios_dance",
     "vals": "barrios_dance",
     "suite_mazurka": "villa_pattern",
+    "suite_valsa": "villa_pattern",
+    "suite_gavotta": "villa_pattern",
+    "suite_schottish": "villa_pattern",
+    "suite_choros1": "villa_pattern",
     "noviembre": "brouwer",
     "brouwer_etude": "brouwer",
     "elogio_pizz": "brouwer",
@@ -912,20 +920,31 @@ def _select_body(
     previous: list[str],
     section,
 ) -> str:
-    # Feature-gated Suite Mazurka. Off by default, so the historical Villa
-    # ladder below is untouched. On, it answers only a whole 3/4 movement that
-    # the renderer can also carry; every other case keeps the old selection.
-    if ctx.ensemble == "villa" and ctx.kind == "3/4":
-        from app.sonify.production_flags import suite_mazurka_enabled
+    # Feature-gated Suite movements. Off by default, so the historical Villa
+    # ladder below is untouched. The Mazurka keeps its historical first place;
+    # the four remaining movements follow in the shared precedence table. On,
+    # each answers only a whole movement that the renderer can also carry;
+    # every other case keeps the old selection.
+    if ctx.ensemble == "villa":
+        if ctx.kind == "3/4":
+            from app.sonify.production_flags import suite_mazurka_enabled
 
-        if suite_mazurka_enabled():
-            from app.sonify.guitar_suite_mazurka import (
-                SUITE_MAZURKA_PATTERN,
-                selectable,
-            )
+            if suite_mazurka_enabled():
+                from app.sonify.guitar_suite_mazurka import (
+                    SUITE_MAZURKA_PATTERN,
+                    selectable as mazurka_selectable,
+                )
 
-            if selectable(ctx):
-                return SUITE_MAZURKA_PATTERN
+                if mazurka_selectable(ctx):
+                    return SUITE_MAZURKA_PATTERN
+        from app.sonify.production_flags import any_suite_movement_enabled
+
+        if any_suite_movement_enabled():
+            from app.sonify.guitar_suite_movements import selectable_pattern
+
+            pattern = selectable_pattern(ctx)
+            if pattern is not None:
+                return pattern
     hold = _has_hold(ctx.melody, phrase)
     running = _running(ctx.melody, phrase)
     apex_bar = min(ctx.bars - 1, phrase.apex.start // ctx.epb)
@@ -3467,7 +3486,7 @@ def render_patterned_voices(
     micro_velocity_token = begin_occurrences() if micro_velocity_writers else None
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
-    # Feature-gated Villa sentence, Suite Mazurka, and Brouwer A-B-A. Off by
+    # Feature-gated Villa sentence, Suite movements, and Brouwer A-B-A. Off by
     # default, so the existing bar loop below is byte-identical. Each gate
     # returns raw bar voices only for a whole movement it can cover; the shared
     # tail below then shapes them exactly like the historical bar loop.
@@ -3838,6 +3857,7 @@ def _gated_sentence(ctx: _Ctx):
         return None
     if ctx.ensemble == "villa":
         from app.sonify.production_flags import (
+            any_suite_movement_enabled,
             suite_mazurka_enabled,
             villa_production_enabled,
         )
@@ -3848,6 +3868,14 @@ def _gated_sentence(ctx: _Ctx):
             )
 
             sentence = render_mazurka(ctx)
+            if sentence is not None:
+                return sentence
+        if any_suite_movement_enabled():
+            from app.sonify.guitar_suite_movements import (
+                render_sentence as render_suite_movement,
+            )
+
+            sentence = render_suite_movement(ctx)
             if sentence is not None:
                 return sentence
         if villa_production_enabled():
@@ -3938,7 +3966,15 @@ def _finish_voices(
         bar
         for bar in range(musical_bars)
         if _bar_pattern(ctx, bar, patterns)
-        in {"villa_pattern", "suite_mazurka", "brouwer_etude"}
+        in {
+            "villa_pattern",
+            "suite_mazurka",
+            "suite_valsa",
+            "suite_gavotta",
+            "suite_schottish",
+            "suite_choros1",
+            "brouwer_etude",
+        }
     }
     if ringing:
         support = _apply_campanella(ctx, support, lead, ringing, low)

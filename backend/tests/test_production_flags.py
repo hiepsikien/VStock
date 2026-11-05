@@ -33,8 +33,36 @@ FLAGS = (
         flags.suite_mazurka_enabled,
         flags.use_suite_mazurka,
     ),
+    (
+        flags.SUITE_VALSA_ENV,
+        flags.suite_valsa_enabled,
+        flags.use_suite_valsa,
+    ),
+    (
+        flags.SUITE_GAVOTTA_ENV,
+        flags.suite_gavotta_enabled,
+        flags.use_suite_gavotta,
+    ),
+    (
+        flags.SUITE_SCHOTTISH_ENV,
+        flags.suite_schottish_enabled,
+        flags.use_suite_schottish,
+    ),
+    (
+        flags.SUITE_CHOROS1_ENV,
+        flags.suite_choros1_enabled,
+        flags.use_suite_choros1,
+    ),
 )
-FLAG_IDS = ("villa", "brouwer", "suite_mazurka")
+FLAG_IDS = (
+    "villa",
+    "brouwer",
+    "suite_mazurka",
+    "suite_valsa",
+    "suite_gavotta",
+    "suite_schottish",
+    "suite_choros1",
+)
 FLAGS_WITH_IDS = tuple(
     pytest.param(*flag, id=flag_id)
     for flag, flag_id in zip(FLAGS, FLAG_IDS, strict=True)
@@ -45,6 +73,30 @@ def test_environment_names_are_the_public_contract() -> None:
     assert flags.VILLA_PRODUCTION_ENV == "VSTOCK_VILLA_PRODUCTION"
     assert flags.BROUWER_PRODUCTION_ENV == "VSTOCK_BROUWER_PRODUCTION"
     assert flags.SUITE_MAZURKA_ENV == "VSTOCK_SUITE_MAZURKA"
+    assert flags.SUITE_VALSA_ENV == "VSTOCK_SUITE_VALSA"
+    assert flags.SUITE_GAVOTTA_ENV == "VSTOCK_SUITE_GAVOTTA"
+    assert flags.SUITE_SCHOTTISH_ENV == "VSTOCK_SUITE_SCHOTTISH"
+    assert flags.SUITE_CHOROS1_ENV == "VSTOCK_SUITE_CHOROS1"
+
+
+def test_suite_movement_map_is_the_four_remaining_flags() -> None:
+    assert flags.SUITE_MOVEMENT_ENVS == {
+        "suite_valsa": "VSTOCK_SUITE_VALSA",
+        "suite_gavotta": "VSTOCK_SUITE_GAVOTTA",
+        "suite_schottish": "VSTOCK_SUITE_SCHOTTISH",
+        "suite_choros1": "VSTOCK_SUITE_CHOROS1",
+    }
+    assert flags.any_suite_movement_enabled() is False
+    with flags.use_suite_schottish(True):
+        assert flags.any_suite_movement_enabled() is True
+    assert flags.any_suite_movement_enabled() is False
+
+
+def test_unknown_suite_movement_is_a_loud_error() -> None:
+    with pytest.raises(KeyError, match="unknown Suite movement"):
+        flags.suite_movement_enabled("suite_nope")
+    with pytest.raises(KeyError, match="unknown Suite movement"):
+        flags.use_suite_movement("suite_nope")
 
 
 @pytest.mark.parametrize(("env", "enabled", "_use"), FLAGS_WITH_IDS)

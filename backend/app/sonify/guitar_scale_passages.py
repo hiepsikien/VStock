@@ -1960,6 +1960,10 @@ _KINETIC_PATTERNS = frozenset(
         "mozart_var",
         "villa_pattern",
         "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
         "choro",
         "polca",
         "hemiola",
@@ -1977,7 +1981,21 @@ _LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chacon
 # Brouwer keeps the absolute window. Every other listed id is a narrowed row:
 # (entry step on a descent, span, ceiling). The key is the pattern id.
 _NARROW_ROWS: dict[str, tuple[int, int, int]] = {
-    **{name: (6, 24, 80) for name in ("villa_pattern", "suite_mazurka", "etude1", "etude11", "chord_melody", "thumb_cantabile")},
+    **{
+        name: (6, 24, 80)
+        for name in (
+            "villa_pattern",
+            "suite_mazurka",
+            "suite_valsa",
+            "suite_gavotta",
+            "suite_schottish",
+            "suite_choros1",
+            "etude1",
+            "etude11",
+            "chord_melody",
+            "thumb_cantabile",
+        )
+    },
     **{name: (4, 18, 76) for name in ("preludio", "andante", "tremolo", "choro", "vals", "polca", "hemiola", "fandanguillo", "danza", "alcaniz", "olite")},
     **{name: (4, 16, 76) for name in ("study", "galop", "mozart_var", "cantabile", "elegiaque", "castillo", "sonatina", "torroba_tremolo")},
     **{

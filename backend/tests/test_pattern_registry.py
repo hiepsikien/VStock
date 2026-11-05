@@ -1,12 +1,12 @@
 """The pattern registry: `level` and `name_source` cover `_FAMILY` exactly.
 
 Metadata only. These tests pin the split the model doc section 12 decided: five
-texture ids, thirty-four topics, and a printed title for every topic.
+texture ids, thirty-eight topics, and a printed title for every topic.
 
 The second half is the codegen gate: the generated TypeScript must match the
 Python registries, every row must carry a title plus its `level`/`name_source`,
 and uniqueness is per ensemble rather than global. The TS `PATTERN_NAMES` set
-is the 31 distinct topic titles; `Pedal` is a texture and never enters it.
+is the 35 distinct topic titles; `Pedal` is a texture and never enters it.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ _TOPIC = set(_FAMILY) - _TEXTURE
 
 def test_registry_covers_family() -> None:
     assert set(PATTERN_META) == set(_FAMILY)
-    assert len(PATTERN_META) == 39
+    assert len(PATTERN_META) == 43
 
 
 def test_registry_key_matches_id() -> None:
@@ -62,7 +62,7 @@ def test_level_sets_are_exact() -> None:
     }
     assert topic == _TOPIC
     assert texture == _TEXTURE
-    assert len(topic) == 34
+    assert len(topic) == 38
     assert len(texture) == 5
 
 
@@ -220,7 +220,7 @@ def test_generated_rows_cover_the_python_registries() -> None:
     family_only = set(_FAMILY) - profiled
 
     assert len(rows) == len(PROFILES) + len(family_only)
-    assert len(PROFILES) == 39
+    assert len(PROFILES) == 43
     assert family_only == {"pedal"}
 
     wave_rows = {(row.ensemble, row.pattern) for row in rows if row.wave_profile}
@@ -240,12 +240,12 @@ def test_generated_rows_cover_the_python_registries() -> None:
 
 
 def test_generated_rows_split_topics_from_textures() -> None:
-    """34 topic rows and 6 texture rows, with `pedal` never a printed topic."""
+    """38 topic rows and 6 texture rows, with `pedal` never a printed topic."""
     rows = _codegen().build_rows()
 
     topic_rows = [row for row in rows if row.level == "topic"]
     texture_rows = [row for row in rows if row.level == "texture"]
-    assert len(topic_rows) == 34
+    assert len(topic_rows) == 38
     assert len(texture_rows) == 6
     assert {row.pattern for row in texture_rows} == _TEXTURE
 
@@ -256,16 +256,16 @@ def test_generated_rows_split_topics_from_textures() -> None:
 
 
 def test_generated_topic_titles_are_the_frontend_set() -> None:
-    """The TS set is the 31 distinct topic titles, with no texture title.
+    """The TS set is the 35 distinct topic titles, with no texture title.
 
-    34 topic rows collapse to 31 titles because `Etude`, `Prelude`, and
+    38 topic rows collapse to 35 titles because `Etude`, `Prelude`, and
     `Sarabande` each name a topic in two ensembles. `PATTERN_NAMES` is a Set,
-    so the count is 31. `Pedal` is a texture, so it never enters.
+    so the count is 35. `Pedal` is a texture, so it never enters.
     """
     rows = _codegen().build_rows()
 
     topic_titles = {row.title for row in rows if row.level == "topic"}
-    assert len(topic_titles) == 31
+    assert len(topic_titles) == 35
     assert "Pedal" not in topic_titles
     assert topic_titles.isdisjoint({"Arpeggio", "Chord Melody", "Tremolo"})
 
@@ -275,11 +275,11 @@ def test_generated_topic_titles_are_the_frontend_set() -> None:
         title for title in set(all_titles) if all_titles.count(title) > 1
     }
     assert repeated == _KNOWN_GLOBAL_DUPLICATES
-    # 35 distinct titles over all 40 rows; 34 over the printed rows, because
+    # 39 distinct titles over all 44 rows; 38 over the printed rows, because
     # `Pedal` is the only non-printed row and it owns a title of its own.
-    assert len(set(all_titles)) == 35
+    assert len(set(all_titles)) == 39
     printed_titles = {row.title for row in rows if row.wave_profile}
-    assert len(printed_titles) == 34
+    assert len(printed_titles) == 38
     assert "Pedal" not in printed_titles
 
 
