@@ -29,6 +29,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.sonify.form import Meter
+from app.studio.micro_velocity import (
+    VELOCITY_MAX,
+    VELOCITY_MIN,
+    MicroVelocity,
+    MicroVelocitySpecError,
+    micro_velocity_to_mapping,
+    parse_micro_velocity,
+    validate_micro_velocity,
+)
 
 __all__ = [
     "KINDS",
@@ -102,6 +111,11 @@ SLUR_VALUES = ("none", "start", "stop", "continue")
 
 MIN_PUBLISH_CONFIDENCE = 0.6
 
+# A note-level delta can only move a final velocity inside 1..127; anything
+# beyond this range clamps to the same endpoint, so it is an authoring error.
+VELOCITY_OFFSET_MIN = VELOCITY_MIN - VELOCITY_MAX
+VELOCITY_OFFSET_MAX = VELOCITY_MAX - VELOCITY_MIN
+
 # String/fret playability by string needs the runtime fret table and render
 # context, so only the string range and fret lower bound are checked offline.
 
@@ -122,6 +136,7 @@ _TOP_KEYS = frozenset(
         "traits",
         "selection",
         "provenance",
+        "microVelocity",
     }
 )
 _REQUIRED_TOP_KEYS = frozenset(
@@ -168,6 +183,7 @@ _EVENT_KEYS = _EVENT_REQUIRED | frozenset(
         "confidence",
         "conflict",
         "review",
+        "velocityOffset",
     }
 )
 _EPSILON = 1e-9
@@ -534,6 +550,10 @@ class AuthoredEvent:
     ``resolved_midi``, velocity, hairpin, and pinned are derived at render
     time; they are not fields here. ``string``/``fret``/``written_pitch``/
     ``sounding_pitch`` are optional tab metadata, not ``NoteEvent`` fields.
+
+    ``velocity_offset`` is the optional note-level delta from §6.9: it has the
+    same meaning as one micro-velocity ``offset`` entry, but addresses this
+    single authored event instead of a ``(bar, beat, voice)`` coordinate.
     """
 
     bar: int
@@ -555,6 +575,7 @@ class AuthoredEvent:
     conflict: bool = False
     # Fail closed: a missing review must not import as already approved.
     review: str = "pending"
+    velocity_offset: int | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         mapping: dict[str, Any] = {
@@ -582,6 +603,8 @@ class AuthoredEvent:
             value = getattr(self, name)
             if value is not None:
                 mapping[name] = value
+        if self.velocity_offset is not None:
+            mapping["velocityOffset"] = self.velocity_offset
         return mapping
 
     @classmethod
@@ -619,6 +642,9 @@ def _parse_authored_event(mapping: Mapping[str, Any], path: str) -> AuthoredEven
         confidence=_optional_number(data.get("confidence"), f"{path}.confidence"),
         conflict=_boolean(data.get("conflict", False), f"{path}.conflict"),
         review=_string(data.get("review", "pending"), f"{path}.review"),
+        velocity_offset=_optional_integer(
+            data.get("velocityOffset"), f"{path}.velocityOffset"
+        ),
     )
 
 
@@ -779,6 +805,17 @@ def _authored_metadata_errors(
                 errors.append(TextureError(f"{item}.confidence", "must be in 0..1"))
         if event.review not in REVIEW_VALUES:
             errors.append(TextureError(f"{item}.review", f"unknown value {event.review!r}"))
+        if event.velocity_offset is not None and (
+            not _is_int(event.velocity_offset)
+            or not VELOCITY_OFFSET_MIN <= event.velocity_offset <= VELOCITY_OFFSET_MAX
+        ):
+            errors.append(
+                TextureError(
+                    f"{item}.velocityOffset",
+                    f"must be an integer in "
+                    f"{VELOCITY_OFFSET_MIN}..{VELOCITY_OFFSET_MAX}",
+                )
+            )
 
     errors.extend(_endpoint_errors(events, path, "tie", TIE_VALUES))
     errors.extend(_endpoint_errors(events, path, "slur", SLUR_VALUES))
@@ -905,6 +942,10 @@ class TextureSpec:
     ``provenance`` are declarative mappings. This module type-checks them but
     does not interpret them; that is compiler/runtime work.
 
+    ``micro_velocity`` is the optional pattern/sentence-level contour from
+    §6.9. Like the sentence slot contour it is data only: nothing here applies
+    it, and the offline validator checks its rules without a render context.
+
     Unknown top-level keys are rejected unless they were parsed with
     ``allow_extra=True``; those keys are preserved in ``extra`` and emitted
     again by :func:`texture_spec_to_mapping`.
@@ -925,6 +966,7 @@ class TextureSpec:
     traits: Mapping[str, Any] | None = None
     selection: Mapping[str, Any] | None = None
     provenance: Mapping[str, Any] | None = None
+    micro_velocity: MicroVelocity | None = None
     extra: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -1026,6 +1068,17 @@ def parse_texture_spec(
         else:
             declarative[name] = dict(_mapping(value, f"spec.{name}"))
 
+    micro_velocity: MicroVelocity | None = None
+    if data.get("microVelocity") is not None:
+        try:
+            micro_velocity = parse_micro_velocity(
+                data["microVelocity"], path="spec.microVelocity"
+            )
+        except MicroVelocitySpecError as exc:
+            # Keep this module's error type: check_texture_spec and the router
+            # catch TextureSpecError, not the model's own ValueError subclass.
+            raise TextureSpecError(exc.path, exc.message) from None
+
     extra = (
         {key: dict(value) if isinstance(value, Mapping) else value
          for key, value in data.items() if key not in _TOP_KEYS}
@@ -1049,6 +1102,7 @@ def parse_texture_spec(
         traits=declarative["traits"],
         selection=declarative["selection"],
         provenance=declarative["provenance"],
+        micro_velocity=micro_velocity,
         extra=extra,
     )
 
@@ -1087,6 +1141,8 @@ def texture_spec_to_mapping(spec: TextureSpec) -> dict[str, Any]:
             for event in spec.authored
         ]
     }
+    if spec.micro_velocity is not None:
+        mapping["microVelocity"] = micro_velocity_to_mapping(spec.micro_velocity)
     return mapping
 
 
@@ -1131,6 +1187,12 @@ def validate_texture_spec(
         value = getattr(spec, name)
         if value is not None and not isinstance(value, Mapping):
             errors.append(TextureError(name, "must be a mapping or null"))
+
+    if spec.micro_velocity is not None:
+        for error in validate_micro_velocity(
+            spec.micro_velocity, path="microVelocity"
+        ):
+            errors.append(TextureError(error.path, error.message))
 
     variants = spec.meter_variants
     if not isinstance(variants, (tuple, list)):

@@ -107,6 +107,7 @@ def _normalize(result: Any) -> preview.PreviewResult:
         notes=tuple(result.notes),
         render_hash=result.render_hash,
         matrix=tuple(result.matrix),
+        micro_velocity=tuple(getattr(result, "micro_velocity", ())),
     )
 
 

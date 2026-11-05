@@ -78,6 +78,10 @@ from app.sonify.keys import active_register
 from app.sonify.model import Phrase, Run
 from app.sonify import sentence_specs
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
+from app.studio.micro_velocity import (
+    micro_velocity_to_mapping,
+    validate_micro_velocity,
+)
 from app.studio.preview_fixture import (
     MAX_PLAN_BARS,
     MAX_RENDER_BARS,
@@ -118,9 +122,13 @@ class PreviewResult:
     notes: tuple[dict[str, Any], ...] = ()
     render_hash: str | None = None
     matrix: tuple[dict[str, Any], ...] = ()
+    # Authored slot contours, keyed by slot index. Empty means "no contour",
+    # and `as_response` then omits the key entirely so existing preview JSON
+    # stays byte-identical.
+    micro_velocity: tuple[dict[str, Any], ...] = ()
 
     def as_response(self) -> dict[str, Any]:
-        return {
+        response: dict[str, Any] = {
             "ok": self.ok,
             "errors": [{"path": error.path, "message": error.message} for error in self.errors],
             "plan": self.plan,
@@ -129,6 +137,9 @@ class PreviewResult:
             "renderHash": self.render_hash,
             "matrix": list(self.matrix),
         }
+        if self.micro_velocity:
+            response["microVelocity"] = list(self.micro_velocity)
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +290,21 @@ def validate_spec(spec: SentenceSpec) -> list[Error]:
                     f"procedure {slot.procedure!r} is not registered",
                 )
             )
+        if slot.micro_velocity is not None:
+            slot_bars = (
+                slot.bars
+                if isinstance(slot.bars, int)
+                and not isinstance(slot.bars, bool)
+                and slot.bars >= 1
+                else None
+            )
+            for error in validate_micro_velocity(
+                slot.micro_velocity,
+                bars=slot_bars,
+                beats_per_bar=sentence_specs.quarter_beats(spec.meter),
+                path=f"{path}.microVelocity",
+            ):
+                errors.append(Error(error.path, error.message))
         if slot.anchor not in {"start", "middle", "end"}:
             errors.append(Error(f"{path}.anchor", f"unknown slot anchor {slot.anchor!r}"))
         elif slot.anchor == "start":
@@ -771,6 +797,23 @@ def _procedure_slot(spec: SentenceSpec) -> Error | None:
     return None
 
 
+def _slot_contours(spec: SentenceSpec) -> tuple[dict[str, Any], ...]:
+    """Return each authored slot contour keyed by slot index.
+
+    A slot can repeat inside a tile, but its contour is authored *relative to
+    that slot*, so repeating the same mapping is unambiguous. Slots without a
+    contour are omitted; the preview never aggregates contours across slots.
+    """
+    return tuple(
+        {
+            "slot": index,
+            "contour": micro_velocity_to_mapping(slot.micro_velocity),
+        }
+        for index, slot in enumerate(spec.slots)
+        if slot.micro_velocity is not None
+    )
+
+
 def preview_spec(
     spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
 ) -> PreviewResult:
@@ -810,4 +853,5 @@ def preview_spec(
         notes=notes,
         render_hash=render_hash,
         matrix=matrix,
+        micro_velocity=_slot_contours(spec),
     )
