@@ -870,6 +870,31 @@ equal(draft.cached, true);
 equal(draft.partial, true);
 deepEqual(draft.skippedChecks, ['pitch', 'playable']);
 
+const wrappedDraft = normalizeAnalyzeResponse({
+  ok: true,
+  cacheHit: true,
+  draft: {
+    measures: [{ index: 2, meter: '4/4' }],
+    notes: [{ measure: 2, beat: 1, written_pitch: 'B4', confidence: 0.88 }],
+    warnings: ['cut-off system'],
+    review: 'pending',
+  },
+});
+equal(wrappedDraft.ok, true);
+equal(wrappedDraft.cached, true);
+equal(wrappedDraft.measures[0]?.meter, '4/4');
+equal(wrappedDraft.notes[0]?.writtenPitch, 'B4');
+deepEqual(wrappedDraft.warnings, ['cut-off system']);
+
+const failedDraft = normalizeAnalyzeResponse({
+  ok: false,
+  uploadId: 'up_1',
+  error: { code: 'gemini_unconfigured', message: 'Gemini is not configured' },
+});
+equal(failedDraft.ok, false);
+equal(failedDraft.errors[0]?.path, 'gemini_unconfigured');
+equal(failedDraft.errors[0]?.message, 'Gemini is not configured');
+
 deepEqual(normalizeAnalyzeResponse({ warnings: [{ message: 'faint tab' }] }).warnings, [
   'faint tab',
 ]);

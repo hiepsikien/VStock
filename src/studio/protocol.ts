@@ -596,14 +596,22 @@ export function normalizeAnalyzeResponse(body: unknown): StudioAnalyzeDraft {
   if (!isRecord(body)) {
     throw new Error('Studio analyze API returned a non-object response.');
   }
+  // The vision endpoint wraps the transcription in `draft`; older/mocked
+  // responses may still put the fields at the top level.
+  const draft = isRecord(body.draft) ? body.draft : body;
   const errors = normalizeErrors(body);
-  const measures = Array.isArray(body.measures)
-    ? body.measures
+  const backendError = isRecord(body.error) ? body.error : null;
+  if (backendError && errors.length === 0) {
+    const code = text(backendError.code) ?? 'analyze_failed';
+    errors.push({ path: code, message: text(backendError.message) ?? code });
+  }
+  const measures = Array.isArray(draft.measures)
+    ? draft.measures
         .map(normalizeMeasure)
         .filter((item): item is StudioAnalysisMeasure => item !== null)
     : [];
-  const notes = Array.isArray(body.notes)
-    ? body.notes
+  const notes = Array.isArray(draft.notes)
+    ? draft.notes
         .map(normalizeNote)
         .filter((item): item is StudioAnalysisNote => item !== null)
     : [];
@@ -611,10 +619,19 @@ export function normalizeAnalyzeResponse(body: unknown): StudioAnalyzeDraft {
     ok: typeof body.ok === 'boolean' ? body.ok : errors.length === 0,
     measures,
     notes,
-    warnings: warningList(body.warnings),
-    cached: booleanFlag(body.cached),
-    partial: booleanFlag(body.partial),
-    skippedChecks: stringList(body.skippedChecks ?? body.skipped_checks),
+    warnings: warningList(draft.warnings),
+    cached:
+      booleanFlag(body.cached) ||
+      booleanFlag(body.cacheHit) ||
+      booleanFlag(body.cache_hit) ||
+      booleanFlag(draft.cached),
+    partial: booleanFlag(body.partial) || booleanFlag(draft.partial),
+    skippedChecks: stringList(
+      draft.skippedChecks ??
+        draft.skipped_checks ??
+        body.skippedChecks ??
+        body.skipped_checks,
+    ),
     errors,
   };
 }
