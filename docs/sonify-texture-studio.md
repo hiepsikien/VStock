@@ -25,11 +25,11 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
-| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** `suite_mazurka_arpeggio_aaba` (3/4), `suite_valsa_arpeggio_period` (3/4), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
+| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** `suite_mazurka_arpeggio_aaba` (3/4), `suite_valsa_arpeggio_period` (3/4), `suite_gavotta_arpeggio_baab` (4/4), `suite_schottish_arpeggio_abab` (4/4 fold), `suite_choros1_arpeggio_abba` (4/4 provisional), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + crop web + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (native picker chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
-| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (39 row) + `render_matrix.json` (43 row); pattern-level matrix có 1 `expected_empty` có lý do |
+| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (44 row) + `render_matrix.json` (46 row); pattern-level matrix có 1 `expected_empty` có lý do |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
 | Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
 
@@ -589,7 +589,7 @@ Nếu `unsupported: true`, phải có `reason`; selection matrix không được
 
 #### Test
 
-> **Trạng thái code:** đã có cả ba matrix: `sentence_selection_matrix.json` (2.016 dòng), `pattern_selection_matrix.json` (39 row = 38 `PROFILES` + `pedal`), `render_matrix.json` (41 row), với test drift. `pattern_selection_matrix` dùng real chooser (`_select_body` 33 row, `_patterns` 6 row); `(torroba, sonatina)` là `expected_empty` duy nhất vì không có rule chọn production. Không dùng `conftest.py`; fixture là module trực tiếp.
+> **Trạng thái code:** đã có cả ba matrix: `sentence_selection_matrix.json` (2.016 dòng), `pattern_selection_matrix.json` (44 row = 38 `PROFILES` + `pedal`), `render_matrix.json` (41 row), với test drift. `pattern_selection_matrix` dùng real chooser (`_select_body` 33 row, `_patterns` 6 row); `(torroba, sonatina)` là `expected_empty` duy nhất vì không có rule chọn production. Không dùng `conftest.py`; fixture là module trực tiếp.
 
 - `backend/tests/test_texture_selection_matrix.py`
 - `backend/tests/test_texture_render_matrix.py`
@@ -1632,7 +1632,7 @@ Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc
 
 ### 12.2. Registry codegen
 
-> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`); codegen **đã có** `scripts/gen_pattern_registry.py` + `src/sonify/patternRegistry.generated.ts` (39 row, `level`/`nameSource`, `--check` + pytest gate). `PATTERN_NAMES` **đã derive** từ registry, chỉ `level === 'topic'`; `Pedal` và texture names không vào set.
+> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`); codegen **đã có** `scripts/gen_pattern_registry.py` + `src/sonify/patternRegistry.generated.ts` (44 row, `level`/`nameSource`, `--check` + pytest gate). `PATTERN_NAMES` **đã derive** từ registry, chỉ `level === 'topic'`; `Pedal` và texture names không vào set.
 
 Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.generated.ts` và có `--check`.
 
@@ -1648,7 +1648,7 @@ Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.gen
 
 ### 12.3. Title coverage, không phải uniqueness toàn cục
 
-`PATTERN_NAMES` là set toàn cục theo title, derive từ registry `level === 'topic'`: **30 title** distinct từ 33 topic row. Toàn bộ registry có 39 row / 34 title (gồm `Pedal`); 38 wave-profile row cho 33 title. **Không test uniqueness toàn cục** — 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
+`PATTERN_NAMES` là set toàn cục theo title, derive từ registry `level === 'topic'`: **35 title** distinct từ 38 topic row. Toàn bộ registry có 44 row / 34 title (gồm `Pedal`); 38 wave-profile row cho 33 title. **Không test uniqueness toàn cục** — 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
 
 ```python
 from collections import defaultdict
@@ -1746,9 +1746,9 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
-| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen + derived `PATTERN_NAMES` | renderer-profile playability, Phase 3 runtime 12/8 |
+| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen + derived `PATTERN_NAMES`; Suite palette preview | renderer-profile playability, Phase 3 runtime 12/8 |
 | 1 | Studio room, editor, examples, validate/preview, audio, publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + **crop web** + draft table + TextureSpec draft/validate, **in-memory preview/validate job queue**, export bundle JSON, spec owner/visibility | native picker/crop, durable preview media, `preview.wav`/export files, PR automation |
-| 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview; Suite audit + Mazurka candidate; `texture_registry.py`; **two-bar `chord_melody` interpreter proof** (flag off) | Full interpreter/registry runtime consumer, Suite production pattern/selection, multi-pattern interpreter |
+| 2 | Candidate preview Villa/Barrios/Brouwer; Barrios flag off; Bach preview; all 5 Suite candidates; `texture_registry.py`; two-bar `chord_melody` dispatch; all 5 Suite patterns behind default-off flags | Full interpreter/registry runtime consumer, multi-pattern interpreter, Bach production |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
 
 ### Phase 0 — Chứng minh schema, chưa UI, chưa Gemini (một phần)
@@ -1795,13 +1795,13 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ---
 
-### 13.10.1. Production flags (Sprint 13)
+### 13.10.1. Production flags (Sprint 13/16)
 
-- `VSTOCK_VILLA_PRODUCTION`, `VSTOCK_BROUWER_PRODUCTION`, `VSTOCK_SUITE_MAZURKA` — default **off**, context-manager override.
-- `suite_mazurka` (Mazurka-Choro, 3/4, topic/dance) đã register metadata/title/profile/door; selection + render chỉ khi flag on.
+- `VSTOCK_VILLA_PRODUCTION`, `VSTOCK_BROUWER_PRODUCTION`, `VSTOCK_SUITE_MAZURKA`, `VSTOCK_SUITE_VALSA`, `VSTOCK_SUITE_GAVOTTA`, `VSTOCK_SUITE_SCHOTTISH`, `VSTOCK_SUITE_CHOROS1` — default **off**, context-manager override.
+- Cả 5 Suite movement (Mazurka/Valsa/Gavotta/Schottish/Choros1) đã register metadata/title/profile/door; selection + render chỉ khi flag on. Schottish là 4/4 stand-in cho 2/4; Choros No.1 provisional 4/4; Gavotta bar-0 caveat.
 - Villa/Brouwer dùng candidate ABA hiện có; Barrios giữ flag riêng.
 - Gated Suite/Villa/Brouwer giờ trả **raw bar voices + plan** cho shared tail: scale/bells/transitions/wave/hairpin/fans/pinned/divisions; default figure contours chạy trước wave khi writer flag on. Flag off byte-identical. Barrios period vẫn giữ early-return riêng.
-- **Slot/texture `microVelocity` override** vẫn chưa wire: `plan_sentence` chưa giữ slot identity; seam là `plan_slots`/`SentenceVoices.slot_contours`.
+- Slot override đã wire qua `plan_slots` → `SentenceVoices.slot_contours`; texture override có seam `texture_contour` nhưng chưa có runtime consumer. Cathedral default contour vẫn chưa wire vào writer.
 
 ### 13.11. Quy trình `v2` (chốt 2026-11)
 
