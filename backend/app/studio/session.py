@@ -137,6 +137,7 @@ def quota_limits() -> StudioQuota:
 class StudioGlobalQuota:
     uploads_per_day: int = 1000
     analyses_per_day: int = 5000
+    specs_per_day: int = 1000
 
 
 def global_quota_limits() -> StudioGlobalQuota:
@@ -148,6 +149,9 @@ def global_quota_limits() -> StudioGlobalQuota:
         ),
         analyses_per_day=_int_env(
             "VSTOCK_STUDIO_GLOBAL_ANALYSES_PER_DAY", defaults.analyses_per_day
+        ),
+        specs_per_day=_int_env(
+            "VSTOCK_STUDIO_GLOBAL_SPECS_PER_DAY", defaults.specs_per_day
         ),
     )
 

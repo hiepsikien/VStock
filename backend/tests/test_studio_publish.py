@@ -33,9 +33,9 @@ def client(tmp_path, monkeypatch) -> TestClient:
         asyncio.run(store.close_db())
 
     monkeypatch.setenv("VSTOCK_DB_PATH", str(tmp_path / "studio.db"))
-    app = FastAPI()
-    app.include_router(studio_publish_router.router)
-    with TestClient(app) as test_client:
+    test_app = FastAPI()
+    test_app.include_router(studio_publish_router.router)
+    with TestClient(test_app) as test_client:
         try:
             yield test_client
         finally:
@@ -510,6 +510,24 @@ def test_list_and_detail_expose_visibility_but_not_owner_id(
     assert detail["visibility"] == "public"
     assert "ownerId" not in detail
     assert "owner_id" not in detail
+
+
+def test_publish_quota_is_enforced_per_session(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("VSTOCK_STUDIO_SPECS_PER_DAY", "1")
+    body = spec_to_mapping(CASTILLO_34_WALK)
+    first = _publish(client, body, session="quota-a")
+    assert first["ok"] is True
+
+    response = client.post(
+        PUBLISH,
+        json=spec_to_mapping(replace(CASTILLO_34_WALK, id="castillo_quota_2")),
+        headers={"X-Studio-Session": "quota-a"},
+    )
+    assert response.status_code == 429
+    assert response.json()["detail"]["kind"] == "spec"
+    assert "quota" in response.json()["detail"]["message"]
 
 
 def test_invalid_visibility_is_rejected_before_storing(client: TestClient) -> None:

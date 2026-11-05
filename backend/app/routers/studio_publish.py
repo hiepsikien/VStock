@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.store.db import get_db
-from app.studio import dispatch, publish, session as studio_session
+from app.studio import dispatch, publish, quota as studio_quota, session as studio_session
 from app.studio.sentence_spec import parse_spec
 
 router = APIRouter(prefix="/v1/studio", tags=["studio-publish"])
@@ -115,6 +115,32 @@ async def publish_sentence(
     ]
     if errors:
         return PublishResponse(ok=False, errors=errors)
+
+    limits = studio_session.quota_limits()
+    global_limits = studio_session.global_quota_limits()
+    decision = await studio_quota.consume_with_global(
+        db,
+        owner_id,
+        studio_quota.KIND_SPEC,
+        limits.specs_per_day,
+        global_limits.specs_per_day,
+    )
+    if not decision.allowed:
+        scope = (
+            "Server-wide" if getattr(decision, "scope", "owner") == "global" else "Daily"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "quota_exceeded",
+                "message": f"{scope} {decision.kind} quota ({decision.limit}) is exhausted",
+                "kind": decision.kind,
+                "day": decision.day,
+                "limit": decision.limit,
+                "retryAfter": decision.retry_after_seconds,
+            },
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
 
     record = await publish.publish_spec(
         db, spec, owner_id=owner_id, visibility=visibility

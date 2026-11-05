@@ -1363,7 +1363,7 @@ backend/app/studio/                    # sentence_spec, texture_spec, preview, d
 
 Sentence prefix: `/v1/studio/sentence`. Vision/session prefix: `/v1/musicalize/studio`. Vẫn chưa có preview job/queue, crop server-side hay export file trên đĩa.
 
-**Vận hành MVP:** production nên set `VSTOCK_STUDIO_SECRET`; thiếu env thì server dùng secret random per-process (token chết sau restart, không còn hardcoded secret). Upload có `Content-Length` guard + chunk cap; ngoài quota per-owner còn global cap `VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY`/`..._ANALYSES_PER_DAY` để chặn session rotation. Vision cache prune theo `VSTOCK_STUDIO_VISION_CACHE_DAYS` (default 30).
+**Vận hành MVP:** production nên set `VSTOCK_STUDIO_SECRET`; thiếu env thì server dùng secret random per-process (token chết sau restart, không còn hardcoded secret). Upload có `Content-Length` guard + chunk cap; ngoài quota per-owner còn global cap `VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY`/`..._ANALYSES_PER_DAY`/`..._SPECS_PER_DAY` để chặn session rotation; publish cũng enforce `specsPerDay` (429 + Retry-After). Vision cache prune theo `VSTOCK_STUDIO_VISION_CACHE_DAYS` (default 30).
 
 **Đề xuất Phase 1:**
 
