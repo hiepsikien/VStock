@@ -265,6 +265,11 @@ PATTERN_UNREACHABLE_REASONS = {
         "_fallback_body_pattern, and headline_id, not selection. Its sentence "
         "specs belong to the sentence-level matrix."
     ),
+    "suite_mazurka": (
+        "Villa returns suite_mazurka only when VSTOCK_SUITE_MAZURKA is on and "
+        "the movement is a whole 3/4 Villa body with no pedal bars. This "
+        "matrix runs with the flag off, so the historical Villa ladder answers."
+    ),
 }
 
 

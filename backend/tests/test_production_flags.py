@@ -1,8 +1,9 @@
 """Sprint 13 production feature flags.
 
-The helpers are plumbing only: no render or selection code calls them yet.
-These tests pin the parser contract, the default-off behaviour, the ContextVar
-override and its cleanup, and the Barrios delegation to its existing owner.
+The helpers are plumbing only: the gated modules own their registrations and
+render paths. These tests pin the parser contract, the default-off behaviour,
+the ContextVar override and its cleanup, and the Barrios delegation to its
+existing owner.
 """
 
 from __future__ import annotations

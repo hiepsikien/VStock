@@ -1235,6 +1235,8 @@ _RETAINED_DOORS = {
     ("classic", "study"): _study_door,
     ("barrios", "preludio"): _preludio_door,
     ("villa", "villa_pattern"): _villa_pattern_door,
+    # The promoted Suite Mazurka uses the same 3/4 Villa roll as its body.
+    ("villa", "suite_mazurka"): _villa_pattern_door,
     ("brouwer", "noviembre"): _noviembre_door,
     ("brouwer", "elogio_pizz"): _elogio_door,
     ("bach", "bach_bourree"): _bourree_door,

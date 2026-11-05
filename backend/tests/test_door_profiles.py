@@ -13,14 +13,14 @@ from app.sonify.guitar_wave import PROFILES
 
 
 def test_every_pattern_has_a_door() -> None:
-    """38/38 PROFILES rows resolve to a door key."""
+    """39/39 PROFILES rows resolve to a door key."""
     doors = _extra_doors()
     missing = sorted(key for key in PROFILES if key not in doors)
     assert not missing, missing
 
 
 def test_door_profiles_resolve_through_profile() -> None:
-    """38/38 rows: door profile == body profile."""
+    """39/39 rows: door profile == body profile."""
     for _ensemble, pattern in PROFILES:
         assert door_profile(pattern) == _PROFILE.get(pattern, "study"), pattern
 

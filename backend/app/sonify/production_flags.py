@@ -11,9 +11,9 @@ The Barrios Cathedral period already owns its flag in
 ``app.sonify.guitar_barrios_period``; :func:`barrios_period_enabled` delegates
 there instead of copying that flag or its override.
 
-Nothing here is wired into render or selection yet. Sprint 13 calls these
-helpers at the documented seams; importing this module changes no runtime
-behaviour and registers nothing.
+The helpers here only read or pin a flag. The call sites own every registration
+and render gate, so importing this module changes no runtime behaviour and
+registers nothing.
 """
 
 from __future__ import annotations

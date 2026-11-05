@@ -28,11 +28,24 @@ from typing import Literal
 from app.sonify.form import METER_34, METER_44, Meter
 from app.sonify.pattern_registry import PATTERN_META
 
-# The five Villa rows in `guitar_wave.PROFILES`; a test checks this set against
+# The six Villa rows in `guitar_wave.PROFILES`; a test checks this set against
 # the real table so an invented id cannot survive.
 VILLA_PATTERN_IDS = frozenset(
-    {"villa_pattern", "chord_melody", "etude1", "etude11", "thumb_cantabile"}
+    {
+        "villa_pattern",
+        "chord_melody",
+        "etude1",
+        "etude11",
+        "thumb_cantabile",
+        "suite_mazurka",
+    }
 )
+
+# Movements that have since been promoted to a production pattern id. Their
+# ids and printed titles now deliberately collide with `PATTERN_META`; the
+# ledger keeps the row, but the "unshipped" collision guard skips these.
+PROMOTED_MOVEMENT_IDS = frozenset({"suite_mazurka"})
+
 
 SentenceVerdict = Literal["yes", "no", "unknown"]
 SENTENCE_VERDICTS = frozenset({"yes", "no", "unknown"})
@@ -78,7 +91,7 @@ SUITE_MOVEMENTS: tuple[SuiteMovement, ...] = (
             "The doc gives 3/4 and the Villa bar writer already has a 3/4 "
             "branch; no form-level fold is involved."
         ),
-        pattern_overlap=("villa_pattern", "chord_melody", "thumb_cantabile"),
+        pattern_overlap=("villa_pattern", "chord_melody", "thumb_cantabile", "suite_mazurka"),
         sentence_plausible="yes",
         rationale=(
             "First movement and the cleanest 3/4 case: `_villa_bass` keeps the "
@@ -257,11 +270,14 @@ def validate(movements: Sequence[SuiteMovement] = SUITE_MOVEMENTS) -> None:
     existing_titles = _known_titles()
 
     for movement in movements:
-        if movement.id in existing_ids:
+        if movement.id in existing_ids and movement.id not in PROMOTED_MOVEMENT_IDS:
             raise ValueError(f"{movement.id!r}: collides with an existing pattern id")
         if not movement.id.startswith("suite_"):
             raise ValueError(f"{movement.id!r}: a Suite id must start with 'suite_'")
-        if movement.title in existing_titles:
+        if (
+            movement.title in existing_titles
+            and movement.id not in PROMOTED_MOVEMENT_IDS
+        ):
             raise ValueError(
                 f"{movement.title!r}: collides with an existing pattern title"
             )

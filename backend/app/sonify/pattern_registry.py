@@ -84,6 +84,9 @@ PATTERN_META: Mapping[str, PatternMeta] = MappingProxyType({
     "etude1": PatternMeta("etude1", "topic", "genre"),
     "etude11": PatternMeta("etude11", "topic", "genre"),
     "villa_pattern": PatternMeta("villa_pattern", "texture", None),
+    # The first promoted Suite Popular Brasileira movement. A dance that names
+    # itself; it is selected only behind `VSTOCK_SUITE_MAZURKA`.
+    "suite_mazurka": PatternMeta("suite_mazurka", "topic", "dance"),
     # Pedal is a frame path, not a printed unit: no wave profile, never a headline.
     "pedal": PatternMeta("pedal", "texture", None),
 })
