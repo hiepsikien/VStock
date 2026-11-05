@@ -661,6 +661,11 @@ def validate_authored(
     three full-bar voices are valid. ``require_full_bars`` compares each
     voice's duration sum in each bar to ``meter.quarter_beats``.
 
+    Overlap is per voice *per bar*: a note that reaches the bar line never
+    starts an overlap with the next bar's first note. ``beat`` is a position
+    inside its own bar, so comparing the raw beat across bars would report a
+    false overlap at every bar line.
+
     Ties and slurs are paired per voice. ``tie="next_bar"`` is a start whose
     stop must be the next event in the same voice, in the next bar at beat 0.
     """
@@ -675,7 +680,7 @@ def validate_authored(
         return tuple(errors)
 
     quarter = meter_spec.quarter_beats
-    by_voice: dict[int, list[tuple[int, AuthoredEvent]]] = {}
+    by_voice_bar: dict[tuple[int, int], list[tuple[int, AuthoredEvent]]] = {}
     for index, event in enumerate(events):
         if not isinstance(event, AuthoredEvent):
             continue
@@ -711,9 +716,9 @@ def validate_authored(
                     f"note overflows the bar: {beat} + {duration} > {quarter}",
                 )
             )
-        by_voice.setdefault(event.voice, []).append((index, event))
+        by_voice_bar.setdefault((event.voice, event.bar), []).append((index, event))
 
-    for voice, items in sorted(by_voice.items()):
+    for (voice, bar), items in sorted(by_voice_bar.items()):
         items.sort(key=lambda item: (float(item[1].beat), item[0]))
         previous_end = -1.0
         for index, event in items:
@@ -722,8 +727,8 @@ def validate_authored(
                 errors.append(
                     TextureError(
                         f"{path}[{index}].beat",
-                        f"voice {voice} note overlaps the previous note "
-                        f"({start} < {previous_end})",
+                        f"voice {voice} note overlaps the previous note in "
+                        f"bar {bar} ({start} < {previous_end})",
                     )
                 )
             previous_end = max(previous_end, start + float(event.duration_beats))

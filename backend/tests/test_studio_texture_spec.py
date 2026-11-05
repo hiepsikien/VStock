@@ -248,6 +248,55 @@ def test_overlap_in_one_voice_fails() -> None:
     assert "overlaps" in errors[0].message
 
 
+def test_overlap_does_not_cross_the_bar_line() -> None:
+    # beat is a position inside its bar, so a full bar 0 followed by a note at
+    # the start of bar 1 is back to back, not overlapping. Before the bar
+    # segmentation this was reported as a false overlap (0 < 4).
+    events = (
+        _event(1, 0.0, 4.0, bar=0),
+        _event(1, 0.0, 1.0, bar=1),
+    )
+    assert validate_authored(events, METER_44) == ()
+    # Same shape with the closing note sitting on bar 0's last beat.
+    edge = (
+        _event(1, 3.0, 1.0, bar=0),
+        _event(1, 0.0, 1.0, bar=1),
+    )
+    assert validate_authored(edge, METER_44) == ()
+
+
+def test_bar_line_segmentation_ignores_event_order() -> None:
+    # Same two bars, authored out of order: still two independent segments.
+    events = (
+        _event(1, 0.0, 4.0, bar=1),
+        _event(1, 0.0, 4.0, bar=0),
+    )
+    assert validate_authored(events, METER_44, require_full_bars=True) == ()
+
+
+def test_overlap_still_fails_inside_a_later_bar() -> None:
+    events = (
+        _event(1, 0.0, 4.0, bar=0),
+        _event(1, 0.0, 2.0, bar=1),
+        _event(1, 1.0, 1.0, bar=1),
+    )
+    errors = validate_authored(events, METER_44)
+    assert _paths(errors) == ["authored.events[2].beat"]
+    assert "bar 1" in errors[0].message
+
+
+def test_require_full_bars_checks_each_bar_of_a_two_bar_voice() -> None:
+    events = (
+        *(_event(1, beat, 1.0, bar=0) for beat in range(4)),
+        *(_event(1, beat, 1.0, bar=1) for beat in range(4)),
+    )
+    assert validate_authored(events, METER_44, require_full_bars=True) == ()
+    short = (*events[:-1], _event(1, 3.0, 0.5, bar=1))
+    assert _paths(
+        validate_authored(short, METER_44, require_full_bars=True)
+    ) == ["authored.events.voice[1].bar[1]"]
+
+
 def test_overlap_across_voices_is_allowed() -> None:
     events = (_event(1, 0.0, 4.0), _event(3, 0.0, 4.0), _event(2, 0.0, 4.0))
     assert validate_authored(events, METER_44, require_full_bars=True) == ()

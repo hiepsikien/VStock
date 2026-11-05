@@ -6,8 +6,8 @@ and the test oracle that keeps it honest:
 
 * :func:`code_bar` calls the production bar writers (``_chord_grid``,
   ``_render_block_bar``, ``_sustain``) for one fixture bar. That is the golden
-  side of the comparison.
-* :func:`spec_mapping` converts the same bar events into ``authored.events``.
+  side of the comparison; :func:`code_events` concatenates every authored bar.
+* :func:`spec_mapping` converts the same events into ``authored.events``.
   Pitch references use ``melody_eighth`` for the sung line and ``literal_midi``
   for the derived inner/bass tones, because a fixed ``chord_degree`` does not
   reproduce the register fold and inner-voice policy. The reason is recorded in
@@ -18,10 +18,11 @@ and the test oracle that keeps it honest:
 The builder never mutates ``SENTENCE_SPECS`` and is not imported by runtime
 code.
 
-The proof is one bar on purpose. ``validate_authored`` sorts a voice by
-``beat`` and does not segment the overlap pass by bar, so a multi-bar authored
-geometry reports false overlaps across the bar line. One bar is the smallest
-honest scope; widening the spec needs that validator fixed first.
+The proof is a two-bar excerpt. ``validate_authored`` segments overlap by
+``(voice, bar)`` before comparing beats, so a note that reaches the bar line no
+longer collides with the next bar's first note. That fixed geometry is what
+lets the authored events cover both bars honestly; a one-bar proof would not
+exercise the bar boundary at all.
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ from app.studio.texture_spec import MeterSpec, PitchRef
 from app.studio.texture_resolve import TextureResolveError, resolve_pitch
 from tests.guitar_fixture import pattern_case
 
-FIXTURE_BARS = 1
+FIXTURE_BARS = 2
 FIXTURE_ENSEMBLE = "villa"
 FIXTURE_MOOD = "calm"
 FIXTURE_BAND = "mf"
@@ -62,11 +63,13 @@ SPEC_PATH = (
 )
 RENDERER_VERSION = "chord-melody-interpreter-1"
 SPEC_NOTES = (
-    "Phase 2 interpreter prove-out for chord_melody. The sung line uses "
-    "melody_eighth. Inner and bass tones use literal_midi because the code "
-    "writer folds chord tones into the bass/mid registers and moves the inner "
-    "voice with the melody; a fixed chord_degree cannot reproduce that. "
-    "Velocity is host-derived, not authored."
+    "Phase 2 interpreter prove-out for chord_melody over a fixed two-bar 4/4 "
+    "excerpt. The sung line uses melody_eighth for every eighth of the "
+    "excerpt. Inner and bass tones use chord_degree where it resolves to the "
+    "written pitch and literal_midi otherwise, because the code writer folds "
+    "chord tones into the bass/mid registers and moves the inner voice with "
+    "the melody; a fixed chord_degree cannot reproduce every fold. Velocity "
+    "is host-derived, not authored."
 )
 
 

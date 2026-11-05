@@ -1,9 +1,9 @@
-"""Bounded Phase 2 interpreter proof for one authored bar texture.
+"""Bounded Phase 2 interpreter proof for a two-bar authored texture.
 
 This module is deliberately narrow. It resolves one published ``TextureSpec``
 for ``chord_melody`` through :mod:`app.sonify.texture_registry` and turns its
-``authored.events`` into ``NoteEvent`` values for the same bar. It is not a
-registry, a compiler, or a generic pattern engine:
+``authored.events`` into ``NoteEvent`` values bar by bar for a fixed two-bar
+excerpt. It is not a registry, a compiler, or a generic pattern engine:
 
 * The spec comes from the fail-soft registry (``load_default``), not from a
   hardcoded file read. Only the spec whose id is :data:`SPEC_ID`, whose
@@ -11,6 +11,8 @@ registry, a compiler, or a generic pattern engine:
   :data:`INTERPRETER_PATTERN`, whose meter matches, and whose authored
   render-context digest matches the live ``_Ctx`` is used. Everything else
   returns ``None`` so the caller keeps the existing code path.
+* The digest covers the whole excerpt, so a two-bar context never borrows the
+  spec for a one-bar render and vice versa.
 * Pitch resolution goes through :func:`app.studio.texture_resolve.resolve_pitch`
   (via ``authored_to_events``). The spec does not contain absolute MIDI unless
   a tone is genuinely fixture data; the golden fixture records that reason.
@@ -150,8 +152,8 @@ def _validated_proof_spec(spec: TextureSpec, *, source: str) -> TextureSpec:
 
     The registry applies the parse, version, and general offline validation
     gates. These checks are stricter and specific to this proof: it must be the
-    ``chord_melody`` interpreter spec, declare its pattern, and validate for a
-    full bar in its own meter.
+    ``chord_melody`` interpreter spec, declare its pattern, and validate every
+    authored bar as a full bar in its own meter.
     """
     if spec.runtime != "interpreter":
         raise TextureInterpreterError(
@@ -370,9 +372,10 @@ def render_chord_melody_bar(
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]] | None:
     """Interpret one ``chord_melody`` bar from the committed spec.
 
-    Returns ``(lead, support, low)`` exactly when the flag is on, the spec is
-    valid, and its authored render-context digest matches ``ctx``. Any other
-    case returns ``None``; the caller must keep the code renderer.
+    Bars are resolved independently from the same authored excerpt. Returns
+    ``(lead, support, low)`` exactly when the flag is on, the spec is valid,
+    and its authored render-context digest matches ``ctx``. Any other case
+    returns ``None``; the caller must keep the code renderer.
     """
     if not interpreter_enabled():
         return None

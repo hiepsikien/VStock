@@ -1,12 +1,13 @@
-"""Phase 2 interpreter proof: one chord_melody bar behind a flag.
+"""Bounded Phase 2 interpreter proof: a two-bar chord_melody excerpt behind a flag.
 
-The committed spec is a deterministic one-bar fixture, published through
+The committed spec is a deterministic two-bar fixture, published through
 ``app.sonify.texture_registry``. These tests lock four things:
 
 * flag off is the existing code render, byte for byte, and reads no registry;
-* flag on applies the interpreter only to the authored ``chord_melody`` bar
-  resolved from the registry and reproduces the code bar writer exactly
-  (velocity included, supplied by the host because the spec does not own it);
+* flag on applies the interpreter only to the authored ``chord_melody`` bars
+  resolved from the registry and reproduces the code bar writer exactly for
+  both bars (velocity included, supplied by the host because the spec does not
+  own it);
 * every other context/pattern, and every missing/malformed/registry-skipped
   spec, falls back to code without raising;
 * the interpreter never mutates the production sentence or texture registries.
@@ -50,9 +51,9 @@ from app.studio.texture_spec import (
 )
 from tests import texture_interpreter_fixture as fixture
 
-# sha256 of the flag-off full render for the one-bar fixture. Drift is a review
+# sha256 of the flag-off full render for the two-bar fixture. Drift is a review
 # event, not an auto-update.
-OFF_RENDER_DIGEST = "sha256:29006e4b68a8c2ba565ef9ac33f1a239ad4bcf2d1f641b9a4dafd3aaf4ed2914"
+OFF_RENDER_DIGEST = "sha256:d20613ab9785c4095f84c9bebaab7c2b580c1d05923d3f282323befd19799a16"
 
 
 def _render(ctx, *, patterns: list[str] | None = None):
@@ -180,8 +181,9 @@ def test_committed_spec_parses_validates_and_round_trips() -> None:
     assert parse_texture_spec(texture_spec_to_mapping(spec)) == spec
 
     kinds = [event.pitch.kind for event in spec.authored]
-    assert kinds.count("melody_eighth") == 8
+    assert kinds.count("melody_eighth") == 8 * fixture.FIXTURE_BARS
     assert "literal_midi" in kinds
+    assert {event.bar for event in spec.authored} == set(range(fixture.FIXTURE_BARS))
     assert all(event.review == "edited" for event in spec.authored)
 
 
@@ -193,6 +195,23 @@ def test_spec_declares_the_render_context_digest() -> None:
     assert declared["meter"] == "4/4"
     assert declared["ensemble"] == fixture.FIXTURE_ENSEMBLE
     assert declared["digest"] == context_digest(ctx)
+
+
+def test_spec_source_declares_the_two_bar_excerpt() -> None:
+    spec = load_spec()
+    assert spec.source["bars"] == [1, fixture.FIXTURE_BARS]
+    assert fixture.FIXTURE_BARS == 2
+
+
+def test_context_digest_is_deterministic_and_covers_the_excerpt_length() -> None:
+    ctx, _phrases = fixture.fixture_case()
+    other, _phrases = fixture.fixture_case()
+    digest = context_digest(ctx)
+    assert digest == context_digest(other)
+    assert digest.startswith("sha256:")
+    # The digest includes ``bars``, so the one-bar excerpt is a different
+    # context and cannot pass the spec gate.
+    assert context_digest(replace(ctx, bars=1)) != digest
 
 
 def test_registry_publishes_the_proof_spec() -> None:
@@ -245,15 +264,16 @@ def test_interpreter_uses_a_published_spec_from_the_configured_root(tmp_path) ->
 # ---------------------------------------------------------------------------
 
 
-def test_interpreter_reproduces_the_code_bar_exactly() -> None:
+@pytest.mark.parametrize("bar", range(fixture.FIXTURE_BARS))
+def test_interpreter_reproduces_the_code_bar_exactly(bar: int) -> None:
     reset_spec_cache()
     ctx, phrases = fixture.fixture_case()
     phrase = phrases[0]
-    expected = fixture.code_bar(ctx, phrase, 0)
+    expected = fixture.code_bar(ctx, phrase, bar)
     with use_texture_interpreter(True):
         actual = render_chord_melody_bar(
             ctx,
-            0,
+            bar,
             phrase,
             velocity_at=lambda event, breaks: _velocity(ctx, phrase, event, breaks),
         )
@@ -262,15 +282,39 @@ def test_interpreter_reproduces_the_code_bar_exactly() -> None:
         assert got == want, (voice, got, want)
 
 
-def test_interpreter_without_a_host_resolver_keeps_velocity_derived() -> None:
+def test_interpreter_reproduces_the_whole_two_bar_excerpt() -> None:
+    reset_spec_cache()
+    ctx, phrases = fixture.fixture_case()
+    phrase = phrases[0]
+    expected = fixture.code_events(ctx, phrase)
+    actual = ([], [], [])
+    with use_texture_interpreter(True):
+        for bar in range(fixture.FIXTURE_BARS):
+            part = render_chord_melody_bar(
+                ctx,
+                bar,
+                phrase,
+                velocity_at=lambda event, breaks: _velocity(
+                    ctx, phrase, event, breaks
+                ),
+            )
+            assert part is not None
+            for voice in range(3):
+                actual[voice].extend(part[voice])
+    assert tuple(actual) == expected
+    assert {event.bar for voice in actual for event in voice} == {0, 1}
+
+
+@pytest.mark.parametrize("bar", range(fixture.FIXTURE_BARS))
+def test_interpreter_without_a_host_resolver_keeps_velocity_derived(bar: int) -> None:
     reset_spec_cache()
     ctx, phrases = fixture.fixture_case()
     with use_texture_interpreter(True):
-        actual = render_chord_melody_bar(ctx, 0, phrases[0])
+        actual = render_chord_melody_bar(ctx, bar, phrases[0])
     assert actual is not None
     assert all(event.velocity is None for voice in actual for event in voice)
     # Placement/pitch still match the code writer; only the derived level differs.
-    expected = fixture.code_bar(ctx, phrases[0], 0)
+    expected = fixture.code_bar(ctx, phrases[0], bar)
     for got_voice, want_voice in zip(actual, expected):
         assert [
             (event.bar, event.beat, event.midi, event.duration_beats, event.voice)
@@ -288,7 +332,7 @@ def test_full_render_off_is_the_committed_code_path() -> None:
     assert _render_digest(rendered) == OFF_RENDER_DIGEST
 
 
-def test_full_render_on_matches_off_for_the_authored_bar() -> None:
+def test_full_render_on_matches_off_for_the_authored_bars() -> None:
     reset_spec_cache()
     ctx, _phrases = fixture.fixture_case()
     with use_texture_interpreter(False):
@@ -307,7 +351,9 @@ def test_full_render_on_matches_off_for_the_authored_bar() -> None:
             texture_interpreter, "render_chord_melody_bar", side_effect=spy
         ):
             on = _render(ctx)
-    assert calls == [True], "the on render did not take the interpreter path"
+    assert calls == [True] * fixture.FIXTURE_BARS, (
+        "the on render did not take the interpreter path for every bar"
+    )
     assert on == off
 
 
@@ -336,6 +382,25 @@ def test_another_pattern_falls_back_to_code() -> None:
         off = _render(ctx, patterns=["villa_pattern"])
     with use_texture_interpreter(True):
         on = _render(ctx, patterns=["villa_pattern"])
+    assert on == off
+
+
+def test_a_wrong_excerpt_length_or_meter_falls_back_to_code() -> None:
+    reset_spec_cache()
+    ctx, phrases = fixture.fixture_case()
+    with use_texture_interpreter(True):
+        # The spec is authored for exactly two 4/4 bars.
+        assert render_chord_melody_bar(replace(ctx, bars=1), 0, phrases[0]) is None
+        assert (
+            render_chord_melody_bar(replace(ctx, bar_beats=3.0), 0, phrases[0])
+            is None
+        )
+
+    one_bar = replace(ctx, bars=1)
+    with use_texture_interpreter(False):
+        off = _render(one_bar)
+    with use_texture_interpreter(True):
+        on = _render(one_bar)
     assert on == off
 
 
