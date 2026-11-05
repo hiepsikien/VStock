@@ -51,7 +51,8 @@ def _parse_error(exc: Exception) -> SpecErrorOut:
             index = text.find(marker, start)
             if index < 0:
                 break
-            if index == 0 or text[index - 2 : index] in {": ", "  "}:
+            before = text[max(0, index - 2) : index]
+            if index == 0 or before in {": ", "  "} or text[index - 1 : index] in {"\n"}:
                 candidates.append((index, marker))
             start = index + 1
     if candidates:

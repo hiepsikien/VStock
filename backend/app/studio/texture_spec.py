@@ -1198,23 +1198,12 @@ def validate_texture_spec(
             variant = spec.meter_variants[0]
             if isinstance(variant, MeterVariant):
                 micro_meter = variant.meter
-        authored_bars = (
-            max((event.bar for event in spec.authored), default=-1) + 1
-            if spec.authored
-            else 0
-        )
-        contour_bars = max(
-            (
-                entry.bar
-                for entry in (*spec.micro_velocity.notes, *spec.micro_velocity.thumb)
-                if isinstance(entry.bar, int)
-            ),
-            default=-1,
-        ) + 1
-        micro_bars = max(authored_bars, contour_bars) or None
+        # `TextureSpec` has no declared bar length/window, so the offline
+        # validator can honestly bound only the beat inside a bar. Bounding
+        # `bar` from the authored/contour extent would always pass; the
+        # compiler/preview bounds it against the selected meter/window instead.
         for error in validate_micro_velocity(
             spec.micro_velocity,
-            bars=micro_bars,
             beats_per_bar=(
                 micro_meter.quarter_beats if micro_meter is not None else None
             ),
