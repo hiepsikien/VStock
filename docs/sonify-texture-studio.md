@@ -25,7 +25,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
 | Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
 | Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
-| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** `suite_mazurka_arpeggio_aaba` (3/4), `suite_valsa_arpeggio_period` (3/4), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
+| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** `suite_mazurka_arpeggio_aaba` (3/4), `suite_valsa_arpeggio_period` (3/4), `suite_valsa_arpeggio_period` (3/4), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview-only, đi qua endpoint chung. Barrios có thêm production path sau flag `VSTOCK_BARRIOS_PERIOD` (default off) |
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + crop web + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (native picker chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
@@ -1800,7 +1800,8 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - `VSTOCK_VILLA_PRODUCTION`, `VSTOCK_BROUWER_PRODUCTION`, `VSTOCK_SUITE_MAZURKA` — default **off**, context-manager override.
 - `suite_mazurka` (Mazurka-Choro, 3/4, topic/dance) đã register metadata/title/profile/door; selection + render chỉ khi flag on.
 - Villa/Brouwer dùng candidate ABA hiện có; Barrios giữ flag riêng.
-- **Caveat:** gated paths là early-return theo mô hình Barrios period; chúng **chưa chạy** wave/dynamics/bells/transitions/scale-passage/micro-velocity tail. Đây là bản audition, không phải final production shaping. Flag off byte-identical.
+- Gated Suite/Villa/Brouwer giờ trả **raw bar voices + plan** cho shared tail: scale/bells/transitions/wave/hairpin/fans/pinned/divisions; default figure contours chạy trước wave khi writer flag on. Flag off byte-identical. Barrios period vẫn giữ early-return riêng.
+- **Slot/texture `microVelocity` override** vẫn chưa wire: `plan_sentence` chưa giữ slot identity; seam là `plan_slots`/`SentenceVoices.slot_contours`.
 
 ### 13.11. Quy trình `v2` (chốt 2026-11)
 
