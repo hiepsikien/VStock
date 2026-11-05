@@ -14,6 +14,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.studio import preview
+from app.studio.sentence_spec import parse_payload, parse_spec
 
 router = APIRouter(prefix="/v1/studio", tags=["studio"])
 
@@ -47,9 +48,27 @@ class PreviewResponse(BaseModel):
 
 @router.post("/sentence/validate", response_model=ValidateResponse)
 def validate_sentence(body: dict[str, Any]) -> ValidateResponse:
-    """Validate one sentence mapping without registering it globally."""
+    """Validate one spec mapping, or a v1 wrapper with several specs."""
+    if "specs" in body:
+        try:
+            specs = parse_payload(body)
+        except _PARSE_ERRORS as exc:
+            return ValidateResponse(
+                ok=False, errors=[SpecErrorOut(path="spec", message=str(exc))]
+            )
+        errors: list[SpecErrorOut] = []
+        for index, spec in enumerate(specs):
+            for error in preview.validate_spec(spec):
+                path = (
+                    f"specs[{index}]"
+                    if error.path == "spec"
+                    else f"specs[{index}].{error.path}"
+                )
+                errors.append(SpecErrorOut(path=path, message=error.message))
+        return ValidateResponse(ok=not errors, errors=errors)
+
     try:
-        spec = preview.parse_spec(body)
+        spec = parse_spec(body)
     except _PARSE_ERRORS as exc:
         return ValidateResponse(
             ok=False, errors=[SpecErrorOut(path="spec", message=str(exc))]
@@ -65,7 +84,7 @@ def validate_sentence(body: dict[str, Any]) -> ValidateResponse:
 def preview_sentence(body: PreviewRequest) -> PreviewResponse:
     """Validate and render one bounded fixture for an authored spec."""
     try:
-        spec = preview.parse_spec(body.spec)
+        spec = parse_spec(body.spec)
     except _PARSE_ERRORS as exc:
         return PreviewResponse(
             ok=False, errors=[SpecErrorOut(path="spec", message=str(exc))]

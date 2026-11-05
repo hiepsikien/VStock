@@ -10,11 +10,11 @@ module only answers two questions for the Studio UI:
 
 Sandbox
 -------
-`validate_spec` registers the spec in a copy of `SENTENCE_SPECS`, and
-`preview_spec` temporarily makes the spec the only archetype for its
-`(pattern, meter)` key. Both restore the global registry in a `finally` block
-and hold a module lock, so an authoring spec can never leak into a later
-render.
+`validate_spec` checks structural rules without registering the spec in the
+global registry. `preview_spec` plans and renders inside
+`sentence_specs.use_registry`, a `ContextVar` carrying a local snapshot; the
+per-bar realizers therefore see the authored spec, and `SENTENCE_SPECS` is
+never mutated. The plan and the notes both come from that same snapshot.
 
 Fixture
 -------
@@ -32,6 +32,7 @@ key          default / meaning
 `closes`     `False` for `closes="open"`, `True` for `closes="close"`
 `rise`       `select.rise_min`
 `bars`       bars to render, capped at `MAX_RENDER_BARS` (default: length)
+`length`     capped at `MAX_PLAN_BARS`; `run_length` is the cell/cycle alias
 `character`  `"calm"` for Torroba figures, `"rally"` for a classic cell run
 `mode`       `"minor"` for Torroba figures, `"major"` for a cell run
 `bpm`        `96` for Torroba figures, `88` for a cell run
@@ -77,13 +78,17 @@ from app.sonify.keys import active_register
 from app.sonify.model import Phrase, Run
 from app.sonify import sentence_specs
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
+from app.studio.sentence_spec import parse_spec
 
 MAX_RENDER_BARS = 16
+MAX_PLAN_BARS = 64
 MAX_MATRIX_LENGTH = 12
 MAX_MATRIX_ROWS = 4096
 _HASH_PREFIX = "sha256:"
 _METERS = {"3/4": METER_34, "4/4": METER_44, "6/8": METER_68}
 _PROFILES = {"torroba", "classic"}
+_CHARACTERS = frozenset({None, "calm", "rally", "selloff", "volatile"})
+_MODES = frozenset({"major", "minor"})
 _TORROBA_CONTOUR = (67, 65, 64, 62, 60, 62, 64, 65)
 _GALOP_PITCH = 67
 
@@ -122,29 +127,6 @@ class PreviewResult:
             "renderHash": self.render_hash,
             "matrix": list(self.matrix),
         }
-
-
-def parse_spec(mapping: Mapping[str, Any]) -> SentenceSpec:
-    """Adapter for workstream A's `app.studio.sentence_spec.parse_spec`.
-
-    Keeping the import here means wiring the real parser is a one-line change
-    (drop the guard) and this branch never ships a second JSON dialect.
-    """
-    try:
-        module = importlib.import_module("app.studio.sentence_spec")
-    except ModuleNotFoundError as exc:
-        if exc.name != "app.studio.sentence_spec":
-            raise
-        raise SpecParseError(
-            "app.studio.sentence_spec.parse_spec is not available in this build"
-        ) from exc
-    parser = getattr(module, "parse_spec", None)
-    if parser is None:
-        raise SpecParseError("app.studio.sentence_spec has no parse_spec()")
-    spec = parser(mapping)
-    if not isinstance(spec, SentenceSpec):
-        raise SpecParseError("app.studio.sentence_spec.parse_spec must return a SentenceSpec")
-    return spec
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +236,9 @@ def validate_spec(spec: SentenceSpec) -> list[Error]:
         errors.append(
             Error(
                 "meter",
-                f"meter {spec.meter!r} is not registered for pattern {spec.pattern!r}",
+                "pattern/meter pair "
+                f"{spec.pattern!r}/{spec.meter!r} is not registered "
+                "(Phase 1 edits existing pairs)",
             )
         )
 
@@ -356,6 +340,28 @@ def _default_n(spec: SentenceSpec) -> int:
     return 0
 
 
+def _fixture_int(
+    value: Any,
+    path: str,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SpecParseError(f"{path} must be an integer")
+    if minimum is not None and value < minimum:
+        raise SpecParseError(f"{path} must be >= {minimum}")
+    if maximum is not None and value > maximum:
+        raise SpecParseError(f"{path} must be <= {maximum}")
+    return value
+
+
+def _fixture_bool(value: Any, path: str) -> bool:
+    if not isinstance(value, bool):
+        raise SpecParseError(f"{path} must be a boolean")
+    return value
+
+
 def _resolve_fixture(spec: SentenceSpec, fixture: Mapping[str, Any] | None) -> dict[str, Any]:
     supplied = dict(fixture or {})
     profile = supplied.get("profile")
@@ -386,24 +392,42 @@ def _resolve_fixture(spec: SentenceSpec, fixture: Mapping[str, Any] | None) -> d
             f"fixture.meter {meter!r} does not match spec.meter {spec.meter!r}"
         )
 
-    n = int(supplied.get("n", _default_n(spec)))
-    closes = bool(supplied.get("closes", spec.select.closes == "close"))
-    rise = int(supplied.get("rise", spec.select.rise_min))
-    # The UI names the galop cycle fixture `run_length`; figures use `length`.
-    length_value = supplied.get(
-        "run_length" if spec.span.cycle else "length",
-        _default_length(spec, n, closes, rise),
+    n = _fixture_int(supplied.get("n", _default_n(spec)), "fixture.n", minimum=0)
+    closes = _fixture_bool(
+        supplied.get("closes", spec.select.closes == "close"), "fixture.closes"
     )
-    length = int(length_value)
-    if length < 1:
-        raise SpecParseError("fixture.length must be >= 1")
-    bars = min(int(supplied.get("bars", length)), MAX_RENDER_BARS, length)
+    rise = _fixture_int(
+        supplied.get("rise", spec.select.rise_min), "fixture.rise", minimum=0
+    )
+    # The UI names the galop cycle fixture `run_length`; figures use `length`.
+    length = _fixture_int(
+        supplied.get(
+            "run_length" if spec.span.cycle else "length",
+            _default_length(spec, n, closes, rise),
+        ),
+        "fixture.length",
+        minimum=1,
+        maximum=MAX_PLAN_BARS,
+    )
+    bars = _fixture_int(supplied.get("bars", length), "fixture.bars", minimum=0)
+    bars = min(bars, MAX_RENDER_BARS, length)
 
     character = supplied.get(
         "character", "rally" if profile == "classic" else "calm"
     )
+    if character not in _CHARACTERS:
+        raise SpecParseError(
+            f"fixture.character must be one of {sorted(item or 'none' for item in _CHARACTERS)}"
+        )
     mode = supplied.get("mode", "major" if profile == "classic" else "minor")
-    bpm = int(supplied.get("bpm", 88 if profile == "classic" else 96))
+    if mode not in _MODES:
+        raise SpecParseError(f"fixture.mode must be one of {sorted(_MODES)}")
+    bpm = _fixture_int(
+        supplied.get("bpm", 88 if profile == "classic" else 96),
+        "fixture.bpm",
+        minimum=1,
+        maximum=400,
+    )
     matrix = _matrix_axes(supplied.get("matrix"))
 
     return {
@@ -683,19 +707,38 @@ def _matrix_axes(supplied: Mapping[str, Any] | None) -> dict[str, list[Any]]:
     raw_n = supplied.get("n", [0, 1, 2, 3])
     raw_closes = supplied.get("closes", [False, True])
     raw_rise = supplied.get("rise", [0, 1, 2])
-    try:
-        lengths = sorted(
-            {
-                int(value)
-                for value in raw_lengths
-                if 1 <= int(value) <= MAX_MATRIX_LENGTH
-            }
-        )
-        n_values = [int(value) for value in raw_n][:8]
-        closes_values = [bool(value) for value in raw_closes][:2]
-        rise_values = [int(value) for value in raw_rise][:8]
-    except (TypeError, ValueError) as exc:
-        raise SpecParseError(f"fixture.matrix: {exc}") from exc
+    for name, raw in (
+        ("lengths", raw_lengths),
+        ("n", raw_n),
+        ("closes", raw_closes),
+        ("rise", raw_rise),
+    ):
+        if not isinstance(raw, (list, tuple)):
+            raise SpecParseError(f"fixture.matrix.{name} must be a list")
+
+    # Slice before converting so a huge input cannot be materialised.
+    lengths = sorted(
+        {
+            value
+            for value in (
+                _fixture_int(item, "fixture.matrix.lengths", minimum=1,
+                             maximum=MAX_MATRIX_LENGTH)
+                for item in raw_lengths[: MAX_MATRIX_LENGTH * 2]
+            )
+        }
+    )
+    n_values = [
+        _fixture_int(item, "fixture.matrix.n", minimum=0)
+        for item in raw_n[:8]
+    ]
+    closes_values = [
+        _fixture_bool(item, "fixture.matrix.closes")
+        for item in raw_closes[:2]
+    ]
+    rise_values = [
+        _fixture_int(item, "fixture.matrix.rise", minimum=0)
+        for item in raw_rise[:8]
+    ]
     if not lengths or not n_values or not closes_values or not rise_values:
         raise SpecParseError("fixture.matrix axes must be non-empty")
     if len(lengths) * len(n_values) * len(closes_values) * len(rise_values) > MAX_MATRIX_ROWS:
@@ -786,11 +829,14 @@ def preview_spec(
     _load_owners()
     sandbox = dict(sentence_specs.SENTENCE_SPECS)
     sandbox[(spec.pattern, spec.meter)] = (spec,)
-    plan = _plan_for(spec, resolved, registry=sandbox)
-    if spec.span.cycle:
-        events, row = _cell_notes(spec, resolved)
-    else:
-        events, row = _figure_notes(spec, resolved)
+    # The per-bar realizers call plan_sentence/plan_run themselves. The
+    # ContextVar makes them see the authored spec, not the production one.
+    with sentence_specs.use_registry(sandbox):
+        plan = _plan_for(spec, resolved)
+        if spec.span.cycle:
+            events, row = _cell_notes(spec, resolved)
+        else:
+            events, row = _figure_notes(spec, resolved)
 
     notes = _notes(events)
     render_hash = _render_hash(plan, row, notes)

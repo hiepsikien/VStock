@@ -30,13 +30,33 @@ from __future__ import annotations
 
 import importlib
 import json
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
 # Owner modules call register() at import. plan_sentence() imports them lazily
 # so a caller that only imports this module still gets a plan.
 _OWNER_MODULES = ("app.sonify.guitar_torroba", "app.sonify.guitar_sor")
+
+# Preview/authoring code can plan against a local snapshot without mutating the
+# global table. ContextVar keeps it async/thread-local, like compose_meter.
+_PLAN_REGISTRY: ContextVar[
+    Mapping[tuple[str, str], tuple["SentenceSpec", ...]] | None
+] = ContextVar("sentence_plan_registry", default=None)
+
+
+@contextmanager
+def use_registry(
+    registry: Mapping[tuple[str, str], tuple["SentenceSpec", ...]],
+) -> Iterator[None]:
+    """Plan from `registry` for the duration of the context."""
+    token = _PLAN_REGISTRY.set(registry)
+    try:
+        yield
+    finally:
+        _PLAN_REGISTRY.reset(token)
 
 METER_ANY = "*"
 _N_PARITY = frozenset({"any", "even", "odd"})
@@ -489,11 +509,12 @@ def _lookup(
     meter: str,
     registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
 ) -> tuple[SentenceSpec, ...] | None:
-    table = SENTENCE_SPECS if registry is None else registry
+    active = registry if registry is not None else _PLAN_REGISTRY.get()
+    table = SENTENCE_SPECS if active is None else active
     exact = table.get((pattern, meter))
     if exact is not None:
         return exact
-    if registry is not None:
+    if active is not None:
         # A sandbox registry is already complete; do not import owners into it.
         return table.get((pattern, METER_ANY))
     # Owner modules register at import. A caller that imports only this module

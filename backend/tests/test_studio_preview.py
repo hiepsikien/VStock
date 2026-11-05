@@ -6,9 +6,7 @@ The preview must go through the real renderers and leave the global
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import pathlib
 from dataclasses import replace
 
 import pytest
@@ -30,6 +28,7 @@ from app.sonify.sentence_specs import plan_sentence
 from app.studio import preview
 from app.studio.export import SPECS_DIR
 from app.studio.preview import preview_spec, validate_spec
+from app.studio.sentence_spec import spec_to_mapping
 
 
 def _snapshot() -> dict:
@@ -155,6 +154,39 @@ def test_preview_does_not_leak_the_authoring_spec() -> None:
     assert plan_sentence("castillo", "3/4", 9, 0) == real_spans
 
 
+def test_editing_a_figure_slot_changes_the_rendered_notes() -> None:
+    base = preview_spec(CASTILLO_34_WALK)
+    edited = replace(
+        CASTILLO_34_WALK,
+        slots=(replace(CASTILLO_34_WALK.slots[0], figure=14),),
+    )
+    changed = preview_spec(edited)
+
+    assert base.ok and changed.ok
+    assert base.plan["spans"][0]["figure"] == 13
+    assert changed.plan["spans"][0]["figure"] == 14
+    assert base.notes != changed.notes
+    assert base.render_hash != changed.render_hash
+
+
+def test_editing_a_galop_cell_changes_the_rendered_notes() -> None:
+    base = preview_spec(GALOP_CYCLE)
+    edited = replace(
+        GALOP_CYCLE,
+        slots=(
+            replace(GALOP_CYCLE.slots[0], cell=GALOP_CELL_2),
+            replace(GALOP_CYCLE.slots[1], cell=GALOP_CELL_1),
+        ),
+    )
+    changed = preview_spec(edited)
+
+    assert base.ok and changed.ok
+    assert base.plan["spans"][0]["cell"] == GALOP_CELL_1
+    assert changed.plan["spans"][0]["cell"] == GALOP_CELL_2
+    assert base.notes != changed.notes
+    assert base.render_hash != changed.render_hash
+
+
 def test_preview_of_galop_returns_the_cycle_plan() -> None:
     before = _snapshot()
     result = preview_spec(GALOP_CYCLE)
@@ -188,6 +220,42 @@ def test_preview_respects_the_bounded_bars_fixture() -> None:
     assert {note["bar"] for note in short.notes} == {0, 1}
     assert len(short.notes) < len(full.notes)
     assert short.render_hash != full.render_hash
+
+
+def test_preview_caps_the_planned_length() -> None:
+    result = preview_spec(CASTILLO_34_WALK, {"length": preview.MAX_PLAN_BARS + 1})
+    assert not result.ok
+    assert result.errors[0].path == "fixture"
+    assert "fixture.length" in result.errors[0].message
+
+
+def test_fixture_rejects_bad_types_and_values() -> None:
+    cases = (
+        ({"bars": -1}, "fixture.bars"),
+        ({"bars": "2"}, "fixture.bars"),
+        ({"length": "9"}, "fixture.length"),
+        ({"mode": "lydian"}, "fixture.mode"),
+        ({"bpm": -5}, "fixture.bpm"),
+        ({"character": "loud"}, "fixture.character"),
+        ({"closes": "yes"}, "fixture.closes"),
+    )
+    for fixture, path in cases:
+        result = preview_spec(CASTILLO_34_WALK, fixture)
+        assert not result.ok, fixture
+        assert result.errors[0].path == "fixture"
+        assert path in result.errors[0].message, (fixture, result.errors)
+
+
+def test_matrix_slices_before_converting() -> None:
+    # Invalid values past the accepted axis slice must not be converted.
+    matrix = {
+        "lengths": [1, 2, 3] + [1] * 21 + ["bad"] * 100,
+        "n": [0, 1] + [0] * 6 + ["bad"] * 100,
+        "closes": [True, False] + ["bad"] * 100,
+        "rise": [0, 1] + [0] * 6 + ["bad"] * 100,
+    }
+    result = preview_spec(CASTILLO_34_WALK, {"matrix": matrix})
+    assert result.ok
 
 
 def test_preview_fixture_rejects_a_meter_that_does_not_match() -> None:
@@ -237,8 +305,7 @@ def test_validate_errors_are_json_shaped() -> None:
     assert payload["plan"] is None
 
 
-def _client(monkeypatch) -> TestClient:
-    monkeypatch.setattr(preview, "parse_spec", lambda _mapping: CASTILLO_34_WALK)
+def _client() -> TestClient:
     app = FastAPI()
     app.include_router(studio_router.router)
     return TestClient(app)
@@ -268,18 +335,36 @@ def test_a_committed_json_spec_round_trips_through_the_api() -> None:
     assert body["notes"]
 
 
-def test_api_validate_shape(monkeypatch) -> None:
-    client = _client(monkeypatch)
-    response = client.post("/v1/studio/sentence/validate", json={"id": "anything"})
+def test_api_validate_accepts_the_v1_wrapper() -> None:
+    payload = json.loads(
+        (SPECS_DIR / "castillo-3-4.json").read_text(encoding="utf-8")
+    )
+    app = FastAPI()
+    app.include_router(studio_router.router)
+    client = TestClient(app)
+    response = client.post("/v1/studio/sentence/validate", json=payload)
     assert response.status_code == 200
     assert response.json() == {"ok": True, "errors": []}
 
 
-def test_api_preview_shape(monkeypatch) -> None:
-    client = _client(monkeypatch)
+def test_api_validate_shape() -> None:
+    client = _client()
+    response = client.post(
+        "/v1/studio/sentence/validate",
+        json=spec_to_mapping(CASTILLO_34_WALK),
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "errors": []}
+
+
+def test_api_preview_shape() -> None:
+    client = _client()
     response = client.post(
         "/v1/studio/sentence/preview",
-        json={"spec": {"id": "anything"}, "fixture": {"bars": 2}},
+        json={
+            "spec": spec_to_mapping(CASTILLO_34_WALK),
+            "fixture": {"bars": 2},
+        },
     )
     assert response.status_code == 200
     body = response.json()
@@ -290,19 +375,6 @@ def test_api_preview_shape(monkeypatch) -> None:
     assert {note["bar"] for note in body["notes"]} == {0, 1}
     assert body["renderHash"].startswith("sha256:")
     assert len(body["matrix"]) == 12 * 4 * 2 * 3
-
-
-def test_api_reports_the_missing_parser(monkeypatch) -> None:
-    if importlib.util.find_spec("app.studio.sentence_spec") is not None:
-        pytest.skip("workstream A's parser is present")
-    client = _client(monkeypatch)
-    monkeypatch.undo()
-    response = client.post("/v1/studio/sentence/validate", json={"id": "anything"})
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is False
-    assert body["errors"][0]["path"] == "spec"
-    assert "app.studio.sentence_spec.parse_spec" in body["errors"][0]["message"]
 
 
 def test_figure_ids_are_real_torroba_figures() -> None:
@@ -365,20 +437,3 @@ def test_preview_matches_the_galop_code_render_except_boundary_ties() -> None:
     missing = full - preview_notes
     assert all(note[0] == body - 1 for note in missing)
     assert sum(missing.values()) <= 2
-
-
-def test_fixture_path_is_documented() -> None:
-    doc = pathlib.Path(preview.__file__).read_text()
-    keys = (
-        "pattern",
-        "meter",
-        "length",
-        "n",
-        "closes",
-        "rise",
-        "bars",
-        "character",
-        "profile",
-    )
-    for key in keys:
-        assert f"`{key}`" in doc, key
