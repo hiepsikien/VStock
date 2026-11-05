@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { PointerEvent as RNPointerEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { absoluteApiUrl, getApiBaseUrl } from '../api/client';
 import { palette, TOUCH_TARGET } from '../musicalize/palette';
@@ -54,6 +55,11 @@ import {
   draftNoteRows,
   examplesToSamples,
   checkSpecText,
+  containRect,
+  cropForUpload,
+  cropHandleAt,
+  cropRectBetween,
+  cropSizeLabel,
   defaultSampleForPattern,
   describeRequestFailure,
   durationLabel,
@@ -64,7 +70,9 @@ import {
   measureLines,
   meterLabel,
   metersForPattern,
+  moveCropRect,
   nextPublishedList,
+  normalizeCropRect,
   normalizeErrorPath,
   notesLines,
   parseJsonObject,
@@ -77,12 +85,19 @@ import {
   publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
+  resizeCropRect,
   rollbackLabel,
   sampleText,
   shortId,
   textStats,
   uploadMetaLabel,
   valueLines,
+  type CropBounds,
+  type CropHandle,
+  type CropPoint,
+  type CropRect,
+  type CropSelection,
+  type DisplayRect,
   type PublishedListState,
   type StudioSample,
 } from './spec';
@@ -181,6 +196,41 @@ type AnalyzeState =
   | { kind: 'ready'; draft: StudioAnalyzeDraft }
   | { kind: 'error'; message: string; errors: StudioError[] };
 
+/** Active pointer gesture on the web crop stage. */
+type CropDrag =
+  | { kind: 'new'; start: CropPoint }
+  | { kind: 'move'; start: CropPoint; origin: CropRect }
+  | { kind: 'resize'; start: CropPoint; origin: CropRect; handle: CropHandle };
+
+/** One live drag resolved in source-image pixels. */
+function dragCropRect(
+  drag: CropDrag,
+  point: CropPoint,
+  bounds: CropBounds,
+): CropRect {
+  if (drag.kind === 'new') return cropRectBetween(drag.start, point, bounds);
+  const dx = point.x - drag.start.x;
+  const dy = point.y - drag.start.y;
+  if (drag.kind === 'move') return moveCropRect(drag.origin, dx, dy, bounds);
+  return resizeCropRect(drag.origin, drag.handle, dx, dy, bounds);
+}
+
+/** Placement of a source-pixel crop inside the displayed image box. */
+function cropDisplayBox(
+  rect: CropRect,
+  bounds: CropBounds,
+  display: DisplayRect,
+): DisplayRect {
+  const scaleX = display.width / Math.max(1, bounds.width);
+  const scaleY = display.height / Math.max(1, bounds.height);
+  return {
+    left: rect.x * scaleX,
+    top: rect.y * scaleY,
+    width: rect.w * scaleX,
+    height: rect.h * scaleY,
+  };
+}
+
 const CONFIDENCE_COLOR = {
   high: palette.data,
   medium: palette.playhead,
@@ -265,6 +315,36 @@ export function StudioRoom({ wide, onMode }: Props) {
   const [draftState, setDraftState] = useState<AnalyzeState>({ kind: 'idle' });
   const [showDraftJson, setShowDraftJson] = useState(false);
   const [copyNote, setCopyNote] = useState<string | null>(null);
+  const [crop, setCrop] = useState<CropSelection | null>(null);
+  const [cropPreview, setCropPreview] = useState<CropRect | null>(null);
+  const [cropDrag, setCropDrag] = useState<CropDrag | null>(null);
+  const [cropBounds, setCropBounds] = useState<CropBounds | null>(null);
+  const [cropStage, setCropStage] = useState<CropBounds>({ width: 0, height: 0 });
+
+  // The server URL wins once the upload succeeds, but the local blob preview
+  // covers the gap while the multipart request is in flight.
+  const uploaded = upload.kind === 'ready' ? upload.upload : null;
+  const previewUri = uploadImageUri(uploaded) ?? selectedPreview;
+  const imageBounds = useMemo(
+    () =>
+      cropBounds ??
+      (uploaded?.width && uploaded.height
+        ? { width: uploaded.width, height: uploaded.height }
+        : null),
+    [cropBounds, uploaded?.height, uploaded?.width],
+  );
+  const activeCrop = cropForUpload(crop, uploaded?.id ?? null);
+  const imageDisplay =
+    imageBounds && cropStage.width > 0 && cropStage.height > 0
+      ? containRect(imageBounds, cropStage)
+      : null;
+  const visibleCrop = cropPreview ?? activeCrop;
+  const cropBox =
+    visibleCrop && imageBounds && imageDisplay
+      ? cropDisplayBox(visibleCrop, imageBounds, imageDisplay)
+      : null;
+  const cropReady =
+    Platform.OS === 'web' && uploaded !== null && previewUri !== null && imageBounds !== null;
 
   const inFlight = useRef<AbortController | null>(null);
   const examplesController = useRef<AbortController | null>(null);
@@ -279,6 +359,7 @@ export function StudioRoom({ wide, onMode }: Props) {
   // The upload an in-flight analyze belongs to; a new file invalidates it.
   const uploadIdRef = useRef<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const cropSurfaceRef = useRef<React.ComponentRef<typeof View> | null>(null);
   const audioPlayer = useRef<HTMLAudioElement | null>(null);
   const audioRunId = useRef(0);
   const runId = useRef(0);
@@ -402,6 +483,39 @@ export function StudioRoom({ wide, onMode }: Props) {
       alive = false;
     };
   }, []);
+
+  // A different upload (or a local → server URL swap) starts with no crop, and
+  // the pixel bounds are re-read so a stale rectangle cannot outlive the image.
+  useEffect(() => {
+    setCrop(null);
+    setCropPreview(null);
+    setCropDrag(null);
+    setCropBounds(null);
+    if (!previewUri || Platform.OS !== 'web') return;
+    let alive = true;
+    Image.getSize(
+      previewUri,
+      (width, height) => {
+        if (alive && width > 0 && height > 0) setCropBounds({ width, height });
+      },
+      () => {
+        // The upload response's width/height is the fallback; the preview still
+        // renders even when the browser cannot measure it.
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [previewUri]);
+
+  // Stop the browser from scrolling/selecting text while a crop drag is live.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = cropSurfaceRef.current as unknown as HTMLElement | null;
+    if (!node) return;
+    node.style.touchAction = 'none';
+    node.style.userSelect = 'none';
+  }, [cropReady, imageDisplay?.width, imageDisplay?.height]);
 
   // The API examples are the palette. Embedded Torroba/Sor samples only fill in
   // when the endpoint is missing, so the hand-copied list cannot silently drift.
@@ -573,6 +687,112 @@ export function StudioRoom({ wide, onMode }: Props) {
     [fixtureJson, resetAudio, specText],
   );
 
+  /** Drop any committed or in-progress crop. */
+  const resetCrop = useCallback(() => {
+    setCrop(null);
+    setCropPreview(null);
+    setCropDrag(null);
+  }, []);
+
+  const cropPointFromClient = useCallback(
+    (clientX: number, clientY: number): CropPoint | null => {
+      if (!imageBounds) return null;
+      const node = cropSurfaceRef.current as unknown as HTMLElement | null;
+      if (!node || typeof node.getBoundingClientRect !== 'function') return null;
+      const box = node.getBoundingClientRect();
+      if (!(box.width > 0) || !(box.height > 0)) return null;
+      const scaleX = imageBounds.width / box.width;
+      const scaleY = imageBounds.height / box.height;
+      return {
+        x: Math.min(Math.max((clientX - box.left) * scaleX, 0), imageBounds.width),
+        y: Math.min(Math.max((clientY - box.top) * scaleY, 0), imageBounds.height),
+      };
+    },
+    [imageBounds],
+  );
+
+  const startCropDrag = useCallback(
+    (event: RNPointerEvent) => {
+      if (Platform.OS !== 'web' || !imageBounds) return;
+      const point = cropPointFromClient(
+        event.nativeEvent.clientX,
+        event.nativeEvent.clientY,
+      );
+      if (!point) return;
+      event.preventDefault?.();
+
+      const node = cropSurfaceRef.current as unknown as HTMLElement | null;
+      const box =
+        node && typeof node.getBoundingClientRect === 'function'
+          ? node.getBoundingClientRect()
+          : null;
+      const scale = box && box.width > 0 ? imageBounds.width / box.width : 1;
+      // A 10 CSS-pixel corner target in source-image pixels.
+      const tolerance = 10 / Math.max(scale, 0.0001);
+      const existing = cropForUpload(crop, uploaded?.id ?? null);
+      const target = existing ? cropHandleAt(existing, point, tolerance) : null;
+
+      setCropPreview(null);
+      if (existing && target === 'inside') {
+        setCropDrag({ kind: 'move', start: point, origin: existing });
+      } else if (existing && target !== null && target !== 'inside') {
+        setCropDrag({
+          kind: 'resize',
+          start: point,
+          origin: existing,
+          handle: target,
+        });
+      } else {
+        setCropDrag({ kind: 'new', start: point });
+      }
+    },
+    [crop, cropPointFromClient, imageBounds, uploaded?.id],
+  );
+
+  // Pointer moves/ups live on `window` so a drag can leave the image without
+  // losing the gesture. Release commits the normalized rectangle.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !cropDrag || !imageBounds) return;
+    const uploadId = uploaded?.id ?? null;
+
+    const pointFor = (event: PointerEvent): CropPoint | null =>
+      cropPointFromClient(event.clientX, event.clientY);
+
+    const onMove = (event: PointerEvent) => {
+      const point = pointFor(event);
+      if (!point) return;
+      event.preventDefault();
+      setCropPreview(dragCropRect(cropDrag, point, imageBounds));
+    };
+
+    const onUp = (event: PointerEvent) => {
+      const point = pointFor(event);
+      if (point && uploadId) {
+        const normalized = normalizeCropRect(
+          dragCropRect(cropDrag, point, imageBounds),
+          imageBounds,
+        );
+        if (normalized) {
+          setCrop({ uploadId, rect: normalized });
+        } else if (cropDrag.kind === 'new') {
+          // A click/tiny drag outside the old crop clears the selection.
+          setCrop(null);
+        }
+      }
+      setCropPreview(null);
+      setCropDrag(null);
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [cropDrag, cropPointFromClient, imageBounds, uploaded?.id]);
+
   const pickFile = useCallback(
     (file: File | null) => {
       // Replace flow is delete-then-pick; an already-uploaded file must not
@@ -600,6 +820,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       setDraftState({ kind: 'idle' });
       setShowDraftJson(false);
       setCopyNote(null);
+      resetCrop();
 
       if (!file) {
         setUpload({ kind: 'idle' });
@@ -646,7 +867,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       setSelectedPreview(preview);
       setUpload({ kind: 'idle' });
     },
-    [access, upload.kind],
+    [access, resetCrop, upload.kind],
   );
 
   const uploadSelected = useCallback(async () => {
@@ -661,6 +882,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     setDraftState({ kind: 'idle' });
     setShowDraftJson(false);
     setCopyNote(null);
+    resetCrop();
     try {
       const data = await uploadStudioImage(selectedFile, {
         filename: selectedFile.name || undefined,
@@ -687,7 +909,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     } finally {
       if (uploadController.current === controller) uploadController.current = null;
     }
-  }, [selectedFile]);
+  }, [resetCrop, selectedFile]);
 
   const deleteUpload = useCallback(async () => {
     if (upload.kind !== 'ready' || !upload.upload.id) return;
@@ -699,6 +921,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     uploadController.current = controller;
     const id = upload.upload.id;
     setUpload({ kind: 'deleting', id });
+    resetCrop();
     try {
       const data = await deleteStudioUpload(id, controller.signal);
       if (controller.signal.aborted) return;
@@ -738,11 +961,18 @@ export function StudioRoom({ wide, onMode }: Props) {
     } finally {
       if (uploadController.current === controller) uploadController.current = null;
     }
-  }, [upload]);
+  }, [resetCrop, upload]);
 
   const analyzeUpload = useCallback(async () => {
     if (upload.kind !== 'ready' || !upload.upload.id) return;
     const requestedId = upload.upload.id;
+    // Re-validate against the current image bounds and drop a rectangle that
+    // belongs to another upload. No crop means the whole image.
+    const storedCrop = cropForUpload(crop, requestedId);
+    const requestedCrop =
+      storedCrop && imageBounds
+        ? normalizeCropRect(storedCrop, imageBounds)
+        : null;
     analyzeController.current?.abort();
     const controller = new AbortController();
     analyzeController.current = controller;
@@ -750,7 +980,10 @@ export function StudioRoom({ wide, onMode }: Props) {
     setShowDraftJson(false);
     setCopyNote(null);
     try {
-      const draft = await analyzeStudioImage(requestedId, undefined, controller.signal);
+      const draft = await analyzeStudioImage(requestedId, {
+        crop: requestedCrop,
+        signal: controller.signal,
+      });
       if (controller.signal.aborted || uploadIdRef.current !== requestedId) return;
       if (!draft.ok && draft.notes.length === 0 && draft.errors.length > 0) {
         setDraftState({
@@ -771,7 +1004,7 @@ export function StudioRoom({ wide, onMode }: Props) {
     } finally {
       if (analyzeController.current === controller) analyzeController.current = null;
     }
-  }, [upload]);
+  }, [crop, imageBounds, upload]);
 
   const copyDraft = useCallback(async () => {
     if (draftState.kind !== 'ready') return;
@@ -1013,11 +1246,9 @@ export function StudioRoom({ wide, onMode }: Props) {
     access.kind === 'ready' ? access.access.enabled : access.kind === 'error';
   const uploadBusy = upload.kind === 'uploading' || upload.kind === 'deleting';
   const analyzeBusy = draftState.kind === 'running';
-  const uploaded = upload.kind === 'ready' ? upload.upload : null;
   const canUpload =
     uploadEnabled && selectedFile !== null && !uploadBusy && upload.kind !== 'ready';
   const canAnalyze = uploadEnabled && Boolean(uploaded?.id) && !analyzeBusy && !uploadBusy;
-  const previewUri = uploadImageUri(uploaded) ?? selectedPreview;
   const accessNote =
     access.kind === 'ready'
       ? accessSummary(access.access)
@@ -1136,13 +1367,151 @@ export function StudioRoom({ wide, onMode }: Props) {
                   </Text>
                 )}
 
-                {previewUri ? (
+                {cropReady && previewUri ? (
+                  <View
+                    onLayout={(event) => {
+                      const { width, height } = event.nativeEvent.layout;
+                      setCropStage((prev) =>
+                        prev.width === width && prev.height === height
+                          ? prev
+                          : { width, height },
+                      );
+                    }}
+                    style={styles.cropStage}
+                  >
+                    {imageDisplay && imageDisplay.width > 0 ? (
+                      <View
+                        ref={cropSurfaceRef}
+                        onPointerDown={startCropDrag}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel="Crop the score image"
+                        accessibilityHint="Drag to draw a rectangle; drag inside to move; drag a corner to resize."
+                        style={[
+                          styles.cropSurface,
+                          {
+                            left: imageDisplay.left,
+                            top: imageDisplay.top,
+                            width: imageDisplay.width,
+                            height: imageDisplay.height,
+                          },
+                        ]}
+                      >
+                        <Image
+                          source={{ uri: previewUri }}
+                          style={styles.cropImage}
+                          resizeMode="stretch"
+                          pointerEvents="none"
+                          accessibilityLabel="Selected score image preview"
+                        />
+                        {visibleCrop && cropBox ? (
+                          <>
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: 0,
+                                  top: 0,
+                                  width: imageDisplay.width,
+                                  height: cropBox.top,
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: 0,
+                                  top: cropBox.top + cropBox.height,
+                                  width: imageDisplay.width,
+                                  height: Math.max(
+                                    0,
+                                    imageDisplay.height - (cropBox.top + cropBox.height),
+                                  ),
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: 0,
+                                  top: cropBox.top,
+                                  width: cropBox.left,
+                                  height: cropBox.height,
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: cropBox.left + cropBox.width,
+                                  top: cropBox.top,
+                                  width: Math.max(
+                                    0,
+                                    imageDisplay.width - (cropBox.left + cropBox.width),
+                                  ),
+                                  height: cropBox.height,
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropSelection,
+                                {
+                                  left: cropBox.left,
+                                  top: cropBox.top,
+                                  width: cropBox.width,
+                                  height: cropBox.height,
+                                },
+                              ]}
+                            >
+                              <View style={[styles.cropHandle, styles.cropHandleNw]} />
+                              <View style={[styles.cropHandle, styles.cropHandleNe]} />
+                              <View style={[styles.cropHandle, styles.cropHandleSw]} />
+                              <View style={[styles.cropHandle, styles.cropHandleSe]} />
+                            </View>
+                          </>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+                ) : previewUri ? (
                   <Image
                     source={{ uri: previewUri }}
                     style={styles.imagePreview}
                     resizeMode="contain"
                     accessibilityLabel="Selected score image preview"
                   />
+                ) : null}
+
+                {cropReady ? (
+                  <View style={styles.cropToolbar}>
+                    <Text style={styles.cropMeta}>
+                      {activeCrop
+                        ? `Crop ${cropSizeLabel(activeCrop)}`
+                        : 'Whole image'}
+                    </Text>
+                    {activeCrop ? (
+                      <ActionButton
+                        label="Clear crop"
+                        onPress={resetCrop}
+                        disabled={cropDrag !== null}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+                {previewUri && Platform.OS === 'web' && uploaded ? (
+                  <Text style={styles.composerHint}>
+                    {activeCrop
+                      ? 'Analyze reads only this rectangle. Drag inside to move it, or drag a corner to resize.'
+                      : 'Drag on the image to select a staff region. Without a crop, Analyze reads the whole page.'}
+                  </Text>
                 ) : null}
 
                 <View style={styles.actions}>
@@ -2762,6 +3131,72 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.hairline,
     backgroundColor: palette.background,
+  },
+  cropStage: {
+    width: '100%',
+    height: 280,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.background,
+    overflow: 'hidden',
+  },
+  cropSurface: {
+    position: 'absolute',
+    overflow: 'hidden',
+  },
+  cropImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cropShade: {
+    position: 'absolute',
+    backgroundColor: 'rgba(8, 9, 12, 0.58)',
+  },
+  cropSelection: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  cropHandle: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: palette.background,
+    backgroundColor: palette.data,
+  },
+  cropHandleNw: {
+    left: -6,
+    top: -6,
+  },
+  cropHandleNe: {
+    right: -6,
+    top: -6,
+  },
+  cropHandleSw: {
+    left: -6,
+    bottom: -6,
+  },
+  cropHandleSe: {
+    right: -6,
+    bottom: -6,
+  },
+  cropToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  cropMeta: {
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
   },
   uploadMeta: {
     gap: 2,

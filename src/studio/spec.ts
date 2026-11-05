@@ -1,12 +1,16 @@
-import type {
-  StudioAccess,
-  StudioAnalysisNote,
-  StudioAnalyzeDraft,
-  StudioError,
-  StudioExample,
-  StudioPublishedSpec,
-  StudioUpload,
+import {
+  MIN_CROP_SIZE,
+  type CropRect,
+  type StudioAccess,
+  type StudioAnalysisNote,
+  type StudioAnalyzeDraft,
+  type StudioError,
+  type StudioExample,
+  type StudioPublishedSpec,
+  type StudioUpload,
 } from './protocol';
+
+export type { CropRect } from './protocol';
 
 /**
  * Pure helpers for the sentence Studio. Nothing here talks to the network.
@@ -912,6 +916,203 @@ export function uploadMetaLabel(upload: StudioUpload): string {
   }
   if (upload.sha256) parts.push(`sha ${shortId(upload.sha256, 10)}`);
   return parts.join(' · ');
+}
+
+/* ------------------------------------------------------------------------- *
+ * Web crop rectangle.
+ *
+ * The UI works in source-image pixels; the stage is CSS pixels. Convert only
+ * at the pointer boundary so every clamp/serialize value matches what Gemini
+ * receives. A crop is always tied to an upload id: a stale rectangle is never
+ * sent with a different image.
+ * ------------------------------------------------------------------------- */
+
+export type CropPoint = { x: number; y: number };
+export type CropBounds = { width: number; height: number };
+export type CropHandle = 'nw' | 'ne' | 'sw' | 'se';
+export type CropTarget = CropHandle | 'inside';
+
+/** Committed crop tied to the upload it was drawn on. */
+export type CropSelection = { uploadId: string; rect: CropRect };
+
+/** Image content box inside a fixed-size stage (object-fit: contain). */
+export type DisplayRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function pixel(value: number, max: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return clampNumber(Math.round(value), 0, max);
+}
+
+function boundsSize(bounds: CropBounds): CropBounds {
+  return {
+    width: Number.isFinite(bounds.width) ? Math.max(0, Math.round(bounds.width)) : 0,
+    height: Number.isFinite(bounds.height) ? Math.max(0, Math.round(bounds.height)) : 0,
+  };
+}
+
+/** Clamp a rectangle to `bounds` on the pixel grid. Size may be zero. */
+export function clampCropRect(rect: CropRect, bounds: CropBounds): CropRect {
+  const { width, height } = boundsSize(bounds);
+  const w = pixel(rect.w, width);
+  const h = pixel(rect.h, height);
+  return {
+    x: clampNumber(pixel(rect.x, width), 0, width - w),
+    y: clampNumber(pixel(rect.y, height), 0, height - h),
+    w,
+    h,
+  };
+}
+
+/**
+ * Clamp, round, and enforce the minimum size. Returns null for a non-finite
+ * rectangle, empty bounds, or a selection smaller than `MIN_CROP_SIZE`.
+ */
+export function normalizeCropRect(
+  rect: CropRect,
+  bounds: CropBounds,
+  minSize: number = MIN_CROP_SIZE,
+): CropRect | null {
+  if (![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) return null;
+  const { width, height } = boundsSize(bounds);
+  if (width <= 0 || height <= 0) return null;
+  const clamped = clampCropRect(rect, bounds);
+  const min = Number.isFinite(minSize) && minSize > 0 ? Math.round(minSize) : MIN_CROP_SIZE;
+  if (clamped.w < min || clamped.h < min) return null;
+  return clamped;
+}
+
+/** Rectangle between two drag points; corner may cross the anchor. */
+export function cropRectBetween(
+  anchor: CropPoint,
+  point: CropPoint,
+  bounds: CropBounds,
+): CropRect {
+  const { width, height } = boundsSize(bounds);
+  const ax = pixel(anchor.x, width);
+  const ay = pixel(anchor.y, height);
+  const bx = pixel(point.x, width);
+  const by = pixel(point.y, height);
+  return clampCropRect(
+    {
+      x: Math.min(ax, bx),
+      y: Math.min(ay, by),
+      w: Math.abs(bx - ax),
+      h: Math.abs(by - ay),
+    },
+    bounds,
+  );
+}
+
+/** Translate a crop, keeping the rectangle fully inside the image. */
+export function moveCropRect(
+  rect: CropRect,
+  dx: number,
+  dy: number,
+  bounds: CropBounds,
+): CropRect {
+  return clampCropRect(
+    {
+      ...rect,
+      x: rect.x + (Number.isFinite(dx) ? dx : 0),
+      y: rect.y + (Number.isFinite(dy) ? dy : 0),
+    },
+    bounds,
+  );
+}
+
+/** Resize by one corner; dragging past the opposite edge flips the box. */
+export function resizeCropRect(
+  rect: CropRect,
+  handle: CropHandle,
+  dx: number,
+  dy: number,
+  bounds: CropBounds,
+): CropRect {
+  const left = rect.x;
+  const top = rect.y;
+  const right = rect.x + rect.w;
+  const bottom = rect.y + rect.h;
+  const west = handle === 'nw' || handle === 'sw';
+  const north = handle === 'nw' || handle === 'ne';
+  const moveX = Number.isFinite(dx) ? dx : 0;
+  const moveY = Number.isFinite(dy) ? dy : 0;
+  const anchorX = west ? right : left;
+  const anchorY = north ? bottom : top;
+  const movingX = (west ? left : right) + moveX;
+  const movingY = (north ? top : bottom) + moveY;
+  return cropRectBetween(
+    { x: anchorX, y: anchorY },
+    { x: movingX, y: movingY },
+    bounds,
+  );
+}
+
+/** Corner first, then interior. `tolerance` is in image pixels. */
+export function cropHandleAt(
+  rect: CropRect,
+  point: CropPoint,
+  tolerance = 10,
+): CropTarget | null {
+  const tol = Number.isFinite(tolerance) && tolerance >= 0 ? tolerance : 10;
+  const near = (x: number, y: number) =>
+    Math.abs(point.x - x) <= tol && Math.abs(point.y - y) <= tol;
+  if (near(rect.x, rect.y)) return 'nw';
+  if (near(rect.x + rect.w, rect.y)) return 'ne';
+  if (near(rect.x, rect.y + rect.h)) return 'sw';
+  if (near(rect.x + rect.w, rect.y + rect.h)) return 'se';
+  if (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.w &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.h
+  ) {
+    return 'inside';
+  }
+  return null;
+}
+
+/** `900 × 420 px` */
+export function cropSizeLabel(rect: CropRect): string {
+  return `${Math.round(rect.w)} × ${Math.round(rect.h)} px`;
+}
+
+/** The crop to send for `uploadId`; null when it belongs to another image. */
+export function cropForUpload(
+  crop: CropSelection | null | undefined,
+  uploadId: string | null | undefined,
+): CropRect | null {
+  if (!crop || !uploadId || crop.uploadId !== uploadId) return null;
+  return crop.rect;
+}
+
+/** Fit `image` inside `stage` with letterboxing, like `resizeMode="contain"`. */
+export function containRect(image: CropBounds, stage: CropBounds): DisplayRect {
+  if (
+    !(image.width > 0) ||
+    !(image.height > 0) ||
+    !(stage.width > 0) ||
+    !(stage.height > 0)
+  ) {
+    return { left: 0, top: 0, width: 0, height: 0 };
+  }
+  const scale = Math.min(stage.width / image.width, stage.height / image.height);
+  const width = image.width * scale;
+  const height = image.height * scale;
+  return {
+    left: (stage.width - width) / 2,
+    top: (stage.height - height) / 2,
+    width,
+    height,
+  };
 }
 
 export function noteBarLabel(note: StudioAnalysisNote): string {

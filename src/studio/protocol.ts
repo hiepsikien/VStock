@@ -408,6 +408,20 @@ export type StudioUpload = {
   errors: StudioError[];
 };
 
+/**
+ * Crop rectangle in source-image pixels. `x`/`y` are the top-left corner and
+ * `w`/`h` the size; the backend forwards this to Gemini unchanged.
+ */
+export type CropRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/** Smallest crop the UI will send; smaller drags are treated as a click. */
+export const MIN_CROP_SIZE = 16;
+
 export type StudioAnalysisMeasure = {
   index: number | null;
   meter: string | null;
@@ -670,14 +684,35 @@ export function normalizeAnalyzeResponse(body: unknown): StudioAnalyzeDraft {
   };
 }
 
+/**
+ * Serialize a crop for `POST /analyze`. Returns null for absent, non-finite,
+ * or too-small rectangles so a zero/NaN box never reaches the backend.
+ */
+export function cropField(crop: CropRect | null | undefined): CropRect | null {
+  if (!crop) return null;
+  const { x, y, w, h } = crop;
+  if (![x, y, w, h].every((value) => typeof value === 'number' && Number.isFinite(value))) {
+    return null;
+  }
+  const rect = {
+    x: Math.round(x),
+    y: Math.round(y),
+    w: Math.round(w),
+    h: Math.round(h),
+  };
+  if (rect.w < MIN_CROP_SIZE || rect.h < MIN_CROP_SIZE) return null;
+  return rect;
+}
+
 /** Body for `POST /analyze`; metadata/crop are omitted when empty. */
 export function buildAnalyzeBody(
   uploadId: string,
   metadata?: Record<string, unknown>,
-  crop?: Record<string, unknown>,
+  crop?: CropRect | null,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { uploadId };
-  if (crop && Object.keys(crop).length) body.crop = crop;
+  const cropValue = cropField(crop);
+  if (cropValue) body.crop = cropValue;
   if (metadata && Object.keys(metadata).length) body.metadata = metadata;
   return body;
 }
