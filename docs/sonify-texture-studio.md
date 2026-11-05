@@ -188,7 +188,7 @@ Revision 1 để mở “renderer hiện tại **hoặc** interpreter chung”. 
 
 - **Phase 0/1**: spec là **authoring source + test fixture**. Runtime vẫn là code hiện tại. Spec không được `guitar_patterns.py` đọc.
 - **Phase 2**: chỉ pattern có `runtime: "interpreter"` mới được runtime đọc. Mọi pattern còn lại giữ `runtime: "code"`.
-- **Phase 2 proof:** `app/sonify/texture_interpreter.py` + `app/sonify/textures/chord_melody_phase2.json` render **một bar `chord_melody`** từ `TextureSpec`; spec được resolve qua `texture_registry.load_default()` (id/pattern/meter/digest), sau flag `VSTOCK_TEXTURE_INTERPRETER` (default off); thiếu/hỏng/bị registry bỏ → fallback code.
+- **Phase 2 proof:** `app/sonify/texture_interpreter.py` + `app/sonify/textures/chord_melody_phase2.json` render **hai bar `chord_melody`** (bars 0–1) từ `TextureSpec`; spec được resolve qua `texture_registry.load_default()` (id/pattern/meter/digest), sau flag `VSTOCK_TEXTURE_INTERPRETER` (default off); thiếu/hỏng/bị registry bỏ → fallback code.
 - **Phase 3**: mới cân nhắc chuyển thêm pattern từ `code` sang `interpreter`.
 
 Lý do: renderer hiện tại chứa nhiều quyết định tay phải không thể biểu diễn bằng grid/events đơn giản. Nếu Phase 0 đã buộc runtime đọc spec, dự án sẽ thành một cuộc viết lại lớn trước khi có bằng chứng.
@@ -1119,7 +1119,7 @@ figure writer (level gốc)
 
 ### 7.2. Phase 2: `texture_registry.py`
 
-> **Trạng thái code:** `texture_registry.py` **đã có** (lazy, fail-soft, allowlist, `renderer_version`, duplicate/skip). `textures/chord_melody_phase2.json` là proof spec một bar và **được interpreter đọc qua registry**; chưa có spec production khác. Runtime vẫn đọc `SENTENCE_SPECS` code-backed; interpreter chỉ chạy sau `VSTOCK_TEXTURE_INTERPRETER` (default off).
+> **Trạng thái code:** `texture_registry.py` **đã có** (lazy, fail-soft, allowlist, `renderer_version`, duplicate/skip). `textures/chord_melody_phase2.json` là proof spec hai bar (bars 0–1) và **được interpreter đọc qua registry**; chưa có spec production khác. Runtime vẫn đọc `SENTENCE_SPECS` code-backed; interpreter chỉ chạy sau `VSTOCK_TEXTURE_INTERPRETER` (default off).
 
 Thêm loader:
 
@@ -1748,7 +1748,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 |---|---|---|
 | 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen + derived `PATTERN_NAMES` | renderer-profile playability, Phase 3 runtime 12/8 |
 | 1 | Studio room, editor, examples, validate/preview, audio, publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + **crop web** + draft table + TextureSpec draft/validate, **in-memory preview/validate job queue**, export bundle JSON, spec owner/visibility | native picker/crop, durable preview media, `preview.wav`/export files, PR automation |
-| 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview; Suite audit + Mazurka candidate; `texture_registry.py`; **one-bar `chord_melody` interpreter proof** (flag off) | Full interpreter/registry runtime consumer, Suite production pattern/selection, multi-pattern interpreter |
+| 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview; Suite audit + Mazurka candidate; `texture_registry.py`; **two-bar `chord_melody` interpreter proof** (flag off) | Full interpreter/registry runtime consumer, Suite production pattern/selection, multi-pattern interpreter |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
 
 ### Phase 0 — Chứng minh schema, chưa UI, chưa Gemini (một phần)
