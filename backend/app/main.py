@@ -23,6 +23,7 @@ from app.routers.sonify import router as sonify_router
 from app.routers.studio import router as studio_router
 from app.routers.studio_publish import router as studio_publish_router
 from app.routers.studio_audio import router as studio_audio_router
+from app.routers.studio_vision import router as studio_vision_router
 from app.schemas import HealthResponse
 from app.sentry_setup import init_sentry
 from app.store.db import close_db, init_db
@@ -88,6 +89,7 @@ app.include_router(sonify_router)
 app.include_router(studio_router)
 app.include_router(studio_publish_router)
 app.include_router(studio_audio_router)
+app.include_router(studio_vision_router)
 
 
 @app.get("/health", response_model=HealthResponse)
