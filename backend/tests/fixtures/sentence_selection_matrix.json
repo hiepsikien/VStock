@@ -78,6 +78,84 @@
     {
       "closes": false,
       "family": "villa",
+      "id": "suite_choros1_arpeggio_abba",
+      "kind": "figure",
+      "length": 4,
+      "meter": "4/4",
+      "n": 0,
+      "pattern": "villa_pattern",
+      "rise": 0,
+      "selected": true,
+      "source": "candidate",
+      "spans": [
+        {
+          "bars": [
+            0
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            1
+          ],
+          "figure": 2
+        },
+        {
+          "bars": [
+            2
+          ],
+          "figure": 2
+        },
+        {
+          "bars": [
+            3
+          ],
+          "figure": 1
+        }
+      ]
+    },
+    {
+      "closes": false,
+      "family": "villa",
+      "id": "suite_gavotta_arpeggio_baab",
+      "kind": "figure",
+      "length": 4,
+      "meter": "4/4",
+      "n": 0,
+      "pattern": "villa_pattern",
+      "rise": 0,
+      "selected": true,
+      "source": "candidate",
+      "spans": [
+        {
+          "bars": [
+            0
+          ],
+          "figure": 2
+        },
+        {
+          "bars": [
+            1
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            2
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            3
+          ],
+          "figure": 2
+        }
+      ]
+    },
+    {
+      "closes": false,
+      "family": "villa",
       "id": "suite_mazurka_arpeggio_aaba",
       "kind": "figure",
       "length": 4,
@@ -111,6 +189,45 @@
             3
           ],
           "figure": 1
+        }
+      ]
+    },
+    {
+      "closes": false,
+      "family": "villa",
+      "id": "suite_schottish_arpeggio_abab",
+      "kind": "figure",
+      "length": 4,
+      "meter": "4/4",
+      "n": 0,
+      "pattern": "villa_pattern",
+      "rise": 0,
+      "selected": true,
+      "source": "candidate",
+      "spans": [
+        {
+          "bars": [
+            0
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            1
+          ],
+          "figure": 2
+        },
+        {
+          "bars": [
+            2
+          ],
+          "figure": 1
+        },
+        {
+          "bars": [
+            3
+          ],
+          "figure": 2
         }
       ]
     },

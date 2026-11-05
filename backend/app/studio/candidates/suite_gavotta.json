@@ -1,0 +1,52 @@
+{
+  "runtime": "code",
+  "schema_version": 1,
+  "specs": [
+    {
+      "id": "suite_gavotta_arpeggio_baab",
+      "meter": "4/4",
+      "pattern": "villa_pattern",
+      "select": {
+        "closes": null,
+        "length_max": null,
+        "length_min": 4,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 2,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 1
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 2
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 2,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": false,
+        "remainder": "same_figure",
+        "tile": 4,
+        "truncate_to_length": true
+      }
+    }
+  ]
+}

@@ -9,6 +9,7 @@ JSON by hand.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -29,9 +30,21 @@ from app.studio.candidates import (
     barrios_cathedral_spec,
     villa_candidate_spec,
 )
+from app.studio.candidates.suite_choros1 import (
+    SUITE_CHOROS1_PATH,
+    suite_choros1_spec,
+)
+from app.studio.candidates.suite_gavotta import (
+    SUITE_GAVOTTA_PATH,
+    suite_gavotta_spec,
+)
 from app.studio.candidates.suite_mazurka import (
     SUITE_MAZURKA_PATH,
     suite_mazurka_spec,
+)
+from app.studio.candidates.suite_schottish import (
+    SUITE_SCHOTTISH_PATH,
+    suite_schottish_spec,
 )
 from app.studio.candidates.suite_valsa import (
     SUITE_VALSA_PATH,
@@ -201,6 +214,73 @@ def test_preview_suite_valsa_candidate_through_the_api() -> None:
     assert body["notes"] == list(direct.notes)
 
 
+@pytest.mark.parametrize(
+    ("path", "spec_fn", "expected_row"),
+    [
+        (
+            SUITE_SCHOTTISH_PATH,
+            suite_schottish_spec,
+            [
+                "villa_arpeggio",
+                "villa_chord_melody",
+                "villa_arpeggio",
+                "villa_chord_melody",
+            ],
+        ),
+        (
+            SUITE_GAVOTTA_PATH,
+            suite_gavotta_spec,
+            [
+                "villa_chord_melody",
+                "villa_arpeggio",
+                "villa_arpeggio",
+                "villa_chord_melody",
+            ],
+        ),
+        (
+            SUITE_CHOROS1_PATH,
+            suite_choros1_spec,
+            [
+                "villa_arpeggio",
+                "villa_chord_melody",
+                "villa_chord_melody",
+                "villa_arpeggio",
+            ],
+        ),
+    ],
+)
+def test_preview_the_remaining_suite_candidates_through_the_api(
+    path: Path, spec_fn, expected_row: list[str]
+) -> None:
+    client = _client()
+    payload = json.loads(path.read_text(encoding="utf-8"))["specs"][0]
+
+    # All three are 4/4 candidates: the 2/4 source and the provisional
+    # signatures are engine-level caveats recorded in their modules, not a
+    # fourth meter for the preview to invent.
+    assert payload["meter"] == "4/4"
+    assert payload["pattern"] == "villa_pattern"
+
+    body = _preview(client, payload)
+
+    assert set(body) == SHAPE
+    assert body["ok"] is True
+    assert body["plan"]["kind"] == "figure"
+    assert body["plan"]["length"] == 4
+    assert body["row"] == expected_row
+    # A 4/4 preview must stay inside four quarter beats per bar and reach the
+    # barline at least once, so the 4/4 branch really rendered.
+    assert all(
+        note["beat"] + note["duration"] <= 4.0 for note in body["notes"]
+    )
+    assert any(
+        note["beat"] + note["duration"] == 4.0 for note in body["notes"]
+    )
+    direct = preview_villa_sentence(spec_fn())
+    assert body["renderHash"] == direct.render_hash
+    assert body["notes"] == list(direct.notes)
+
+
 def test_preview_barrios_candidate_through_the_api() -> None:
     client = _client()
     payload = json.loads(BARRIOS_CATHEDRAL_PATH.read_text(encoding="utf-8"))["specs"][0]
@@ -231,6 +311,9 @@ def test_candidate_previews_leave_the_registry_untouched() -> None:
         VILLA_ARPEGGIO_PATH,
         SUITE_MAZURKA_PATH,
         SUITE_VALSA_PATH,
+        SUITE_SCHOTTISH_PATH,
+        SUITE_GAVOTTA_PATH,
+        SUITE_CHOROS1_PATH,
         BARRIOS_CATHEDRAL_PATH,
     ):
         payload = json.loads(path.read_text(encoding="utf-8"))["specs"][0]
@@ -314,6 +397,9 @@ def test_validate_dispatches_to_each_family() -> None:
         VILLA_ARPEGGIO_PATH,
         SUITE_MAZURKA_PATH,
         SUITE_VALSA_PATH,
+        SUITE_SCHOTTISH_PATH,
+        SUITE_GAVOTTA_PATH,
+        SUITE_CHOROS1_PATH,
         BARRIOS_CATHEDRAL_PATH,
     ):
         payload = json.loads(path.read_text(encoding="utf-8"))["specs"][0]
@@ -327,6 +413,9 @@ def test_validate_accepts_a_candidate_v1_wrapper() -> None:
         VILLA_ARPEGGIO_PATH,
         SUITE_MAZURKA_PATH,
         SUITE_VALSA_PATH,
+        SUITE_SCHOTTISH_PATH,
+        SUITE_GAVOTTA_PATH,
+        SUITE_CHOROS1_PATH,
         BARRIOS_CATHEDRAL_PATH,
     ):
         wrapper = json.loads(path.read_text(encoding="utf-8"))
@@ -354,10 +443,10 @@ def test_examples_include_torroba_sor_villa_barrios_and_brouwer() -> None:
 
     assert set(PILOT_PATTERNS) <= patterns
     assert {"villa_pattern", "preludio", "brouwer_etude"} <= patterns
-    # 38 Torroba/Sor + 5 generic candidates (Villa 4/4, two Villa 3/4 Suite
-    # movements, Barrios, Brouwer). The procedure-only Bach candidate is
-    # skipped by this endpoint.
-    assert len(rows) == 43
+    # 38 Torroba/Sor + 8 generic candidates (the 4/4 Villa arpeggio, the two
+    # 3/4 Suite movements, the three 4/4 Suite movements, Barrios, Brouwer).
+    # The procedure-only Bach candidate is skipped by this endpoint.
+    assert len(rows) == 46
     suite = next(
         row for row in rows if row["id"] == "suite_mazurka_arpeggio_aaba"
     )
@@ -398,7 +487,10 @@ def test_examples_can_be_filtered_by_pattern() -> None:
     # All Villa candidates share the parent pattern and split across meters.
     assert {row["meter"] for row in villa["examples"]} == {"3/4", "4/4"}
     assert {row["id"] for row in villa["examples"]} == {
+        "suite_choros1_arpeggio_abba",
+        "suite_gavotta_arpeggio_baab",
         "suite_mazurka_arpeggio_aaba",
+        "suite_schottish_arpeggio_abab",
         "suite_valsa_arpeggio_period",
         "villa_arpeggio_aba",
     }

@@ -61,6 +61,54 @@
         "rise": 0
       },
       "fixture_version": 1,
+      "id": "suite_choros1_arpeggio_abba",
+      "meter": "4/4",
+      "note_count": 56,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:d06860858d545ae48364b016f8fd0c858ee1bb96c1a99b01e2f0b8f903aa6a26",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 32,
+        "2": 16,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_gavotta_arpeggio_baab",
+      "meter": "4/4",
+      "note_count": 60,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:ed12313be73a723a2d40b3198ef9038dbccc614092cf84acda3e394915440409",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 32,
+        "2": 18,
+        "3": 10,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
       "id": "suite_mazurka_arpeggio_aaba",
       "meter": "3/4",
       "note_count": 41,
@@ -72,6 +120,30 @@
         "1": 24,
         "2": 10,
         "3": 7,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_schottish_arpeggio_abab",
+      "meter": "4/4",
+      "note_count": 56,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:b2170f1a6d809f4965d5df451d8ec477f2735bd7f2efa25632f0ebacdba036cf",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 32,
+        "2": 16,
+        "3": 8,
         "4": 0
       }
     },

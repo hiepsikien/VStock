@@ -33,7 +33,10 @@ from app.studio.barrios_preview import preview_barrios_period
 from app.studio.brouwer_preview import preview_brouwer_sentence
 from app.studio.candidates import barrios_cathedral_spec, villa_candidate_spec
 from app.studio.candidates.brouwer import brouwer_aba_spec
+from app.studio.candidates.suite_choros1 import suite_choros1_spec
+from app.studio.candidates.suite_gavotta import suite_gavotta_spec
 from app.studio.candidates.suite_mazurka import suite_mazurka_spec
+from app.studio.candidates.suite_schottish import suite_schottish_spec
 from app.studio.candidates.suite_valsa import suite_valsa_spec
 from app.studio.villa_preview import preview_villa_sentence
 from tests.guitar_fixture import meter_named, pattern_case
@@ -175,6 +178,24 @@ def candidate_cases() -> list[tuple[str, SentenceSpec, Any, Any]]:
         (
             "villa",
             suite_valsa_spec(),
+            preview_villa_sentence,
+            villa_preview._resolve_fixture,
+        ),
+        (
+            "villa",
+            suite_schottish_spec(),
+            preview_villa_sentence,
+            villa_preview._resolve_fixture,
+        ),
+        (
+            "villa",
+            suite_gavotta_spec(),
+            preview_villa_sentence,
+            villa_preview._resolve_fixture,
+        ),
+        (
+            "villa",
+            suite_choros1_spec(),
             preview_villa_sentence,
             villa_preview._resolve_fixture,
         ),
@@ -700,9 +721,10 @@ def candidate_previews() -> dict[str, Any]:
 def candidate_ids() -> dict[str, tuple[str, ...]]:
     """Candidate ids grouped by family; a family may own more than one meter.
 
-    Villa already owns three preview candidates (4/4 arpeggio and the two 3/4
-    Suite movements, Mazurka and Valsa), so this cannot be a one-id-per-family
-    map.
+    Villa already owns six preview candidates (the 4/4 arpeggio, the two 3/4
+    Suite movements Mazurka and Valsa, and the three 4/4 Suite movements
+    Schottish, Gavotta, and Choros No. 1), so this cannot be a
+    one-id-per-family map.
     """
     grouped: dict[str, list[str]] = {}
     for family, spec, _preview, _resolve in candidate_cases():
