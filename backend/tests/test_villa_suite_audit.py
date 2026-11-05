@@ -24,6 +24,7 @@ from app.sonify.pattern_registry import PATTERN_META
 from app.sonify.program import pattern_title
 from app.studio.examples import examples
 from app.studio.villa_suite_audit import (
+    PROMOTED_MOVEMENT_IDS,
     SENTENCE_VERDICTS,
     SUITE_MOVEMENTS,
     VILLA_PATTERN_IDS,
@@ -82,8 +83,15 @@ def test_ids_and_titles_are_unique_and_do_not_collide_with_patterns() -> None:
 
     assert len(set(ids)) == 5
     assert len(set(titles)) == 5
-    assert not set(ids) & set(PATTERN_META)
-    assert not set(titles) & _known_titles()
+    # A promoted movement is now a production pattern on purpose; the rest of
+    # the ledger must still stay out of the pattern table.
+    known_titles = _known_titles()
+    promoted_titles = {"Mazurka-Choro"}
+    assert not (set(ids) - PROMOTED_MOVEMENT_IDS) & set(PATTERN_META)
+    assert not (set(titles) - promoted_titles) & known_titles
+    assert PROMOTED_MOVEMENT_IDS == {"suite_mazurka"}
+    assert set(ids) & set(PATTERN_META) == PROMOTED_MOVEMENT_IDS
+    assert set(titles) & known_titles == promoted_titles
 
 
 def test_validate_rejects_a_pattern_id_collision() -> None:
@@ -92,8 +100,11 @@ def test_validate_rejects_a_pattern_id_collision() -> None:
 
 
 def test_validate_rejects_a_pattern_title_collision() -> None:
+    # The first movement is promoted, so probe the title guard on a movement
+    # that is still unshipped.
+    collision = replace(SUITE_MOVEMENTS[1], title="Waltz")
     with pytest.raises(ValueError, match="collides with an existing pattern title"):
-        validate(_with_first(title="Waltz"))
+        validate((SUITE_MOVEMENTS[0], collision, *SUITE_MOVEMENTS[2:]))
 
 
 def test_validate_rejects_a_duplicate_movement_id() -> None:

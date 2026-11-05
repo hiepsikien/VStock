@@ -336,6 +336,15 @@ export const PATTERN_REGISTRY: readonly PatternRegistryRow[] = [
   },
   {
     "ensemble": "villa",
+    "pattern": "suite_mazurka",
+    "title": "Mazurka-Choro",
+    "family": "dance",
+    "level": "topic",
+    "nameSource": "dance",
+    "waveProfile": true
+  },
+  {
+    "ensemble": "villa",
     "pattern": "thumb_cantabile",
     "title": "Prelude",
     "family": "chorale",

@@ -75,6 +75,7 @@ _FAMILY = {
     "polca": "dance",
     "hemiola": "dance",
     "vals": "dance",
+    "suite_mazurka": "dance",
     "noviembre": "brouwer",
     "brouwer_etude": "brouwer",
     "elogio_pizz": "brouwer",
@@ -115,6 +116,7 @@ _PROFILE = {
     "polca": "barrios_dance",
     "hemiola": "barrios_dance",
     "vals": "barrios_dance",
+    "suite_mazurka": "villa_pattern",
     "noviembre": "brouwer",
     "brouwer_etude": "brouwer",
     "elogio_pizz": "brouwer",
@@ -910,6 +912,20 @@ def _select_body(
     previous: list[str],
     section,
 ) -> str:
+    # Feature-gated Suite Mazurka. Off by default, so the historical Villa
+    # ladder below is untouched. On, it answers only a whole 3/4 movement that
+    # the renderer can also carry; every other case keeps the old selection.
+    if ctx.ensemble == "villa" and ctx.kind == "3/4":
+        from app.sonify.production_flags import suite_mazurka_enabled
+
+        if suite_mazurka_enabled():
+            from app.sonify.guitar_suite_mazurka import (
+                SUITE_MAZURKA_PATTERN,
+                selectable,
+            )
+
+            if selectable(ctx):
+                return SUITE_MAZURKA_PATTERN
     hold = _has_hold(ctx.melody, phrase)
     running = _running(ctx.melody, phrase)
     apex_bar = min(ctx.bars - 1, phrase.apex.start // ctx.epb)
@@ -3453,6 +3469,44 @@ def render_patterned_voices(
             period = render_period(ctx)
             if period is not None:
                 return period
+    # Feature-gated Villa sentence and Suite Mazurka. Both are off by default,
+    # so the existing bar loop below is byte-identical. Each gate returns only
+    # for a whole movement its module can cover; every other case falls through.
+    if ctx.ensemble == "villa":
+        from app.sonify.production_flags import (
+            suite_mazurka_enabled,
+            villa_production_enabled,
+        )
+
+        if suite_mazurka_enabled():
+            from app.sonify.guitar_suite_mazurka import (
+                render_sentence as render_mazurka,
+            )
+
+            mazurka = render_mazurka(ctx)
+            if mazurka is not None:
+                return mazurka
+        if villa_production_enabled():
+            from app.sonify.guitar_villa_production import (
+                render_sentence as render_villa_aba,
+            )
+
+            villa_aba = render_villa_aba(ctx)
+            if villa_aba is not None:
+                return villa_aba
+    # Feature-gated Brouwer A-B-A. Off by default; on, it replaces the same
+    # whole-movement dispatch the etude writer uses today.
+    if ctx.ensemble == "brouwer":
+        from app.sonify.production_flags import brouwer_production_enabled
+
+        if brouwer_production_enabled():
+            from app.sonify.guitar_brouwer_production import (
+                render_sentence as render_brouwer_aba,
+            )
+
+            brouwer_aba = render_brouwer_aba(ctx)
+            if brouwer_aba is not None:
+                return brouwer_aba
     from app.sonify.micro_velocity_writer import (
         apply_etude1,
         apply_etude11,

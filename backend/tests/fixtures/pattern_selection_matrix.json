@@ -1025,6 +1025,30 @@
     {
       "ctx_kind": "3/4",
       "driver": "select_body",
+      "expected_empty": true,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "suite_mazurka",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "observed_pattern": "villa_pattern",
+      "phase": "current",
+      "reason": "Villa returns suite_mazurka only when VSTOCK_SUITE_MAZURKA is on and the movement is a whole 3/4 Villa body with no pedal bars. This matrix runs with the flag off, so the historical Villa ladder answers.",
+      "selected_pattern": null,
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
       "expected_empty": false,
       "input": {
         "band": "mf",

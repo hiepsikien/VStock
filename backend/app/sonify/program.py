@@ -28,6 +28,7 @@ _PATTERN_TITLE = {
     "polca": "Polka",
     "hemiola": "Hemiola",
     "vals": "Waltz",
+    "suite_mazurka": "Mazurka-Choro",
     "noviembre": "Ballade",
     "brouwer_etude": "Etude",
     "elogio_pizz": "Dance",

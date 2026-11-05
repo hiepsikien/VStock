@@ -131,6 +131,7 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("villa", "chord_melody"): _profile(26, 32, 54, 60, None, None, 0, 0, "none", 9),
     ("villa", "thumb_cantabile"): _profile(30, 36, 58, 63, 68, 70, 1, 2, "thumb", 9),
     ("villa", "villa_pattern"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
+    ("villa", "suite_mazurka"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
     ("villa", "etude1"): _profile(30, 36, 58, 63, 68, 70, 1, 2, "etude1", 5),
     ("villa", "etude11"): _profile(30, 36, 58, 63, 70, 74, 1, 3, "etude11", 5),
     ("brouwer", "noviembre"): _profile(24, 30, 52, 58, None, None, 0, 0, "none", 9),
