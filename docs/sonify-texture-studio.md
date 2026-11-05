@@ -1072,7 +1072,7 @@ preview.wav / rendered.json
 
 ### 8.2. Audio, không phải MIDI
 
-> **Trạng thái code:** MVP dùng **synth code-only** (`app/studio/audio.py`), 22.05 kHz mono, 96 BPM cố định, cache theo `renderHash`; **không** MuseScore, **không** global Studio queue (chỉ `BoundedSemaphore` giới hạn đồng thời).
+> **Trạng thái code:** validate/preview có **job queue** `app/studio/jobs.py`: in-memory 64 job, TTL 10 phút, một `ThreadPoolExecutor(max_workers=1)`, `POST /v1/studio/jobs` (202) + `GET /v1/studio/jobs/{id}` (404/409/200). Audio preview vẫn là synth code-only (`app/studio/audio.py`, 22.05 kHz, 96 BPM, `renderHash`, semaphore riêng); MuseScore/audio queue vẫn chưa.
 
 - App dùng `expo-audio`, không có MIDI player.
 - Guitar audio đi qua `audio.py` → MuseScore.
@@ -1361,10 +1361,11 @@ backend/app/routers/studio_audio.py    # audio + WAV
 backend/app/routers/studio_export.py   # compile/export bundle (JSON, no writes)
 backend/app/routers/studio_vision.py   # access, uploads, analyze
 backend/app/routers/studio_texture.py  # POST /texture/validate (offline)
-backend/app/studio/                    # sentence_spec, texture_spec, preview, dispatch, compiler, publish, audio, session, quota, store, vision, candidates
+backend/app/routers/studio_jobs.py     # POST /v1/studio/jobs, GET /jobs/{id}
+backend/app/studio/                    # sentence_spec, texture_spec, preview, dispatch, compiler, jobs, publish, audio, session, quota, store, vision, candidates
 ```
 
-Sentence prefix: `/v1/studio/sentence`. Vision/session prefix: `/v1/musicalize/studio`. Vẫn chưa có preview job/queue, crop server-side hay export file trên đĩa.
+Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. Job queue là **in-memory/process-local** (không durable); vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
 
 **Vận hành MVP:** production nên set `VSTOCK_STUDIO_SECRET`; thiếu env thì server dùng secret random per-process (token chết sau restart, không còn hardcoded secret). Upload có `Content-Length` guard + chunk cap; ngoài quota per-owner còn global cap `VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY`/`..._ANALYSES_PER_DAY`/`..._SPECS_PER_DAY` để chặn session rotation; publish cũng enforce `specsPerDay` (429 + Retry-After). Vision cache prune theo `VSTOCK_STUDIO_VISION_CACHE_DAYS` (default 30).
 
@@ -1625,7 +1626,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
 | 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen + derived `PATTERN_NAMES` | renderer-profile playability, Phase 3 runtime 12/8 |
-| 1 | Studio room, editor, examples, validate/preview, audio, publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + **crop web** + draft table + TextureSpec draft/validate, export bundle JSON, spec owner/visibility | native picker/crop, preview job queue, `preview.wav`/export files, PR automation |
+| 1 | Studio room, editor, examples, validate/preview, audio, publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + **crop web** + draft table + TextureSpec draft/validate, **in-memory preview/validate job queue**, export bundle JSON, spec owner/visibility | native picker/crop, durable preview media, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
 
@@ -1686,7 +1687,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ## 14. Tiêu chí nghiệm thu
 
-> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **meter runtime resolver**, **sentence + pattern + render matrices**, **compiler bundle JSON**, **registry codegen + derived `PATTERN_NAMES`**, **session/quota/upload/Gemini analyze**, **spec owner/visibility** và UI draft. Các mục preview `slice_score`, preview job queue, native crop, renderer-profile playability/derived golden, interpreter và Suite vẫn là **mục tiêu**.
+> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass phần sentence (JSON round-trip/plan, validate/preview/publish/rollback, candidates preview, Barrios flag off), **schema/validator** `MeterSpec`/`TextureSpec`, **meter runtime resolver**, **sentence + pattern + render matrices**, **compiler bundle JSON**, **registry codegen + derived `PATTERN_NAMES`**, **session/quota/upload/Gemini analyze**, **spec owner/visibility** và UI draft. Các mục preview `slice_score`, durable preview queue/media, native crop, renderer-profile playability/derived golden, interpreter và Suite vẫn là **mục tiêu**.
 
 1. **Meter exact**: spec lưu đủ 6 field `MeterSpec`; so canonical tuple, không so `id`/string.
 2. **Meter sau retarget**: spec khớp `resolve_runtime_meter()` sau `_guitar_meter` + `retarget_torroba_meter`; compiler không gọi `active_meter()` ngoài `compose_meter`.
