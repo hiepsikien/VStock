@@ -80,7 +80,12 @@ def test_no_registered_family_is_silently_missing() -> None:
         FAMILY_OWNER[pattern] for pattern, _meter in registered_pairs()
     }
     assert {row["family"] for row in candidates} == candidate_families()
-    assert {row["family"]: row["id"] for row in candidates} == candidate_ids()
+    found: dict[str, list[str]] = {}
+    for row in candidates:
+        found.setdefault(row["family"], []).append(row["id"])
+    assert {
+        family: tuple(sorted(ids)) for family, ids in found.items()
+    } == candidate_ids()
     assert len(rows) == len({row["id"] for row in rows})
 
 

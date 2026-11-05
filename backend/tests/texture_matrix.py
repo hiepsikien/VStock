@@ -33,6 +33,7 @@ from app.studio.barrios_preview import preview_barrios_period
 from app.studio.brouwer_preview import preview_brouwer_sentence
 from app.studio.candidates import barrios_cathedral_spec, villa_candidate_spec
 from app.studio.candidates.brouwer import brouwer_aba_spec
+from app.studio.candidates.suite_mazurka import suite_mazurka_spec
 from app.studio.villa_preview import preview_villa_sentence
 from tests.guitar_fixture import meter_named, pattern_case
 
@@ -161,6 +162,12 @@ def candidate_cases() -> list[tuple[str, SentenceSpec, Any, Any]]:
         (
             "villa",
             villa_candidate_spec(),
+            preview_villa_sentence,
+            villa_preview._resolve_fixture,
+        ),
+        (
+            "villa",
+            suite_mazurka_spec(),
             preview_villa_sentence,
             villa_preview._resolve_fixture,
         ),
@@ -678,5 +685,15 @@ def candidate_previews() -> dict[str, Any]:
     }
 
 
-def candidate_ids() -> dict[str, str]:
-    return {family: spec.id for family, spec, _preview, _resolve in candidate_cases()}
+def candidate_ids() -> dict[str, tuple[str, ...]]:
+    """Candidate ids grouped by family; a family may own more than one meter.
+
+    Villa already owns two preview candidates (4/4 arpeggio and 3/4 Suite
+    Mazurka), so this cannot be a one-id-per-family map.
+    """
+    grouped: dict[str, list[str]] = {}
+    for family, spec, _preview, _resolve in candidate_cases():
+        grouped.setdefault(family, []).append(spec.id)
+    return {
+        family: tuple(sorted(ids)) for family, ids in sorted(grouped.items())
+    }

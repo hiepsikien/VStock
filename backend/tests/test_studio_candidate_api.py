@@ -29,6 +29,10 @@ from app.studio.candidates import (
     barrios_cathedral_spec,
     villa_candidate_spec,
 )
+from app.studio.candidates.suite_mazurka import (
+    SUITE_MAZURKA_PATH,
+    suite_mazurka_spec,
+)
 from app.studio.export import PILOT_PATTERNS, SPECS_DIR
 from app.studio.sentence_spec import parse_spec
 from app.studio.villa_preview import preview_villa_sentence
@@ -137,6 +141,32 @@ def test_preview_villa_candidate_through_the_api() -> None:
     assert body["notes"] == list(direct.notes)
 
 
+def test_preview_suite_mazurka_candidate_through_the_api() -> None:
+    client = _client()
+    payload = json.loads(SUITE_MAZURKA_PATH.read_text(encoding="utf-8"))["specs"][0]
+    assert payload["meter"] == "3/4"
+
+    body = _preview(client, payload)
+
+    assert set(body) == SHAPE
+    assert body["ok"] is True
+    assert body["plan"]["kind"] == "figure"
+    assert body["plan"]["length"] == 4
+    assert body["row"] == [
+        "villa_arpeggio",
+        "villa_arpeggio",
+        "villa_chord_melody",
+        "villa_arpeggio",
+    ]
+    # A 3/4 preview must stay inside three quarter beats per bar.
+    assert all(
+        note["beat"] + note["duration"] <= 3.0 for note in body["notes"]
+    )
+    direct = preview_villa_sentence(suite_mazurka_spec())
+    assert body["renderHash"] == direct.render_hash
+    assert body["notes"] == list(direct.notes)
+
+
 def test_preview_barrios_candidate_through_the_api() -> None:
     client = _client()
     payload = json.loads(BARRIOS_CATHEDRAL_PATH.read_text(encoding="utf-8"))["specs"][0]
@@ -163,7 +193,7 @@ def test_preview_barrios_candidate_through_the_api() -> None:
 def test_candidate_previews_leave_the_registry_untouched() -> None:
     client = _client()
     before = dict(specs.SENTENCE_SPECS)
-    for path in (VILLA_ARPEGGIO_PATH, BARRIOS_CATHEDRAL_PATH):
+    for path in (VILLA_ARPEGGIO_PATH, SUITE_MAZURKA_PATH, BARRIOS_CATHEDRAL_PATH):
         payload = json.loads(path.read_text(encoding="utf-8"))["specs"][0]
         assert _preview(client, payload)["ok"] is True
     assert specs.SENTENCE_SPECS == before
@@ -241,7 +271,7 @@ def test_validate_dispatches_to_each_family() -> None:
     response = client.post(VALIDATE, json=_castillo_payload())
     assert response.json() == {"ok": True, "errors": []}
 
-    for path in (VILLA_ARPEGGIO_PATH, BARRIOS_CATHEDRAL_PATH):
+    for path in (VILLA_ARPEGGIO_PATH, SUITE_MAZURKA_PATH, BARRIOS_CATHEDRAL_PATH):
         payload = json.loads(path.read_text(encoding="utf-8"))["specs"][0]
         body = client.post(VALIDATE, json=payload).json()
         assert body == {"ok": True, "errors": []}, (path, body)
@@ -249,7 +279,7 @@ def test_validate_dispatches_to_each_family() -> None:
 
 def test_validate_accepts_a_candidate_v1_wrapper() -> None:
     client = _client()
-    for path in (VILLA_ARPEGGIO_PATH, BARRIOS_CATHEDRAL_PATH):
+    for path in (VILLA_ARPEGGIO_PATH, SUITE_MAZURKA_PATH, BARRIOS_CATHEDRAL_PATH):
         wrapper = json.loads(path.read_text(encoding="utf-8"))
         body = client.post(VALIDATE, json=wrapper).json()
         assert body == {"ok": True, "errors": []}, (path, body)
@@ -275,7 +305,14 @@ def test_examples_include_torroba_sor_villa_barrios_and_brouwer() -> None:
 
     assert set(PILOT_PATTERNS) <= patterns
     assert {"villa_pattern", "preludio", "brouwer_etude"} <= patterns
-    assert len(rows) == 41
+    # 38 Torroba/Sor + 4 generic candidates (Villa 4/4, Villa 3/4, Barrios,
+    # Brouwer). The procedure-only Bach candidate is skipped by this endpoint.
+    assert len(rows) == 42
+    suite = next(
+        row for row in rows if row["id"] == "suite_mazurka_arpeggio_aaba"
+    )
+    assert suite["pattern"] == "villa_pattern"
+    assert suite["meter"] == "3/4"
     for row in rows:
         assert set(row) == {"pattern", "meter", "id", "payload"}
         assert row["payload"]["pattern"] == row["pattern"]
@@ -302,6 +339,12 @@ def test_examples_can_be_filtered_by_pattern() -> None:
             for row in _examples(client)
             if row["pattern"] == "villa_pattern"
         ],
+    }
+    # Both Villa candidates share the parent pattern and differ by meter.
+    assert {row["meter"] for row in villa["examples"]} == {"3/4", "4/4"}
+    assert {row["id"] for row in villa["examples"]} == {
+        "suite_mazurka_arpeggio_aaba",
+        "villa_arpeggio_aba",
     }
     barrios = client.get(f"{EXAMPLES}/preludio").json()
     assert [row["id"] for row in barrios["examples"]] == ["barrios_cathedral_period"]

@@ -124,8 +124,13 @@ def test_every_registered_archetype_selects_at_least_once() -> None:
 
 def test_candidate_rows_cover_every_preview() -> None:
     expected = _load()
-    found = {row["family"]: row["id"] for row in expected["candidates"]}
-    assert found == candidate_ids()
+    found: dict[str, list[str]] = {}
+    for row in expected["candidates"]:
+        found.setdefault(row["family"], []).append(row["id"])
+    found_ids = {
+        family: tuple(sorted(ids)) for family, ids in found.items()
+    }
+    assert found_ids == candidate_ids()
     assert set(found) == candidate_families() == {"villa", "barrios", "brouwer"}
     for row in expected["candidates"]:
         assert row["selected"] is True, row["id"]
