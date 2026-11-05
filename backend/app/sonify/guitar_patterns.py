@@ -3312,6 +3312,56 @@ def headline_id(ctx: _Ctx, patterns: list[str]) -> str:
     return max(counts, key=lambda name: (counts[name], name == first))
 
 
+def _chord_melody_velocity(
+    ctx: _Ctx,
+    phrase: Phrase | None,
+    event: NoteEvent,
+    breaks: set[int],
+) -> int | None:
+    """Written velocity for one interpreted chord_melody attack.
+
+    The spec deliberately does not own velocity (docs §6.1/§6.5). This is the
+    host resolver the interpreter asks for, and it mirrors the existing
+    ``_render_block_bar``/``_sustain`` level policy exactly.
+    """
+    eighth = event.bar * ctx.epb + int(round(event.beat * 2))
+    lead_velocity = _covering_melody_velocity(ctx, eighth, breaks)
+    if event.voice == 1:
+        return lead_velocity
+    band = ctx.band(event.bar)
+    if phrase is not None and _rises(phrase):
+        band = _swell_band(swell(phrase, min(eighth, phrase.end - 1)))
+    support, bass = _under_lead(lead_velocity, band)
+    if event.voice == 3:
+        return bass
+    if event.voice == 2:
+        return support
+    return None
+
+
+def _interpreted_chord_melody(
+    ctx: _Ctx,
+    bar: int,
+    phrase: Phrase | None,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]] | None:
+    """One interpreted chord_melody bar, or ``None`` to keep the code path.
+
+    Import is lazy so flag-off renders do not load the Studio schema module.
+    """
+    from app.sonify import texture_interpreter
+
+    if not texture_interpreter.interpreter_enabled():
+        return None
+    return texture_interpreter.render_chord_melody_bar(
+        ctx,
+        bar,
+        phrase,
+        velocity_at=lambda event, breaks: _chord_melody_velocity(
+            ctx, phrase, event, breaks
+        ),
+    )
+
+
 def render_patterned_voices(
     *,
     melody: list[int],
@@ -3571,10 +3621,13 @@ def render_patterned_voices(
             low.extend(part_low)
         elif pattern == "chord_melody":
             phrase = phrase_here
-            points, spans = _chord_grid(ctx, bar, phrase)
-            part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="color", phrase=phrase)
-            lead.extend(
-                _sustain(
+            interpreted = _interpreted_chord_melody(ctx, bar, phrase)
+            if interpreted is not None:
+                part_lead, part_support, part_low = interpreted
+            else:
+                points, spans = _chord_grid(ctx, bar, phrase)
+                part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="color", phrase=phrase)
+                part_lead = _sustain(
                     ctx.melody,
                     bar * epb,
                     (bar + 1) * epb,
@@ -3583,7 +3636,7 @@ def render_patterned_voices(
                     {bar * epb + point for point in points},
                     phrase,
                 )
-            )
+            lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "elegiaque":
