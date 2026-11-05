@@ -9,11 +9,11 @@
  * Contract seam while the backend contour API is not built:
  *
  *   The API returns `microVelocity` as a slot list: `[{ slot, contour }]`.
- *   `normalizeVelocityContour()` takes the first/only slot that carries a
- *   contour until Studio adds a slot selector. It also accepts a bare
- *   documented contour object or a plain array of offsets for compatibility.
- *   A note may also carry `velocityOffset` / `pinned` / `pinnedLayer` for
- *   hand-authored specs.
+ *   `velocitySlotContours()` keeps every slot for the Studio selector;
+ *   `normalizeVelocityContour()` remains the single-slot compatibility path
+ *   (first slot carrying a contour). Both also accept a bare documented
+ *   contour object or a plain array of offsets. A note may also carry
+ *   `velocityOffset` / `pinned` / `pinnedLayer` for hand-authored specs.
  *
  * Coordinate notes:
  *   - Contour `bar`/`beat` are relative to the figure/slot that owns them.
@@ -79,6 +79,14 @@ export type VelocityRuleContour = {
 /** Authored contour carrier for a figure, slot, pattern or sentence. */
 export type MicroVelocity = VelocityOffsetsContour | VelocityRuleContour;
 
+/** One preview slot and the contour authored for it (docs §6.9). */
+export type VelocitySlotContour = {
+  /** Index into `SentenceSpec.slots`; never a preview bar. */
+  slot: number;
+  /** `null` when the slot has no authored contour. */
+  contour: MicroVelocity | null;
+};
+
 /** One preview note after normalisation. */
 export type VelocityLaneNote = {
   bar: number;
@@ -108,7 +116,10 @@ export type VelocityLaneRow = {
   key: string;
   lane: VelocityLaneId;
   note: VelocityLaneNote;
+  /** Preview bar (absolute when `barOffset` is supplied). */
   bar: number;
+  /** Slot/figure-relative bar; contour entries are keyed by this value. */
+  contourBar: number;
   beat: number;
   voice: number;
   finger: VelocityFinger | null;
@@ -293,31 +304,7 @@ function normalizeOffsets(value: unknown): VelocityOffset[] {
     .filter((entry): entry is VelocityOffset => entry !== null);
 }
 
-/**
- * Accept the API slot list, the documented contour object, a plain offsets
- * array, or null.
- *
- * `microVelocity` is served as `[{ slot, contour }]`. Studio has no slot
- * selector yet, so we take the first slot that carries a contour; a later
- * multi-slot view must pass the chosen slot in explicitly rather than
- * flattening every slot together.
- */
-export function normalizeVelocityContour(value: unknown): MicroVelocity | null {
-  if (Array.isArray(value)) {
-    const hasSlotContour = value.some(
-      (item) => isRecord(item) && 'contour' in item,
-    );
-    if (hasSlotContour) {
-      for (const item of value) {
-        if (!isRecord(item) || !('contour' in item) || item.contour == null) continue;
-        const contour = normalizeVelocityContour(item.contour);
-        if (contour) return contour;
-      }
-      return null;
-    }
-    // Compatibility: a plain array of offset entries is still accepted.
-    return { kind: 'offsets', notes: normalizeOffsets(value) };
-  }
+function normalizeContourObject(value: unknown): MicroVelocity | null {
   if (!isRecord(value)) return null;
 
   const kind = value.kind;
@@ -341,6 +328,66 @@ export function normalizeVelocityContour(value: unknown): MicroVelocity | null {
     };
   }
   return null;
+}
+
+/**
+ * Accept the API slot list, the documented contour object, a plain offsets
+ * array, or null, and return every selectable slot in wire order.
+ *
+ * `microVelocity` is served as `[{ slot, contour }]`. A bare contour object or
+ * a plain offsets array is the single-slot compatibility path (slot 0). Slot
+ * entries with a `null` contour stay in the list so the selector can show that
+ * the slot exists but is unauthored.
+ */
+export function velocitySlotContours(value: unknown): VelocitySlotContour[] {
+  if (Array.isArray(value)) {
+    const hasSlotContour = value.some(
+      (item) => isRecord(item) && 'contour' in item,
+    );
+    if (hasSlotContour) {
+      const seen = new Set<number>();
+      const slots: VelocitySlotContour[] = [];
+      value.forEach((item, index) => {
+        if (!isRecord(item) || !('contour' in item)) return;
+        const slot = nonNegativeInteger(item.slot) ?? index;
+        if (seen.has(slot)) return;
+        seen.add(slot);
+        slots.push({
+          slot,
+          contour: item.contour == null ? null : normalizeContourObject(item.contour),
+        });
+      });
+      return slots;
+    }
+    // Compatibility: a plain array of offset entries is still accepted.
+    return [{ slot: 0, contour: { kind: 'offsets', notes: normalizeOffsets(value) } }];
+  }
+  const contour = normalizeContourObject(value);
+  return contour ? [{ slot: 0, contour }] : [];
+}
+
+/**
+ * Accept the API slot list, the documented contour object, a plain offsets
+ * array, or null.
+ *
+ * The single-slot path is unchanged: the first slot carrying a contour wins.
+ * Multi-slot views should call `velocitySlotContours()` and pass the chosen
+ * slot in explicitly rather than flattening every slot together.
+ */
+export function normalizeVelocityContour(value: unknown): MicroVelocity | null {
+  if (Array.isArray(value)) {
+    const slots = velocitySlotContours(value);
+    for (const item of slots) {
+      if (item.contour) return item.contour;
+    }
+    return null;
+  }
+  return normalizeContourObject(value);
+}
+
+/** Selector label; slot indexes match the JSON `slots[]` array. */
+export function velocitySlotLabel(slot: number): string {
+  return `Slot ${Math.trunc(slot)}`;
 }
 
 export function velocityContourKind(
@@ -549,6 +596,7 @@ export function velocityLaneRows(
       lane,
       note,
       bar: note.bar,
+      contourBar: bar,
       beat: note.beat,
       voice: note.voice,
       finger: note.finger,
@@ -640,6 +688,88 @@ export function applyOffsetPreview(
     pinnedLayer: row.pinnedLayer,
     previewVelocity: row.previewVelocity,
   }));
+}
+
+/** True when an offsets contour has no authored entries (thumb included). */
+export function velocityContourIsEmpty(contour: MicroVelocity | null | undefined): boolean {
+  if (!contour) return true;
+  if (contour.kind === 'rule') return false;
+  return (contour.notes?.length ?? 0) === 0 && (contour.thumb?.length ?? 0) === 0;
+}
+
+function cleanOffsetEntry(entry: VelocityOffset): VelocityOffset {
+  const layer = stringValue(entry.layer);
+  return {
+    bar: entry.bar,
+    beat: entry.beat,
+    voice: entry.voice,
+    ...(entry.finger ? { finger: entry.finger } : {}),
+    ...(entry.offset == null ? {} : { offset: entry.offset }),
+    ...(entry.pinned === true ? { pinned: true } : {}),
+    ...(entry.velocity == null ? {} : { velocity: entry.velocity }),
+    ...(layer ? { layer } : {}),
+  };
+}
+
+function coordinateKey(entry: VelocityOffset): string {
+  return noteKey(entry.bar, entry.beat, entry.voice, entry.finger ?? null);
+}
+
+/**
+ * Merge the lane's local per-row edits into a contour that can be written into
+ * `SentenceSpec.slots[slot].microVelocity`.
+ *
+ * - Entries that are not edited are preserved verbatim.
+ * - Pinned entries are read-only and are never replaced by an edit.
+ * - Rule contours are code-owned; edits are ignored so a save can block
+ *   explicitly instead of silently converting a rule into offsets.
+ * - An unedited default row is not materialised; only edits add entries.
+ */
+export function mergeVelocityEdits(
+  contour: MicroVelocity | null,
+  rows: readonly VelocityLaneRow[],
+  edits: Readonly<Record<string, number>>,
+): MicroVelocity {
+  if (contour?.kind === 'rule') return contour;
+
+  const notes = (contour?.notes ?? []).map(cleanOffsetEntry);
+  const thumb = (contour?.thumb ?? []).map(cleanOffsetEntry);
+
+  for (const row of rows) {
+    const edited = edits[row.key];
+    if (edited == null || row.pinned) continue;
+    const target = row.thumb ? thumb : notes;
+    const key = noteKey(row.contourBar, row.beat, row.voice, row.finger);
+    const index = target.findIndex((entry) => coordinateKey(entry) === key);
+    if (index >= 0) {
+      const existing = target[index];
+      // Defensive: a pinned coordinate stays owned by the absolute writer.
+      if (!existing || existing.pinned === true) continue;
+      target[index] = {
+        bar: existing.bar,
+        beat: existing.beat,
+        voice: existing.voice,
+        ...(existing.finger ? { finger: existing.finger } : {}),
+        offset: edited,
+      };
+      continue;
+    }
+    // A new entry at offset 0 has no effect; do not bloat the spec.
+    if (edited === 0) continue;
+    target.push({
+      bar: row.contourBar,
+      beat: row.beat,
+      voice: row.voice,
+      ...(row.finger ? { finger: row.finger } : {}),
+      offset: edited,
+    });
+  }
+
+  return {
+    kind: 'offsets',
+    notes,
+    ...(thumb.length ? { thumb } : {}),
+  };
 }
 
 /** Cheap summary of what the contour changes; all offsets display-only. */

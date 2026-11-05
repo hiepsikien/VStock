@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -9,6 +9,7 @@ import {
 import { palette, TOUCH_TARGET } from '../musicalize/palette';
 import { type } from '../musicalize/type';
 import {
+  mergeVelocityEdits,
   velocityLaneExtent,
   velocityLaneLabel,
   velocityLaneRows,
@@ -66,6 +67,18 @@ type Props = {
   barSpan?: number;
   /** Simple flatten table for a rule contour, keyed by `noteKey(...)`. */
   ruleOffsets?: Readonly<Record<string, number>>;
+  /**
+   * Called with the merged contour when the user presses **Save to spec**.
+   * The parent owns the spec text, pre-flight errors and validation.
+   */
+  onSaveContour?: (contour: MicroVelocity, info: VelocityLaneSaveInfo) => void;
+};
+
+export type VelocityLaneSaveInfo = {
+  /** Local edits exist; a rule carrier cannot express them. */
+  hasEdits: boolean;
+  /** A rule contour still has rows without a flatten entry. */
+  needsRule: boolean;
 };
 
 function clampOffset(value: number): number {
@@ -136,6 +149,7 @@ export function VelocityLane({
   barOffset,
   barSpan,
   ruleOffsets,
+  onSaveContour,
 }: Props) {
   const [voice, setVoice] = useState<number | null>(null);
   const [showThumb, setShowThumb] = useState(true);
@@ -143,6 +157,14 @@ export function VelocityLane({
   const [editMode, setEditMode] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, number>>({});
+
+  // A new preview (or a different selected slot) reloads the authored contour;
+  // local edits must never leak into another slot's coordinates.
+  useEffect(() => {
+    setEdits({});
+    setSelectedKey(null);
+    setEditMode(false);
+  }, [contour]);
 
   const allRows = useMemo(
     () =>
@@ -174,6 +196,13 @@ export function VelocityLane({
   const hasAuthored = rows.some((row) => row.authored && !row.pinned);
   const canAfterLayers = hasAuthored && contour != null;
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
+  const editCount = Object.keys(edits).length;
+  const ruleNeedsFlatten =
+    contour?.kind === 'rule' && allRows.some((row) => row.needsRule);
+  // Rule contours stay code-owned until the writer has a flatten table.
+  const canEdit = hasAuthored && contour?.kind !== 'rule';
+  const canSave =
+    editable && contour != null && onSaveContour != null && !ruleNeedsFlatten;
 
   const effectiveOffset = (row: VelocityLaneRow): number => {
     if (row.pinned) return 0;
@@ -198,10 +227,9 @@ export function VelocityLane({
     .filter((group) => group.rows.length > 0);
 
   const pinnedRows = rows.filter((row) => row.pinned);
-  const ruleNeedsFlatten = contour?.kind === 'rule' && extent.needsRule;
 
   const adjustSelected = (delta: number) => {
-    if (!selected || selected.pinned) return;
+    if (!selected || selected.pinned || !canEdit) return;
     setEdits((current) => {
       const base = current[selected.key] ?? selected.offset;
       const next = clampOffset(base + delta);
@@ -220,6 +248,14 @@ export function VelocityLane({
       const copy = { ...current };
       delete copy[selected.key];
       return copy;
+    });
+  };
+
+  const saveContour = () => {
+    if (!onSaveContour || !canSave) return;
+    onSaveContour(mergeVelocityEdits(contour, allRows, edits), {
+      hasEdits: editCount > 0,
+      needsRule: ruleNeedsFlatten,
     });
   };
 
@@ -292,7 +328,7 @@ export function VelocityLane({
           <Chip
             active={editMode}
             label="Edit offsets"
-            disabled={!hasAuthored}
+            disabled={!canEdit}
             onPress={() => setEditMode((current) => !current)}
             accessibilityLabel="Edit authored offsets in local state"
           />
@@ -318,8 +354,8 @@ export function VelocityLane({
         <View style={styles.noteBox}>
           <Text style={styles.noteText}>
             {ruleNeedsFlatten
-              ? 'This rule contour needs a per-rule flatten table before the lane can show offsets. Unmatched notes stay empty instead of guessed.'
-              : 'Rule contour flattened through the supplied offset table.'}
+              ? 'This rule contour needs a per-rule flatten table before the lane can show offsets. Unmatched notes stay empty instead of guessed, and Save to spec stays blocked.'
+              : 'Rule contour flattened through the supplied offset table. The rule carrier stays code-owned, so the lane is read-only.'}
           </Text>
         </View>
       ) : null}
@@ -477,7 +513,7 @@ export function VelocityLane({
                 ? ` → ${afterLayersVelocity(selected) ?? '—'} after layer`
                 : ''}
           </Text>
-          {editMode && !selected.pinned ? (
+          {editMode && canEdit && !selected.pinned ? (
             <View style={styles.editRow}>
               <Text style={styles.editLabel}>local</Text>
               <StepButton label="-4" onPress={() => adjustSelected(-4)} />
@@ -494,7 +530,7 @@ export function VelocityLane({
               </Pressable>
             </View>
           ) : null}
-          {editMode && selected.pinned ? (
+          {editMode && canEdit && selected.pinned ? (
             <Text style={styles.detailWarn}>
               Pinned attack: the absolute layer owns this velocity, so the lane does
               not expose an offset.
@@ -508,11 +544,10 @@ export function VelocityLane({
         </Text>
       )}
 
-      {editMode && Object.keys(edits).length > 0 ? (
+      {editMode && editCount > 0 ? (
         <View style={styles.editFooter}>
           <Text style={styles.editFooterText}>
-            {Object.keys(edits).length} local edit
-            {Object.keys(edits).length === 1 ? '' : 's'} · not saved, not sent
+            {editCount} local edit{editCount === 1 ? '' : 's'} · pending save
           </Text>
           <Pressable
             onPress={() => setEdits({})}
@@ -522,6 +557,34 @@ export function VelocityLane({
           >
             <Text style={styles.resetText}>Clear local edits</Text>
           </Pressable>
+        </View>
+      ) : null}
+
+      {editable && onSaveContour ? (
+        <View style={styles.saveRow}>
+          <Pressable
+            onPress={saveContour}
+            disabled={!canSave}
+            accessibilityRole="button"
+            accessibilityLabel="Save velocity contour to sentence spec"
+            accessibilityState={{ disabled: !canSave }}
+            style={({ pressed }) => [
+              styles.saveButton,
+              !canSave && styles.saveButtonDisabled,
+              pressed && canSave && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.saveText, !canSave && styles.saveTextDisabled]}>
+              Save to spec
+            </Text>
+          </Pressable>
+          <Text style={styles.saveHint}>
+            {ruleNeedsFlatten
+              ? 'Rule contour needs a flatten table; saving stays blocked.'
+              : editCount > 0
+                ? `Writes ${editCount} local edit${editCount === 1 ? '' : 's'} into slots[].microVelocity.`
+                : 'Writes the loaded contour into slots[].microVelocity.'}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -880,6 +943,42 @@ const styles = StyleSheet.create({
     fontFamily: type.mono.fontFamily,
     fontSize: 9,
     lineHeight: 12,
+  },
+  saveRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 2,
+  },
+  saveButton: {
+    minHeight: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 11,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  saveButtonDisabled: {
+    opacity: 0.38,
+  },
+  saveText: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+  },
+  saveTextDisabled: {
+    color: palette.textMuted,
+  },
+  saveHint: {
+    flexShrink: 1,
+    color: palette.textFaint,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
   },
   pressed: {
     opacity: 0.7,
