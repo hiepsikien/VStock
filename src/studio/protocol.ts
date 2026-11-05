@@ -13,11 +13,11 @@
  *        -> { ok, errors, plan, row, notes, renderHash, matrix }
  *   POST {prefix}/audio     body = { spec, fixture } | { renderHash }
  *        -> { ok, errors, audioUrl, durationSec, renderHash }
- *   POST {prefix}/publish   body = one sentence spec mapping
- *        -> { ok, id, pattern, meter, version, errors }
+ *   POST {prefix}/publish?visibility=private|public   body = one sentence spec mapping
+ *        -> { ok, id, pattern, meter, version, visibility, errors }
  *   POST {prefix}/specs/{id}/rollback
- *        -> { ok, id, pattern, meter, version, rollbackOf, errors }
- *   GET  {prefix}/specs     -> { ok, specs: [{ id, pattern, meter, version, status, createdAt, rollbackOf? }] }
+ *        -> { ok, id, pattern, meter, version, rollbackOf, visibility, errors }
+ *   GET  {prefix}/specs     -> { ok, specs: [{ id, pattern, meter, version, status, createdAt, rollbackOf?, visibility }] }
  *   GET  {prefix}/specs/{id} -> summary + { payload }
  *
  * TextureSpec draft validation lives beside it:
@@ -43,6 +43,28 @@ export type StudioError = {
   path: string;
   message: string;
 };
+
+/**
+ * Row visibility on publish. `private` is the wire default, so a response that
+ * omits the field must normalize to private rather than guessing public.
+ */
+export type StudioVisibility = 'private' | 'public';
+
+export const DEFAULT_STUDIO_VISIBILITY: StudioVisibility = 'private';
+
+/** Unknown/absent values fail closed to `fallback` (private by default). */
+export function normalizeVisibility(
+  value: unknown,
+  fallback: StudioVisibility = DEFAULT_STUDIO_VISIBILITY,
+): StudioVisibility {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return raw === 'public' || raw === 'private' ? raw : fallback;
+}
+
+/** `?visibility=public`; private stays explicit so the publish request self-describes. */
+export function publishVisibilityQuery(visibility: StudioVisibility): string {
+  return `?visibility=${normalizeVisibility(visibility)}`;
+}
 
 export type StudioValidateResponse = {
   ok: boolean;
@@ -124,6 +146,7 @@ export type StudioPublishResponse = {
   pattern: string | null;
   meter: string | null;
   version: number | null;
+  visibility: StudioVisibility;
   errors: StudioError[];
 };
 
@@ -134,6 +157,7 @@ export type StudioRollbackResponse = {
   meter: string | null;
   version: number | null;
   rollbackOf: string | null;
+  visibility: StudioVisibility;
   errors: StudioError[];
 };
 
@@ -144,6 +168,8 @@ export type StudioPublishedSpec = {
   version: number;
   status: string;
   createdAt: string;
+  /** Defaults to private when an older server omits the field. */
+  visibility: StudioVisibility;
   /** Present only on rows created by a rollback; names the source version. */
   rollbackOf?: string;
 };
@@ -451,6 +477,7 @@ export function normalizePublishResponse(body: unknown): StudioPublishResponse {
     pattern: text(body.pattern),
     meter: text(body.meter),
     version: positiveInteger(body.version),
+    visibility: normalizeVisibility(body.visibility),
     errors,
   };
 }
@@ -477,6 +504,7 @@ export function normalizeRollbackResponse(
     version: positiveInteger(body.version),
     rollbackOf:
       text(body.rollbackOf) ?? text(body.rollback_of) ?? text(sourceId),
+    visibility: normalizeVisibility(body.visibility),
     errors,
   };
 }
@@ -494,6 +522,7 @@ function normalizePublishedSpec(value: unknown): StudioPublishedSpec | null {
     version: positiveInteger(value.version) ?? 0,
     status: text(value.status) ?? '',
     createdAt: text(value.createdAt) ?? text(value.created_at) ?? '',
+    visibility: normalizeVisibility(value.visibility),
   };
   const rollbackOf = text(value.rollbackOf) ?? text(value.rollback_of);
   if (rollbackOf) spec.rollbackOf = rollbackOf;

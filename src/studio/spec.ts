@@ -1,5 +1,6 @@
 import {
   MIN_CROP_SIZE,
+  normalizeVisibility,
   type CropRect,
   type StudioAccess,
   type StudioAnalysisNote,
@@ -8,6 +9,7 @@ import {
   type StudioExample,
   type StudioPublishedSpec,
   type StudioUpload,
+  type StudioVisibility,
 } from './protocol';
 
 export type { CropRect } from './protocol';
@@ -86,6 +88,161 @@ export function patternLabel(pattern: string): string {
 
 export function meterLabel(meter: string): string {
   return meter === ANY_METER ? 'any meter' : meter;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Publish visibility, clipboard formatting, and compact status copy.
+ * ------------------------------------------------------------------------- */
+
+export function visibilityLabel(visibility: StudioVisibility): string {
+  return normalizeVisibility(visibility) === 'public' ? 'Public' : 'Private';
+}
+
+/** One-line consequence shown beside the Private/Public control. */
+export function visibilityHint(visibility: StudioVisibility): string {
+  return normalizeVisibility(visibility) === 'public'
+    ? 'Every Studio session can list and load this version.'
+    : 'Only this Studio session can list and load this version.';
+}
+
+/** Visibility for a published/list row, defaulting older rows to private. */
+export function publishedVisibility(spec: {
+  visibility?: StudioVisibility | string | null;
+}): StudioVisibility {
+  return normalizeVisibility(spec.visibility);
+}
+
+/**
+ * Clipboard text: trim whitespace so an id/hash copied from a padded cell is
+ * still usable, and return null for empty values so the button can disable.
+ */
+export function copyValue(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+/** `Published v3 · Public · 0123456789…` for the post-publish status box. */
+export function publishSuccessLabel(
+  visibility: StudioVisibility,
+  version: number | null | undefined,
+  id: string,
+): string {
+  const versionLabel =
+    typeof version === 'number' && Number.isInteger(version) && version > 0
+      ? `v${version}`
+      : 'a new version';
+  return `Published ${versionLabel} · ${visibilityLabel(visibility)} · ${shortId(id)}`;
+}
+
+export function publishedCountLabel(count: number): string {
+  if (!Number.isFinite(count) || count <= 0) return 'No versions yet';
+  return `${count} version${count === 1 ? '' : 's'}`;
+}
+
+export type StatusTone = 'idle' | 'loading' | 'ok' | 'warn' | 'error';
+
+export type StatusLine = {
+  tone: StatusTone;
+  text: string;
+};
+
+/** Examples palette state, including an explicit empty/fallback message. */
+export function examplesStatusLabel(input: {
+  loading: boolean;
+  source: 'api' | 'fallback';
+  count: number;
+  note: string | null;
+}): StatusLine {
+  if (input.loading) {
+    return { tone: 'loading', text: 'Loading examples from the API…' };
+  }
+  if (input.count <= 0) {
+    return {
+      tone: 'error',
+      text: 'No examples available. Paste a spec into the editor to continue.',
+    };
+  }
+  if (input.source === 'api') {
+    return {
+      tone: 'ok',
+      text: `${input.count} example${input.count === 1 ? '' : 's'} loaded from the API.`,
+    };
+  }
+  return {
+    tone: 'warn',
+    text:
+      input.note ??
+      `Using ${input.count} embedded example${input.count === 1 ? '' : 's'}; the examples API was not used.`,
+  };
+}
+
+/** Full quota line for the status strip; `accessSummary` stays the short form. */
+export function accessDetail(access: StudioAccess): string {
+  if (!access.enabled) {
+    return `Uploads and Analyze are off · ${accessReasonLabel(access.reason)}`;
+  }
+  const quota = access.quota;
+  const parts: string[] = [];
+  if (quota.uploadsPerDay > 0) parts.push(`${quota.uploadsPerDay} uploads/day`);
+  if (quota.analysesPerDay > 0) parts.push(`${quota.analysesPerDay} analyses/day`);
+  if (quota.specsPerDay > 0) parts.push(`${quota.specsPerDay} publishes/day`);
+  if (quota.maxImageMb > 0) parts.push(`max ${quota.maxImageMb} MB`);
+  if (quota.previewsConcurrent > 0) {
+    parts.push(
+      `${quota.previewsConcurrent} preview slot${quota.previewsConcurrent === 1 ? '' : 's'}`,
+    );
+  }
+  return parts.length ? parts.join(' · ') : 'No per-session quota reported.';
+}
+
+export function accessStatusLabel(
+  state: 'loading' | 'ready' | 'error',
+  access?: StudioAccess,
+  message?: string,
+): StatusLine {
+  if (state === 'loading') {
+    return { tone: 'loading', text: 'Checking session and Studio access…' };
+  }
+  if (state === 'error' || !access) {
+    return {
+      tone: 'warn',
+      text: `Access check failed${message ? ` · ${message}` : ''}. Uploads stay enabled; the server enforces quota.`,
+    };
+  }
+  if (!access.enabled) {
+    return {
+      tone: 'warn',
+      text: `Studio disabled · ${accessReasonLabel(access.reason)} · the sentence editor still works.`,
+    };
+  }
+  return {
+    tone: 'ok',
+    text: `${accessReasonLabel(access.reason)} · ${accessDetail(access)}`,
+  };
+}
+
+export function jobStatusLabel(status: 'queued' | 'running'): string {
+  return status === 'running'
+    ? 'Rendering preview on the Studio worker…'
+    : 'Queued for the Studio worker…';
+}
+
+export function audioStatusLabel(
+  kind: 'idle' | 'loading' | 'ready' | 'error',
+  durationSec = 0,
+  playing = false,
+): string {
+  switch (kind) {
+    case 'loading':
+      return 'Synthesizing the cached preview WAV…';
+    case 'ready':
+      return `${durationLabel(durationSec)} WAV · ${playing ? 'playing' : 'ready'}`;
+    case 'error':
+      return 'Audio preview failed.';
+    default:
+      return 'No audio rendered for this preview yet.';
+  }
 }
 
 export type StudioSample = {
