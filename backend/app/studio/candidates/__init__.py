@@ -1,12 +1,14 @@
 """Candidate-only sentence specs for the Studio pilots.
 
-Nothing in this package is registered with `app.sonify.sentence_specs`. A
-candidate is loaded straight from JSON into `SentenceSpec` objects and handed to
-a preview; it never enters `SENTENCE_SPECS`, so production planners cannot see
-it. These are authoring probes, not shipped archetypes.
+Nothing in this package is registered with `app.sonify.sentence_specs` at
+import. A candidate is loaded straight from JSON into `SentenceSpec` objects and
+handed to a preview; it never enters `SENTENCE_SPECS`, so production planners
+cannot see it. These are authoring probes, not shipped archetypes.
 
-The JSON file is the authored source; the Barrios builder is the code twin used
-to prove the file round-trips. Keep them in sync and let the test compare them.
+The JSON file is the authored source. The Barrios builder now lives in the
+production owner (`app.sonify.guitar_barrios_period`) and is re-exported here, so
+the candidate and the feature-gated production spec cannot drift. The test still
+compares the JSON with it.
 """
 
 from __future__ import annotations
@@ -14,31 +16,28 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.sonify.guitar_barrios_figures import BARRIOS_PRELUDIO, BARRIOS_TREMOLO
-from app.sonify.sentence_specs import Select, SentenceSpec, Slot, Span
+from app.sonify.guitar_barrios_period import (
+    BARRIOS_CATHEDRAL_PERIOD,
+    BARRIOS_CATHEDRAL_PERIOD_ID,
+)
+from app.sonify.sentence_specs import SentenceSpec
 from app.studio.sentence_spec import parse_payload
 
 CANDIDATES_DIR = Path(__file__).parent
 VILLA_ARPEGGIO_PATH = CANDIDATES_DIR / "villa_arpeggio.json"
 BARRIOS_CATHEDRAL_PATH = CANDIDATES_DIR / "barrios_cathedral.json"
 
-BARRIOS_CATHEDRAL_PERIOD_ID = "barrios_cathedral_period"
-
-# Preludio Saudade -> the tremolo apex -> the opening frame again. The middle
-# slot is the guest; the outer slots are the same texture, which is what makes
-# it a period rather than a one-way movement.
-BARRIOS_CATHEDRAL_PERIOD = SentenceSpec(
-    id=BARRIOS_CATHEDRAL_PERIOD_ID,
-    pattern="preludio",
-    meter="4/4",
-    select=Select(length_min=12, length_max=12),
-    span=Span(tile=12, exact=True, remainder="exact"),
-    slots=(
-        Slot(start=0, bars=4, figure=BARRIOS_PRELUDIO),
-        Slot(start=4, bars=4, figure=BARRIOS_TREMOLO),
-        Slot(start=8, bars=4, figure=BARRIOS_PRELUDIO),
-    ),
-)
+__all__ = [
+    "BARRIOS_CATHEDRAL_PATH",
+    "BARRIOS_CATHEDRAL_PERIOD",
+    "BARRIOS_CATHEDRAL_PERIOD_ID",
+    "VILLA_ARPEGGIO_PATH",
+    "barrios_cathedral_spec",
+    "load_barrios_cathedral",
+    "load_candidate",
+    "load_villa_candidate",
+    "villa_candidate_spec",
+]
 
 
 def load_candidate(path: str | Path) -> tuple[SentenceSpec, ...]:
