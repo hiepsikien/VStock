@@ -1099,7 +1099,7 @@ figure writer (level gốc)
 | Etude1 | `_ETUDE1_ARC` theo sixteenth (`-2/-2/-2/0/0/+2...`), middle 52, bass sung-4 |
 | Etude11 | arch `-10/-6/-7/-10`, band nudge, `_ETUDE11_TILT`, lead hairpin/-8, bass hairpin-4 |
 
-Đã bóc tách: `TREMOLO_44`, `TREMOLO_34` (offsets), `ETUDE1` (offsets), `ETUDE11`/`GALOP1`/`GALOP2` (rules) trong `app/sonify/micro_velocity_contours.py`; zero-diff bằng `tests/micro_velocity_extract.py` + `tests/test_micro_velocity_contours.py`. **Cathedral Preludio chưa bóc tách** vì `_catedral_under(level, canto)=min(level,canto-6)` cần pitch của voice khác; cần writer integration/rule context, không bịa offset. `NEUTRAL_LEVELS` chỉ là metadata verify, không phải `base` trong contour.
+Đã bóc tách: `TREMOLO_44`, `TREMOLO_34` (offsets), `ETUDE1` (offsets), `ETUDE11`/`GALOP1`/`GALOP2`/`CATHEDRAL_PRELUDIO` (rules) trong `app/sonify/micro_velocity_contours.py`; zero-diff bằng `tests/micro_velocity_extract.py` + `tests/test_micro_velocity_contours.py`. Cathedral dùng `canto_at`/`raw_at`/`beats_per_bar` ở flatten time cho `min(level, canto-6)`; không lưu bar plan/offset bịa. `NEUTRAL_LEVELS` chỉ là metadata verify, không phải `base` trong contour.
 
 ---
 
@@ -1838,7 +1838,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 27. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
 
 28. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp **trừ attack `pinned`** do absolute writer (snap/stab/fan/trim); Studio click figure → velocity lane và cho sửa.
-29. **Extraction zero-diff:** Tremolo 4/4–3/4, Galop 1/2, Etude1, Etude11 phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”. **Cathedral Preludio được defer** đến writer integration/rule context (`_catedral_under` cần pitch voice khác) — không bịa offset để pass gate.
+29. **Extraction zero-diff:** Tremolo 4/4–3/4, Galop 1/2, Etude1, Etude11, **Cathedral Preludio** phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”. Cathedral dùng rule context `canto_at`/`raw_at`/`beats_per_bar`, không lưu offset bịa.
 
 ---
 
