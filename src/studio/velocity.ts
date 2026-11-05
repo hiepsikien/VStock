@@ -784,6 +784,40 @@ export function velocityLaneExtent(rows: readonly VelocityLaneRow[]): VelocityLa
   };
 }
 
+/** Why a rule contour is read-only, or null for offsets/realized contours. */
+export type RuleContourStatus = {
+  /** True when missing flatten entries block Save to spec. */
+  blocked: boolean;
+  label: string;
+  detail: string;
+};
+
+/**
+ * Read-only explanation for the Studio lane when the preview returns a rule
+ * contour. A rule carrier is code-owned; a missing flatten table also leaves
+ * some rows without an offset, so saving must stay blocked.
+ */
+export function ruleContourStatus(
+  contour: MicroVelocity | null | undefined,
+  needsFlatten: boolean,
+): RuleContourStatus | null {
+  if (contour?.kind !== 'rule') return null;
+  if (needsFlatten) {
+    return {
+      blocked: true,
+      label: 'Rule contour needs a flatten table',
+      detail:
+        'Some notes have no per-rule flatten entry, so their offsets stay empty and Save to spec is blocked. The lane is read-only until the rule or a flatten table supplies every offset.',
+    };
+  }
+  return {
+    blocked: false,
+    label: 'Rule contour is read-only',
+    detail:
+      'Offsets resolve through the flatten table, but the rule carrier stays code-owned. Editing and Save to spec remain disabled.',
+  };
+}
+
 /** Display label; bars are 1-based for musicians, contour data stays 0-based. */
 export function velocityLaneLabel(input: {
   bar: number;

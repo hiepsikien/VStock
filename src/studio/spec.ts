@@ -140,6 +140,176 @@ export function publishedCountLabel(count: number): string {
   return `${count} version${count === 1 ? '' : 's'}`;
 }
 
+/* ------------------------------------------------------------------------- *
+ * Published-list filter, sort, and Studio orientation copy.
+ *
+ * The filter defaults to every row in server order, so the list behaves exactly
+ * as before until someone narrows it. All helpers stay pure and locale-free.
+ * ------------------------------------------------------------------------- */
+
+export type PublishedFilterVisibility = 'all' | StudioVisibility;
+export type PublishedSort = 'listed' | 'newest' | 'oldest';
+
+export type PublishedFilter = {
+  visibility: PublishedFilterVisibility;
+  /** `null` shows every pattern. */
+  pattern: string | null;
+  sort: PublishedSort;
+};
+
+export const DEFAULT_PUBLISHED_FILTER: PublishedFilter = {
+  visibility: 'all',
+  pattern: null,
+  sort: 'listed',
+};
+
+export function publishedSortLabel(sort: PublishedSort): string {
+  switch (sort) {
+    case 'newest':
+      return 'Newest first';
+    case 'oldest':
+      return 'Oldest first';
+    default:
+      return 'Server order';
+  }
+}
+
+/** Cycle through the compact sort control: server → newest → oldest. */
+export function nextPublishedSort(sort: PublishedSort): PublishedSort {
+  if (sort === 'listed') return 'newest';
+  if (sort === 'newest') return 'oldest';
+  return 'listed';
+}
+
+/** Pattern ids present in the list, in first-seen order. */
+export function publishedFilterPatterns(
+  items: readonly { pattern: string }[],
+): string[] {
+  const seen = new Set<string>();
+  const patterns: string[] = [];
+  for (const item of items) {
+    if (seen.has(item.pattern)) continue;
+    seen.add(item.pattern);
+    patterns.push(item.pattern);
+  }
+  return patterns;
+}
+
+function publishedTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Filter and optionally sort published rows. `listed` preserves the server
+ * order; sorting is stable and falls back to version then original position.
+ */
+export function filterPublishedSpecs(
+  items: readonly StudioPublishedSpec[],
+  filter: PublishedFilter,
+): StudioPublishedSpec[] {
+  const visible = items.filter(
+    (item) =>
+      (filter.visibility === 'all' ||
+        publishedVisibility(item) === filter.visibility) &&
+      (filter.pattern == null || item.pattern === filter.pattern),
+  );
+  if (filter.sort === 'listed') return visible;
+
+  return visible
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const timeDiff =
+        publishedTimestamp(left.item.createdAt) -
+        publishedTimestamp(right.item.createdAt);
+      if (timeDiff !== 0) return filter.sort === 'newest' ? -timeDiff : timeDiff;
+      const versionDiff = left.item.version - right.item.version;
+      if (versionDiff !== 0) {
+        return filter.sort === 'newest' ? -versionDiff : versionDiff;
+      }
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
+/** `3 of 7 versions · Public · Newest first`, or the plain count when unfiltered. */
+export function publishedFilterSummary(
+  total: number,
+  shown: number,
+  filter: PublishedFilter,
+): string {
+  if (!Number.isFinite(total) || total <= 0) return 'No versions yet';
+  const active =
+    filter.visibility !== 'all' ||
+    filter.pattern != null ||
+    filter.sort !== 'listed';
+  if (!active) return publishedCountLabel(total);
+
+  const parts: string[] = [];
+  if (filter.visibility !== 'all') parts.push(visibilityLabel(filter.visibility));
+  if (filter.pattern != null) parts.push(patternLabel(filter.pattern));
+  if (filter.sort !== 'listed') parts.push(publishedSortLabel(filter.sort));
+  const safeShown = Math.max(0, Math.min(shown, total));
+  return `${safeShown} of ${total} version${total === 1 ? '' : 's'} · ${parts.join(' · ')}`;
+}
+
+/** Empty-state copy that distinguishes a fresh list from a filter with no hits. */
+export function publishedFilterEmptyLabel(
+  total: number,
+  filter: PublishedFilter,
+): string {
+  if (!Number.isFinite(total) || total <= 0) {
+    return 'No versions yet. Publish a spec to start its history; rows load the stored payload back into the editor.';
+  }
+  const parts: string[] = [];
+  if (filter.visibility !== 'all') parts.push(visibilityLabel(filter.visibility));
+  if (filter.pattern != null) parts.push(patternLabel(filter.pattern));
+  const scope = parts.length ? ` ${parts.join(' · ')}` : '';
+  return `No${scope} versions match this filter. Clear it to see all ${total} version${total === 1 ? '' : 's'}.`;
+}
+
+/** Fixed orientation line; the numbered cards below are the actual steps. */
+export const STUDIO_FLOW_LABEL = 'Example → Spec → Preview → WAV → Publish';
+
+/**
+ * Local-only Studio banner. This intentionally makes no auth or production
+ * claims: Studio is a developer surface against a local API.
+ */
+export const STUDIO_LOCAL_NOTICE = {
+  title: 'Local Studio · dev-only',
+  text: 'Requests go to the Studio API on this machine. Feature flags default off, there is no sign-in or shared library, and each browser keeps a local Studio session id. Published rows are dev rows.',
+} as const;
+
+export type StudioNextStep = 'preview' | 'audio' | 'publish';
+
+/** Short “what to try next” copy for the empty preview, audio, and history panes. */
+export function studioNextStep(step: StudioNextStep): string {
+  switch (step) {
+    case 'audio':
+      return 'Next: run a successful Preview, then press Play preview in step 4 to render and hear the short WAV.';
+    case 'publish':
+      return 'Next: edit 2 · Spec JSON, press Preview to check it, then Publish in step 2. Step 5 lists the versions this session published.';
+    default:
+      return 'Next: pick an example in 1 · Example, edit 2 · Spec JSON, then press Preview. Step 4 shows the plan, row, matrix, notes, and render hash.';
+  }
+}
+
+/** Explain why the run/publish buttons are locked; null when nothing is busy. */
+export function studioBusyHint(
+  action: 'validate' | 'preview' | 'publish' | null,
+): string | null {
+  switch (action) {
+    case 'validate':
+      return 'Validating — editor actions are disabled until the request finishes.';
+    case 'preview':
+      return 'Rendering preview — editor actions are disabled until it finishes.';
+    case 'publish':
+      return 'Publishing — editor actions are disabled until the request finishes.';
+    default:
+      return null;
+  }
+}
+
 export type StatusTone = 'idle' | 'loading' | 'ok' | 'warn' | 'error';
 
 export type StatusLine = {

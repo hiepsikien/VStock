@@ -35,8 +35,11 @@ import {
 } from './protocol';
 import {
   DEFAULT_SAMPLE,
+  DEFAULT_PUBLISHED_FILTER,
   PATTERNS,
   SAMPLES,
+  STUDIO_FLOW_LABEL,
+  STUDIO_LOCAL_NOTICE,
   accessDetail,
   accessReasonLabel,
   accessStatusLabel,
@@ -63,6 +66,7 @@ import {
   durationLabel,
   examplesStatusLabel,
   examplesToSamples,
+  filterPublishedSpecs,
   findSample,
   fixtureForSpec,
   fixtureText,
@@ -74,6 +78,7 @@ import {
   metersForPattern,
   moveCropRect,
   nextPublishedList,
+  nextPublishedSort,
   normalizeCropRect,
   normalizeErrorPath,
   noteBarLabel,
@@ -89,6 +94,10 @@ import {
   prefixErrorPaths,
   publishedAtLabel,
   publishedCountLabel,
+  publishedFilterEmptyLabel,
+  publishedFilterPatterns,
+  publishedFilterSummary,
+  publishedSortLabel,
   publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
@@ -99,6 +108,8 @@ import {
   sampleText,
   scientificPitchToMidi,
   shortId,
+  studioBusyHint,
+  studioNextStep,
   textStats,
   textureDraftJson,
   textureDraftSummary,
@@ -122,6 +133,7 @@ import {
   normalizeVelocityContour,
   noteKey,
   pinnedLabel,
+  ruleContourStatus,
   velocityContourIsEmpty,
   velocityLaneColumns,
   velocityLaneDiff,
@@ -288,6 +300,149 @@ equal(publishedVisibility({}), 'private');
 equal(publishedCountLabel(0), 'No versions yet');
 equal(publishedCountLabel(1), '1 version');
 equal(publishedCountLabel(3), '3 versions');
+
+// Published-list filter/sort helpers default to the unchanged server list.
+const publicVersion = {
+  ...published,
+  id: 'fedcba9876543210fedcba9876543210',
+  pattern: 'galop',
+  meter: '*',
+  version: 4,
+  createdAt: '2026-11-06T10:00:00+00:00',
+  visibility: 'public' as const,
+};
+const olderVersion = {
+  ...published,
+  id: 'aaaabbbbccccddddeeeeffff00001111',
+  version: 1,
+  createdAt: '2026-11-04T10:00:00+00:00',
+};
+const filterItems = [published, publicVersion, olderVersion];
+deepEqual(publishedFilterPatterns(filterItems), ['villa_pattern', 'galop']);
+deepEqual(filterPublishedSpecs(filterItems, DEFAULT_PUBLISHED_FILTER), filterItems);
+deepEqual(
+  filterPublishedSpecs(filterItems, {
+    ...DEFAULT_PUBLISHED_FILTER,
+    visibility: 'public',
+  }),
+  [publicVersion],
+);
+deepEqual(
+  filterPublishedSpecs(filterItems, {
+    ...DEFAULT_PUBLISHED_FILTER,
+    pattern: 'villa_pattern',
+  }).map((item) => item.id),
+  [published.id, olderVersion.id],
+);
+deepEqual(
+  filterPublishedSpecs(filterItems, {
+    ...DEFAULT_PUBLISHED_FILTER,
+    sort: 'newest',
+  }).map((item) => item.id),
+  [publicVersion.id, published.id, olderVersion.id],
+);
+deepEqual(
+  filterPublishedSpecs(filterItems, {
+    ...DEFAULT_PUBLISHED_FILTER,
+    sort: 'oldest',
+  }).map((item) => item.id),
+  [olderVersion.id, published.id, publicVersion.id],
+);
+equal(publishedSortLabel('listed'), 'Server order');
+equal(publishedSortLabel('newest'), 'Newest first');
+equal(publishedSortLabel('oldest'), 'Oldest first');
+equal(nextPublishedSort('listed'), 'newest');
+equal(nextPublishedSort('newest'), 'oldest');
+equal(nextPublishedSort('oldest'), 'listed');
+equal(publishedFilterSummary(3, 3, DEFAULT_PUBLISHED_FILTER), '3 versions');
+equal(
+  publishedFilterSummary(3, 1, {
+    ...DEFAULT_PUBLISHED_FILTER,
+    visibility: 'public',
+  }),
+  '1 of 3 versions · Public',
+);
+equal(
+  publishedFilterSummary(3, 3, {
+    ...DEFAULT_PUBLISHED_FILTER,
+    sort: 'newest',
+  }),
+  '3 of 3 versions · Newest first',
+);
+equal(
+  publishedFilterSummary(3, 2, {
+    visibility: 'private',
+    pattern: 'villa_pattern',
+    sort: 'oldest',
+  }),
+  '2 of 3 versions · Private · Villa arpeggio · Oldest first',
+);
+equal(publishedFilterEmptyLabel(0, DEFAULT_PUBLISHED_FILTER), 'No versions yet. Publish a spec to start its history; rows load the stored payload back into the editor.');
+equal(
+  publishedFilterEmptyLabel(3, {
+    ...DEFAULT_PUBLISHED_FILTER,
+    visibility: 'public',
+    pattern: 'villa_pattern',
+  }),
+  'No Public · Villa arpeggio versions match this filter. Clear it to see all 3 versions.',
+);
+
+// Orientation and busy copy stay local-only and explicit about locked controls.
+equal(STUDIO_FLOW_LABEL, 'Example → Spec → Preview → WAV → Publish');
+equal(STUDIO_LOCAL_NOTICE.title, 'Local Studio · dev-only');
+equal(
+  STUDIO_LOCAL_NOTICE.text,
+  'Requests go to the Studio API on this machine. Feature flags default off, there is no sign-in or shared library, and each browser keeps a local Studio session id. Published rows are dev rows.',
+);
+equal(
+  studioNextStep('preview'),
+  'Next: pick an example in 1 · Example, edit 2 · Spec JSON, then press Preview. Step 4 shows the plan, row, matrix, notes, and render hash.',
+);
+equal(
+  studioNextStep('audio'),
+  'Next: run a successful Preview, then press Play preview in step 4 to render and hear the short WAV.',
+);
+equal(
+  studioNextStep('publish'),
+  'Next: edit 2 · Spec JSON, press Preview to check it, then Publish in step 2. Step 5 lists the versions this session published.',
+);
+equal(
+  studioBusyHint('validate'),
+  'Validating — editor actions are disabled until the request finishes.',
+);
+equal(
+  studioBusyHint('preview'),
+  'Rendering preview — editor actions are disabled until it finishes.',
+);
+equal(
+  studioBusyHint('publish'),
+  'Publishing — editor actions are disabled until the request finishes.',
+);
+equal(studioBusyHint(null), null);
+
+// Rule contours explain why the lane and Save to spec stay read-only.
+{
+  const rule: MicroVelocity = {
+    kind: 'rule',
+    ruleId: 'galop1',
+    ruleVersion: 1,
+    params: {},
+  };
+  equal(ruleContourStatus(null, false), null);
+  equal(ruleContourStatus({ kind: 'offsets', notes: [] }, false), null);
+  deepEqual(ruleContourStatus(rule, true), {
+    blocked: true,
+    label: 'Rule contour needs a flatten table',
+    detail:
+      'Some notes have no per-rule flatten entry, so their offsets stay empty and Save to spec is blocked. The lane is read-only until the rule or a flatten table supplies every offset.',
+  });
+  deepEqual(ruleContourStatus(rule, false), {
+    blocked: false,
+    label: 'Rule contour is read-only',
+    detail:
+      'Offsets resolve through the flatten table, but the rule carrier stays code-owned. Editing and Save to spec remain disabled.',
+  });
+}
 equal(copyValue('  0123456789abcdef  '), '0123456789abcdef');
 equal(copyValue('   '), null);
 equal(copyValue(null), null);

@@ -57,6 +57,8 @@ import {
 } from './protocol';
 import { VelocityLane, type VelocityLaneSaveInfo } from './VelocityLane';
 import {
+  ruleContourStatus,
+  velocityLaneRows,
   velocitySlotContours,
   velocitySlotLabel,
   type MicroVelocity,
@@ -66,7 +68,10 @@ import { sessionLabel } from './session';
 import { studioSessionId } from './sessionStorage';
 import {
   DEFAULT_SAMPLE,
+  DEFAULT_PUBLISHED_FILTER,
   SAMPLES,
+  STUDIO_FLOW_LABEL,
+  STUDIO_LOCAL_NOTICE,
   accessReasonLabel,
   accessStatusLabel,
   audioStatusLabel,
@@ -85,6 +90,7 @@ import {
   cropSizeLabel,
   defaultSampleForPattern,
   describeRequestFailure,
+  filterPublishedSpecs,
   findSample,
   fixtureText as sampleFixtureText,
   fixtureTextForSpec,
@@ -95,6 +101,7 @@ import {
   metersForPattern,
   moveCropRect,
   nextPublishedList,
+  nextPublishedSort,
   normalizeCropRect,
   normalizeErrorPath,
   notesLines,
@@ -105,7 +112,10 @@ import {
   planLines,
   prefixErrorPaths,
   publishedAtLabel,
-  publishedCountLabel,
+  publishedFilterEmptyLabel,
+  publishedFilterPatterns,
+  publishedFilterSummary,
+  publishedSortLabel,
   publishedSpecLineage,
   publishedSpecMeta,
   publishedSpecTitle,
@@ -115,6 +125,8 @@ import {
   rollbackLabel,
   sampleText,
   shortId,
+  studioBusyHint,
+  studioNextStep,
   textStats,
   textureDraftJson,
   textureDraftSummary,
@@ -128,6 +140,7 @@ import {
   type CropRect,
   type CropSelection,
   type DisplayRect,
+  type PublishedFilter,
   type PublishedListState,
   type StatusLine,
   type StudioSample,
@@ -1556,6 +1569,9 @@ export function StudioRoom({ wide, onMode }: Props) {
       : result.kind === 'validate'
         ? 'Spec changed since validation — rerun Validate or Preview.'
         : 'Spec changed since the last run — run it again to check the current JSON.';
+  const busyHint = studioBusyHint(
+    publishing ? 'publish' : result.kind === 'running' ? result.action : null,
+  );
 
   const catalogPatterns = patternIds(samples);
   const patternChoices = catalogPatterns.includes(selection.pattern)
@@ -1593,6 +1609,22 @@ export function StudioRoom({ wide, onMode }: Props) {
               short WAV → Publish. The JSON editor is the source of truth. The score
               photo panel is a separate front half and never overwrites this JSON.
             </Text>
+          </View>
+
+          <View style={[styles.localNotice, compact && styles.localNoticeCompact]}>
+            <View style={styles.localNoticeTitleRow}>
+              <Text style={styles.localNoticeTitle}>{STUDIO_LOCAL_NOTICE.title}</Text>
+              <View style={styles.localBadge}>
+                <Text style={styles.localBadgeText}>LOCAL</Text>
+              </View>
+            </View>
+            <Text style={styles.localNoticeText}>{STUDIO_LOCAL_NOTICE.text}</Text>
+            <View style={styles.flowRow}>
+              <Text style={styles.flowLabel}>Flow</Text>
+              <Text selectable style={styles.flowText}>
+                {STUDIO_FLOW_LABEL}
+              </Text>
+            </View>
           </View>
 
           <View style={[styles.statusStrip, compact && styles.statusStripCompact]}>
@@ -1832,13 +1864,15 @@ export function StudioRoom({ wide, onMode }: Props) {
                     primary
                     onPress={() => void uploadSelected()}
                     disabled={!canUpload}
-                    busy={uploadBusy}
+                    busy={upload.kind === 'uploading'}
+                    busyLabel="Uploading…"
                   />
                   <ActionButton
                     label="Analyze"
                     onPress={() => void analyzeUpload()}
                     disabled={!canAnalyze}
                     busy={analyzeBusy}
+                    busyLabel="Analyzing…"
                   />
                   {upload.kind === 'ready' ? (
                     <ActionButton
@@ -1847,8 +1881,8 @@ export function StudioRoom({ wide, onMode }: Props) {
                       disabled={uploadBusy || analyzeBusy}
                     />
                   ) : null}
-                  {uploadBusy || analyzeBusy ? (
-                    <ActivityIndicator color={palette.data} size="small" />
+                  {accessLoading ? (
+                    <Text style={styles.composerHint}>Checking access…</Text>
                   ) : null}
                 </View>
 
@@ -1978,6 +2012,7 @@ export function StudioRoom({ wide, onMode }: Props) {
                     onPress={() => void run('validate')}
                     disabled={running || publishing}
                     busy={result.kind === 'running' && result.action === 'validate'}
+                    busyLabel="Validating…"
                   />
                   <ActionButton
                     label="Preview"
@@ -1985,12 +2020,14 @@ export function StudioRoom({ wide, onMode }: Props) {
                     onPress={() => void run('preview')}
                     disabled={running || publishing}
                     busy={result.kind === 'running' && result.action === 'preview' && queuedJob.kind === 'idle'}
+                    busyLabel="Previewing…"
                   />
                   <ActionButton
                     label="Queued preview"
                     onPress={() => void runQueued()}
                     disabled={running || publishing}
                     busy={queuedJob.kind === 'waiting'}
+                    busyLabel="Queued…"
                   />
                   <View style={styles.publishGroup}>
                     <ActionButton
@@ -1998,6 +2035,7 @@ export function StudioRoom({ wide, onMode }: Props) {
                       onPress={() => void publish()}
                       disabled={running || publishing}
                       busy={publishing}
+                      busyLabel="Publishing…"
                     />
                     <View style={styles.visibilityPicker}>
                       <Text style={styles.pickerLabel}>Publish as</Text>
@@ -2017,10 +2055,10 @@ export function StudioRoom({ wide, onMode }: Props) {
                       />
                     </View>
                   </View>
-                  {running || publishing ? (
-                    <ActivityIndicator color={palette.data} size="small" />
-                  ) : null}
                 </View>
+                {busyHint ? (
+                  <Text style={styles.composerHint}>{busyHint}</Text>
+                ) : null}
                 <Text style={styles.composerHint}>{visibilityHint(publishVisibility)}</Text>
                 {stale ? <Text style={styles.stale}>{staleHint}</Text> : null}
 
@@ -2238,6 +2276,7 @@ export function StudioRoom({ wide, onMode }: Props) {
                       onPress={() => void validateTextureDraft()}
                       primary
                       busy={textureValidation.kind === 'running'}
+                      busyLabel="Validating…"
                       disabled={textureValidation.kind === 'running'}
                     />
                     <ActionButton
@@ -2532,13 +2571,16 @@ function ActionButton({
   primary = false,
   disabled = false,
   busy = false,
+  busyLabel,
 }: {
   label: string;
   onPress: () => void;
   primary?: boolean;
   disabled?: boolean;
   busy?: boolean;
+  busyLabel?: string;
 }) {
+  const text = busy && busyLabel ? busyLabel : label;
   return (
     <Pressable
       onPress={onPress}
@@ -2553,9 +2595,17 @@ function ActionButton({
         disabled ? styles.buttonDisabled : null,
       ]}
     >
-      <Text style={[styles.buttonText, primary && styles.buttonTextPrimary]}>
-        {label}
-      </Text>
+      <View style={styles.buttonContent}>
+        {busy ? (
+          <ActivityIndicator
+            color={primary ? palette.background : palette.data}
+            size="small"
+          />
+        ) : null}
+        <Text style={[styles.buttonText, primary && styles.buttonTextPrimary]}>
+          {text}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -2759,7 +2809,7 @@ function AudioControls({
     return (
       <View style={styles.audioRow}>
         <Text style={styles.audioText}>
-          Run a successful preview to render its short preview WAV.
+          {studioNextStep('audio')}
         </Text>
       </View>
     );
@@ -2773,9 +2823,6 @@ function AudioControls({
           disabled={state.kind === 'loading'}
           busy={state.kind === 'loading'}
         />
-        {state.kind === 'loading' ? (
-          <ActivityIndicator color={palette.data} size="small" />
-        ) : null}
         <Text style={styles.audioText}>
           {audioStatusLabel(
             state.kind,
@@ -2848,6 +2895,17 @@ function PreviewVelocityPanel({
           },
     [activeSlot],
   );
+  // A rule contour stays code-owned. Detect rows without a flatten entry so the
+  // panel can explain that Save to spec is blocked, even while the lane is shut.
+  const ruleNeedsFlatten = useMemo(
+    () =>
+      contour?.kind === 'rule' &&
+      velocityLaneRows(notes, contour, { slot: slotWindow }).some(
+        (row) => row.needsRule,
+      ),
+    [contour, notes, slotWindow],
+  );
+  const ruleStatus = ruleContourStatus(contour, ruleNeedsFlatten);
 
   useEffect(() => {
     setSaveState({ kind: 'idle' });
@@ -2905,6 +2963,17 @@ function PreviewVelocityPanel({
         </View>
         <Text style={styles.velocityToggleText}>{open ? 'Hide' : 'Show'}</Text>
       </Pressable>
+      {ruleStatus ? (
+        <View
+          style={[
+            styles.ruleBox,
+            ruleStatus.blocked ? styles.ruleBoxBlocked : null,
+          ]}
+        >
+          <Text style={styles.ruleTitle}>{ruleStatus.label}</Text>
+          <Text style={styles.ruleDetail}>{ruleStatus.detail}</Text>
+        </View>
+      ) : null}
       {open ? (
         <>
           {slots.length > 1 ? (
@@ -2998,6 +3067,7 @@ function ResultPanel({
             Nothing has run. Validate or Preview above to see output here; audio and
             the velocity lane appear after a successful preview.
           </Text>
+          <Text style={styles.nextStep}>{studioNextStep('preview')}</Text>
         </View>
       </View>
     );
@@ -3175,12 +3245,23 @@ function PublishedPanel({
   onConfirmRollback: (id: string) => void;
   compact: boolean;
 }) {
+  const [filter, setFilter] = useState<PublishedFilter>(DEFAULT_PUBLISHED_FILTER);
+  const patterns = useMemo(() => publishedFilterPatterns(state.items), [state.items]);
+  const visibleItems = useMemo(
+    () => filterPublishedSpecs(state.items, filter),
+    [state.items, filter],
+  );
+  const filtersActive =
+    filter.visibility !== 'all' || filter.pattern != null || filter.sort !== 'listed';
+
   return (
     <View style={[styles.card, compact && styles.cardCompact]}>
       <View style={styles.publishedHeader}>
         <View style={styles.fixtureHeaderText}>
           <Text style={[type.section, styles.cardLabel]}>5 · Published versions</Text>
-          <Text style={styles.cardTitle}>{publishedCountLabel(state.items.length)}</Text>
+          <Text style={styles.cardTitle}>
+            {publishedFilterSummary(state.items.length, visibleItems.length, filter)}
+          </Text>
         </View>
         <Pressable
           onPress={onRefresh}
@@ -3196,6 +3277,63 @@ function PublishedPanel({
           <Text style={styles.refreshText}>{state.loading ? 'Loading…' : 'Refresh'}</Text>
         </Pressable>
       </View>
+
+      <View style={styles.filterRow}>
+        <Text style={styles.filterLabel}>Show</Text>
+        {(['all', 'private', 'public'] as const).map((visibility) => (
+          <Chip
+            key={visibility}
+            label={visibility === 'all' ? 'All' : visibilityLabel(visibility)}
+            active={filter.visibility === visibility}
+            accessibilityLabel={`Show ${visibility === 'all' ? 'all' : visibility} versions`}
+            onPress={() => setFilter((current) => ({ ...current, visibility }))}
+            disabled={state.loading && state.items.length === 0}
+          />
+        ))}
+        <Chip
+          label={`Sort: ${publishedSortLabel(filter.sort)}`}
+          active={filter.sort !== 'listed'}
+          accessibilityLabel={`Sort ${publishedSortLabel(filter.sort)}; press to change`}
+          onPress={() =>
+            setFilter((current) => ({
+              ...current,
+              sort: nextPublishedSort(current.sort),
+            }))
+          }
+          disabled={state.loading && state.items.length === 0}
+        />
+        {filtersActive ? (
+          <MiniButton
+            label="Clear filter"
+            onPress={() => setFilter(DEFAULT_PUBLISHED_FILTER)}
+          />
+        ) : null}
+      </View>
+
+      {patterns.length > 1 ? (
+        <View style={styles.filterRow}>
+          <Text style={styles.filterLabel}>Pattern</Text>
+          <Chip
+            label="Any"
+            active={filter.pattern == null}
+            accessibilityLabel="Show every pattern"
+            onPress={() => setFilter((current) => ({ ...current, pattern: null }))}
+            disabled={state.loading && state.items.length === 0}
+          />
+          {patterns.map((pattern) => (
+            <Chip
+              key={pattern}
+              label={patternLabel(pattern)}
+              active={filter.pattern === pattern}
+              accessibilityLabel={`Show ${patternLabel(pattern)} versions`}
+              onPress={() =>
+                setFilter((current) => ({ ...current, pattern }))
+              }
+              disabled={state.loading && state.items.length === 0}
+            />
+          ))}
+        </View>
+      ) : null}
 
       {rollback.kind === 'ok' ? (
         <View style={styles.filledBox}>
@@ -3224,14 +3362,18 @@ function PublishedPanel({
           <Text style={styles.noticeText}>{state.error}</Text>
         </View>
       ) : null}
-      {state.items.length === 0 && !state.loading && !state.error ? (
-        <Text style={styles.empty}>
-          No versions yet. Publish a spec to start its history; rows load the stored
-          payload back into the editor.
-        </Text>
+      {visibleItems.length === 0 && !state.loading && !state.error ? (
+        <View style={styles.emptyBox}>
+          <Text style={styles.empty}>
+            {publishedFilterEmptyLabel(state.items.length, filter)}
+          </Text>
+          {state.items.length === 0 ? (
+            <Text style={styles.nextStep}>{studioNextStep('publish')}</Text>
+          ) : null}
+        </View>
       ) : null}
 
-      {state.items.map((item) => {
+      {visibleItems.map((item) => {
         const lineage = publishedSpecLineage(item);
         const visibility = publishedVisibility(item);
         return (
@@ -3443,6 +3585,75 @@ const styles = StyleSheet.create({
   subtitleCompact: {
     fontSize: 12,
     lineHeight: 17,
+  },
+  localNotice: {
+    gap: 6,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.data,
+    backgroundColor: palette.surface,
+  },
+  localNoticeCompact: {
+    padding: 10,
+  },
+  localNoticeTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  localNoticeTitle: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  localBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: palette.data,
+  },
+  localBadgeText: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  localNoticeText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  flowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingTop: 2,
+  },
+  flowLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  flowText: {
+    flex: 1,
+    minWidth: 200,
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
   },
   statusStrip: {
     flexDirection: 'row',
@@ -3713,6 +3924,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 8,
     borderWidth: 1,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
   },
   buttonSecondary: {
     borderColor: palette.hairlineStrong,
@@ -3989,6 +4206,31 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: '700',
   },
+  ruleBox: {
+    gap: 3,
+    padding: 9,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  ruleBoxBlocked: {
+    borderColor: palette.playhead,
+    borderLeftWidth: 3,
+  },
+  ruleTitle: {
+    color: palette.playhead,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  ruleDetail: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   audioRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4008,6 +4250,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   refreshButton: {
     minHeight: 34,
@@ -4191,6 +4448,13 @@ const styles = StyleSheet.create({
     fontFamily: type.sans.fontFamily,
     fontSize: 12,
     lineHeight: 17,
+  },
+  nextStep: {
+    marginTop: 6,
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
   },
   sessionText: {
     flex: 1,
