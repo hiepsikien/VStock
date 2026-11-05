@@ -1672,12 +1672,12 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ### 13.11. Quy trình `v2` (chốt 2026-11)
 
-- `v2` là **nhánh tích hợp + chạy thật**, không phải nhánh chờ merge.
+- `v2` là **nhánh tích hợp + chạy local nội bộ**, không phải nhánh chờ merge và không deploy production trong giai đoạn này.
 - Feature branch merge **local vào `v2`** sau review + full test; không mở PR `main`.
 - Phase 1 xong **không** merge `main`; đánh dấu bằng tag `v2-studio-phase1` (và các tag phase sau).
-- Chạy `v2` thật một thời gian, thu feedback, sửa lỗi trực tiếp trên `v2`.
+- Chạy `v2` local nội bộ (backend + `npm run web`) một thời gian, thu feedback, sửa lỗi trực tiếp trên `v2`.
 - Chỉ mở **một** PR `main ← v2` khi người phụ trách xác nhận `v2` ổn định; PR #163 đã đóng để tránh merge nhầm.
-- Tiêu chí ổn định tối thiểu: full backend + frontend tests xanh, không lỗi P0/P1 trong thời gian chạy thật, không regression ngoài Studio.
+- Tiêu chí ổn định tối thiểu: full backend + frontend tests xanh, không lỗi P0/P1 trong thời gian chạy local nội bộ, không regression ngoài Studio.
 
 ---
 
