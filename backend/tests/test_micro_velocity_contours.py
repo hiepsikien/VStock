@@ -12,21 +12,23 @@ reproduce the hardcoded writer's output event-for-event. A contour that fails
 that check is not a silent "close enough" offset; it raises before the golden
 comparison.
 
-Cathedral Preludio is the one required figure left out. Its velocities depend
-on a cross-voice `min(level, canto - 6)` clamp chosen inside the bar planner,
-which the contour schema cannot address without duplicating the plan. It is
-reported as unextracted with a precise reason, never with invented offsets.
+Cathedral Preludio is extracted as a rule. Its cross-voice clamp
+(`min(level, canto - 6)`) is flatten-time context: the harness reads the canto
+from the writer's own lead events, and the rule stores only the cell shape.
+The golden fixture's mf cells sit exactly on the clamp boundary, so the clamp
+is exercised separately with synthetic events below.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import pytest
 
 from app.sonify.micro_velocity_contours import (
+    CATHEDRAL_PRELUDIO,
     DEFAULT_CONTOURS,
     ETUDE1,
     ETUDE11,
@@ -39,6 +41,7 @@ from app.sonify.micro_velocity_contours import (
     TREMOLO_CONTOURS,
     UNEXTRACTED_REASONS,
     _etude11_slot,
+    covering_canto,
     flatten_rule,
 )
 from app.sonify.model import NoteEvent
@@ -113,25 +116,157 @@ def test_galop_cycle_reproduces_both_cells() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Cathedral is honestly unextracted
+# Cathedral is extracted with cross-voice context
 # ---------------------------------------------------------------------------
 
 
-def test_cathedral_is_unextracted_with_a_precise_reason() -> None:
-    reason = unextracted_reason("catedral_preludio")
-    assert len(reason.split()) >= 20, reason
-    assert "canto" in reason and "cross-voice" in reason, reason
-    assert "catedral_preludio" not in EXTRACTED_FIGURES
+def test_cathedral_fixture_reproduces_the_oracle() -> None:
+    verification = verify_fixture("catedral_preludio")
+    assert verification.exact, verification.first_mismatch()
+    assert verification.notes_digest == verification.expected_notes_digest
+    assert verification.score_digest == verification.expected_score_digest
+
+
+def test_every_required_figure_is_now_extracted() -> None:
+    assert "catedral_preludio" in EXTRACTED_FIGURES
     assert set(EXTRACTED_FIGURES) == {
         "tremolo",
         "etude1",
         "etude11",
         "galop1",
         "galop2",
+        "catedral_preludio",
     }
-    assert set(UNEXTRACTED_REASONS) == {"catedral_preludio"}
+    assert UNEXTRACTED_REASONS == {}
     with pytest.raises(KeyError):
-        verify_fixture("catedral_preludio")
+        unextracted_reason("catedral_preludio")
+
+
+def _cathedral_events():
+    """A canto attack covering the cell plus one attack from each inner role."""
+    canto = NoteEvent(
+        bar=0, beat=0.0, midi=72, duration_beats=1.5, voice=1, velocity=61
+    )
+    inner = [
+        NoteEvent(
+            bar=0, beat=0.25, midi=59, duration_beats=0.5, voice=2, velocity=50
+        ),
+        NoteEvent(
+            bar=0, beat=0.5, midi=64, duration_beats=0.5, voice=4, velocity=40
+        ),
+    ]
+    return canto, inner
+
+
+def _cathedral_flatten(canto, inner, *, raw: int = 80):
+    centres = NEUTRAL_LEVELS["catedral_preludio"]
+    assert isinstance(centres, dict)
+    return flatten_rule(
+        CATHEDRAL_PRELUDIO,
+        inner,
+        base_at=lambda event: centres.get(event.voice),
+        raw_at=lambda event: raw,
+        canto_at=lambda event: covering_canto([canto], event.bar, event.beat),
+        beats_per_bar=4,
+    )
+
+
+def test_cathedral_rule_has_no_base_field() -> None:
+    assert CATHEDRAL_PRELUDIO.kind == "rule"
+    assert CATHEDRAL_PRELUDIO.rule_id == "catedral_preludio"
+    assert CATHEDRAL_PRELUDIO.rule_version == 1
+    assert set(CATHEDRAL_PRELUDIO.params) == {
+        "cellEighths",
+        "nudges",
+        "cantoDrop",
+        "clampedVoices",
+    }
+    assert "base" not in CATHEDRAL_PRELUDIO.params
+    mapping = micro_velocity_to_mapping(CATHEDRAL_PRELUDIO)
+    assert "base" not in mapping and "base" not in mapping["params"]
+    assert not CATHEDRAL_PRELUDIO.notes and not CATHEDRAL_PRELUDIO.thumb
+
+
+def test_cathedral_rule_clamps_each_inner_voice_under_the_canto() -> None:
+    canto, inner = _cathedral_events()
+    flat = _cathedral_flatten(canto, inner)
+    offsets = {(entry.beat, entry.voice): entry.offset for entry in flat.notes}
+    # voice 2: 40..70 window keeps 50 + 80 - 64 = 66, +2 nudge = 68,
+    #          then min(68, canto 61 - 6) = 55.
+    # voice 4: 40 + 80 - 64 = 56, +3 nudge = 59, then min(59, 55) = 55.
+    assert offsets == {(0.25, 2): 5, (0.5, 4): 15}
+    applied = apply_relative_offsets(inner, flat)
+    assert [(event.voice, event.velocity) for event in applied] == [(2, 55), (4, 55)]
+
+
+def _targets(
+    flat: MicroVelocity, inner: Sequence[NoteEvent]
+) -> list[tuple[int, int | None]]:
+    applied = apply_relative_offsets(inner, flat)
+    return [(event.voice, event.velocity) for event in applied]
+
+
+def test_cathedral_rule_target_moves_with_the_canto() -> None:
+    canto, inner = _cathedral_events()
+    high = NoteEvent(
+        bar=0,
+        beat=0.0,
+        midi=76,
+        duration_beats=1.5,
+        voice=1,
+        velocity=90,
+    )
+    clamped = _cathedral_flatten(canto, inner)
+    free = _cathedral_flatten(high, inner)
+    assert _targets(clamped, inner) == [(2, 55), (4, 55)]
+    assert _targets(free, inner) == [(2, 68), (4, 59)]
+    assert _targets(free, inner) != _targets(clamped, inner)
+
+
+def test_cathedral_rule_skips_a_tail_outside_a_full_cell() -> None:
+    tail = [
+        NoteEvent(
+            bar=1, beat=2.25, midi=59, duration_beats=0.25, voice=2, velocity=50
+        )
+    ]
+    centres = NEUTRAL_LEVELS["catedral_preludio"]
+    assert isinstance(centres, dict)
+    flat = flatten_rule(
+        CATHEDRAL_PRELUDIO,
+        tail,
+        base_at=lambda event: centres.get(event.voice),
+        raw_at=lambda event: 64,
+        canto_at=lambda event: 60,
+        beats_per_bar=3,
+    )
+    assert flat.notes == ()
+
+
+def test_cathedral_rule_requires_its_context() -> None:
+    _canto, inner = _cathedral_events()
+    with pytest.raises(ValueError, match="beats_per_bar"):
+        flatten_rule(CATHEDRAL_PRELUDIO, inner)
+    with pytest.raises(ValueError, match="phrase raw"):
+        flatten_rule(CATHEDRAL_PRELUDIO, inner, beats_per_bar=4)
+    with pytest.raises(ValueError, match="covering canto"):
+        flatten_rule(CATHEDRAL_PRELUDIO, inner, beats_per_bar=4, raw_at=lambda e: 64)
+    with pytest.raises(ValueError, match="role centre"):
+        flatten_rule(
+            CATHEDRAL_PRELUDIO,
+            inner,
+            beats_per_bar=4,
+            raw_at=lambda e: 64,
+            canto_at=lambda e: 60,
+        )
+
+
+def test_covering_canto_is_half_open_and_voice_scoped() -> None:
+    canto, _inner = _cathedral_events()
+    assert covering_canto([canto], 0, 1.49) == 61
+    assert covering_canto([canto], 0, 1.5) is None
+    assert covering_canto([canto], 0, 0.0) == 61
+    assert covering_canto([canto], 1, 0.0) is None
+    assert covering_canto([canto], 0, 0.0, voice=2) is None
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +330,7 @@ def test_etude1_contour_is_the_fixed_sixteenth_arch() -> None:
 
 
 def test_rules_declare_params_and_versions() -> None:
-    for contour in (ETUDE11, GALOP1, GALOP2):
+    for contour in (ETUDE11, GALOP1, GALOP2, CATHEDRAL_PRELUDIO):
         assert contour.kind == "rule"
         assert contour.rule_version == 1
         assert isinstance(contour.params, dict) and contour.params
@@ -203,12 +338,20 @@ def test_rules_declare_params_and_versions() -> None:
     assert ETUDE11.rule_id == "etude11_middle"
     assert GALOP1.rule_id == "galop1"
     assert GALOP2.rule_id == "galop2"
+    assert CATHEDRAL_PRELUDIO.rule_id == "catedral_preludio"
     assert set(GALOP1.params) == {"step", "floor", "peakQuarter"}
     assert set(GALOP2.params) == {"step", "floor"}
+    assert CATHEDRAL_PRELUDIO.params["cantoDrop"] == 6
+    assert CATHEDRAL_PRELUDIO.params["clampedVoices"] == [2, 4]
 
 
 def test_neutral_levels_are_declared_for_every_extracted_family() -> None:
-    assert NEUTRAL_LEVELS == {"tremolo": 58, "etude1": 52, "etude11": 44}
+    assert NEUTRAL_LEVELS == {
+        "tremolo": 58,
+        "etude1": 52,
+        "etude11": 44,
+        "catedral_preludio": {2: 50, 4: 40},
+    }
 
 
 def test_etude11_slot_skips_off_sextuplet_attacks() -> None:
