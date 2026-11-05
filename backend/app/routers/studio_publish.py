@@ -7,23 +7,32 @@ code specs until the Phase 2 `texture_registry.py` loader exists.
 
 The router lives separately from `app.routers.studio` (validate/preview) so the
 two workstreams do not collide.
+
+Every route reads the optional `X-Studio-Session` header and resolves it to an
+opaque `owner_id` (docs §10.2). A missing or blank header resolves to the
+`anonymous` namespace, so older clients and tests keep working; new rows stay
+`private` by default. This is a namespace, not auth.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.store.db import get_db
-from app.studio import dispatch, publish
+from app.studio import dispatch, publish, session as studio_session
 from app.studio.sentence_spec import parse_spec
 
 router = APIRouter(prefix="/v1/studio", tags=["studio-publish"])
 
 _PARSE_ERRORS = (ValueError, KeyError, TypeError)
+
+# Missing/blank `X-Studio-Session` resolves to `anonymous`, so pre-scoping
+# clients and tests keep working. This is a namespace, not auth.
+studio_owner = studio_session.owner_or_anonymous
 
 
 class SpecErrorOut(BaseModel):
@@ -38,6 +47,9 @@ class PublishResponse(BaseModel):
     meter: str | None = None
     version: int | None = None
     rollbackOf: str | None = None
+    # Default-private responses omit the field (exclude_defaults), so the
+    # pre-visibility response shape is unchanged for existing clients.
+    visibility: str = publish.VISIBILITY_PRIVATE
     errors: list[SpecErrorOut] = Field(default_factory=list)
 
 
@@ -53,6 +65,7 @@ class PublishedSpecSummary(BaseModel):
     status: str
     createdAt: str
     rollbackOf: str | None = None
+    visibility: str = publish.VISIBILITY_PRIVATE
 
 
 class SpecsResponse(BaseModel):
@@ -82,9 +95,15 @@ def _spec_error(exc: Exception) -> SpecErrorOut:
 )
 async def publish_sentence(
     body: dict[str, Any],
+    visibility: Literal["private", "public"] = Query(default="private"),
+    owner_id: str = Depends(studio_owner),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> PublishResponse:
-    """Validate and persist one sentence spec, assigning the next version."""
+    """Validate and persist one sentence spec, assigning the next version.
+
+    `visibility` is an optional query flag (`private` default, `public` makes
+    the row readable from every namespace).
+    """
     try:
         spec = parse_spec(body)
     except _PARSE_ERRORS as exc:
@@ -97,13 +116,16 @@ async def publish_sentence(
     if errors:
         return PublishResponse(ok=False, errors=errors)
 
-    record = await publish.publish_spec(db, spec)
+    record = await publish.publish_spec(
+        db, spec, owner_id=owner_id, visibility=visibility
+    )
     return PublishResponse(
         ok=True,
         id=record["id"],
         pattern=record["pattern"],
         meter=record["meter"],
         version=record["version"],
+        visibility=record["visibility"],
     )
 
 
@@ -112,20 +134,28 @@ async def list_sentence_specs(
     pattern: str | None = Query(default=None),
     meter: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
+    owner_id: str = Depends(studio_owner),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> SpecsResponse:
-    """List published spec summaries, optionally filtered by pattern or meter."""
-    rows = await publish.list_specs(db, pattern=pattern, meter=meter, limit=limit)
+    """List the caller's specs plus every public spec, newest version first."""
+    rows = await publish.list_specs(
+        db, pattern=pattern, meter=meter, limit=limit, owner_id=owner_id
+    )
     return SpecsResponse(specs=[PublishedSpecSummary(**row) for row in rows])
 
 
 @router.get("/sentence/specs/{spec_id}", response_model=PublishedSpecResponse)
 async def get_sentence_spec(
     spec_id: str,
+    owner_id: str = Depends(studio_owner),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> PublishedSpecResponse:
-    """Return one published spec including its payload."""
-    record = await publish.get_spec(db, spec_id)
+    """Return one published spec including its payload.
+
+    A private row owned by another namespace reads as 404, not 403, so its
+    existence is not leaked.
+    """
+    record = await publish.get_spec(db, spec_id, owner_id=owner_id)
     if record is None:
         raise HTTPException(status_code=404, detail="published spec not found")
     return PublishedSpecResponse(**record)
@@ -139,10 +169,14 @@ async def get_sentence_spec(
 )
 async def rollback_sentence_spec(
     spec_id: str,
+    owner_id: str = Depends(studio_owner),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> RollbackResponse:
-    """Republish an old version as the next version; never mutate the old row."""
-    record = await publish.get_spec(db, spec_id)
+    """Republish an old version as the next version; never mutate the old row.
+
+    Only the owner can roll a version back, including a public one.
+    """
+    record = await publish.get_spec(db, spec_id, owner_id=owner_id)
     if record is None:
         raise HTTPException(status_code=404, detail="published spec not found")
 
@@ -160,8 +194,10 @@ async def rollback_sentence_spec(
     if errors:
         return RollbackResponse(ok=False, errors=errors)
 
-    new_record = await publish.rollback_spec(db, spec, spec_id)
-    if new_record is None:  # pragma: no cover - the row was just read
+    new_record = await publish.rollback_spec(db, spec, spec_id, owner_id=owner_id)
+    if new_record is None:
+        # A public row owned by someone else passes the read above but is not
+        # rollback-able here; answer the same 404 as a missing row.
         raise HTTPException(status_code=404, detail="published spec not found")
     return RollbackResponse(
         ok=True,
@@ -170,4 +206,5 @@ async def rollback_sentence_spec(
         meter=new_record["meter"],
         version=new_record["version"],
         rollbackOf=new_record["rollbackOf"],
+        visibility=new_record["visibility"],
     )
