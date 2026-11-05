@@ -29,13 +29,13 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + Gemini draft + notes table**; analyze cũ bị abort khi đổi ảnh (crop/native/apply chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
-| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng, 7 pair + 3 candidate) + `render_matrix.json` (41 row, 1.796 note); pattern-level `_select_body` matrix còn thiếu |
+| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (39 row) + `render_matrix.json` (41 row); pattern-level matrix có 1 `expected_empty` có lý do |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
 | Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, pattern-level selection matrix, switch `PATTERN_NAMES` sang generated file, `texture_registry.py`, crop/native UI, preview queue.
+**Chưa làm:** wire Villa/Brouwer vào production plan (Barrios đã có flag off), Bach exposition **production** (mới có preview prototype), Phase 2 interpreter, Suite Popular Brasileira, switch `PATTERN_NAMES` sang generated file, `texture_registry.py`, crop/native UI, preview queue.
 
 ### 0.1. Đối chiếu nhanh với proposal trong thân bài
 
@@ -50,7 +50,7 @@ Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycl
 | Publish | SQLite version bất biến + rollback `rollbackOf`; compiler trả bundle JSON | §11 PR automation + `preview.wav` — **chưa** |
 | UI | Studio pill, editor, validate/preview/audio/publish/rollback, examples, upload ảnh web, Gemini draft + notes table | §10 crop/native picker, apply-draft-to-editor — **chưa** |
 | Candidates | Villa/Barrios/Brouwer preview; Barrios flag off; Bach exposition preview | §3.2 Suite 5 movement + §13 Phase 2 — **chưa** |
-| Matrix/codegen/registry | Sentence-level selection/render matrix + registry codegen đã có; `texture_registry.py` chưa | §4.5.1 pattern-level, §12.2 switch `PATTERN_NAMES`, §7.2 — **một phần** |
+| Matrix/codegen/registry | Sentence + pattern + render matrix + registry codegen đã có; `texture_registry.py` chưa | §12.2 switch `PATTERN_NAMES`, §7.2 — **một phần** |
 | Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token, spec `owner_id`/`visibility` + scoped publish/list/get/rollback/export | preview queue — **một phần** |
 | Runtime | Code-backed; không interpreter | §1.1 Phase 2/3 — **chưa** |
 
@@ -586,7 +586,7 @@ Nếu `unsupported: true`, phải có `reason`; selection matrix không được
 
 #### Test
 
-> **Trạng thái code:** đã có **sentence-level** matrix: `backend/tests/guitar_fixture.py`, `fixtures/sentence_selection_matrix.json` (2.016 dòng, 7 registered pair + 3 candidate), `fixtures/render_matrix.json` (41 row), và hai test drift. **Pattern-level `_select_body` matrix** trên 38 profile vẫn chưa làm. Không dùng `conftest.py`; fixture là module trực tiếp.
+> **Trạng thái code:** đã có cả ba matrix: `sentence_selection_matrix.json` (2.016 dòng), `pattern_selection_matrix.json` (39 row = 38 `PROFILES` + `pedal`), `render_matrix.json` (41 row), với test drift. `pattern_selection_matrix` dùng real chooser (`_select_body` 33 row, `_patterns` 6 row); `(torroba, sonatina)` là `expected_empty` duy nhất vì không có rule chọn production. Không dùng `conftest.py`; fixture là module trực tiếp.
 
 - `backend/tests/test_texture_selection_matrix.py`
 - `backend/tests/test_texture_render_matrix.py`
@@ -1621,7 +1621,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 | Phase | Đã có | Còn thiếu |
 |---|---|---|
-| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence-level matrix; compiler bundle; registry codegen | pattern-level `_select_body` matrix, renderer-profile playability, switch `PATTERN_NAMES`, Phase 3 runtime 12/8 |
+| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen | renderer-profile playability, switch `PATTERN_NAMES`, Phase 3 runtime 12/8 |
 | 1 | Studio room, editor, examples, validate/preview, audio (synth), publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + draft table, export bundle JSON, spec owner/visibility | crop/native picker, apply draft → editor, validation queue, preview queue, `preview.wav`/export files, PR automation |
 | 2 | Candidate preview Villa/Barrios/Brouwer; Barrios production flag off; Bach exposition preview | Suite Popular Brasileira, Villa sentence audit, `texture_registry.py`, interpreter, codegen |
 | 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
