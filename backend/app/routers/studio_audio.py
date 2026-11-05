@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.studio import audio as studio_audio
-from app.studio import preview
+from app.studio.sentence_spec import parse_spec
 
 router = APIRouter(prefix="/v1/studio", tags=["studio"])
 
@@ -60,7 +60,7 @@ def sentence_audio(body: AudioRequest) -> AudioResponse:
     """Synthesize (or reuse) a short WAV for one preview fixture."""
     if body.spec is not None:
         try:
-            spec = preview.parse_spec(body.spec)
+            spec = parse_spec(body.spec)
         except _PARSE_ERRORS as exc:
             return AudioResponse(
                 ok=False,

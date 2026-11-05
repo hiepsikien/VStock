@@ -15,7 +15,7 @@ Two deliberate limits:
   not a mood table, decides the textures.
 
 The body reuses the bounded fixture helpers from `app.studio.preview` (`_ctx`,
-`_joined`, `_notes`, `_render_hash`, `_matrix`). Those helpers are renderer
+`_notes`, `_render_hash`, `_matrix`). Those helpers are renderer
 agnostic; the Torroba preview owns the file but not the shape of a `_Ctx`.
 """
 
@@ -32,11 +32,15 @@ from app.sonify.guitar_villa_figures import (
 )
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
 from app.studio.preview import (
+    MAX_PLAN_BARS,
     MAX_RENDER_BARS,
     Error,
     PreviewResult,
+    _CHARACTERS,
+    _MODES,
     _ctx,
-    _joined,
+    _fixture_bool,
+    _fixture_int,
     _matrix,
     _matrix_axes,
     _notes,
@@ -197,6 +201,22 @@ def _resolve_fixture(
     spec: SentenceSpec, fixture: Mapping[str, Any] | None
 ) -> dict[str, Any]:
     supplied = dict(fixture or {})
+    allowed = {
+        "pattern",
+        "meter",
+        "length",
+        "n",
+        "closes",
+        "rise",
+        "bars",
+        "character",
+        "mode",
+        "bpm",
+        "matrix",
+    }
+    unknown = set(supplied) - allowed
+    if unknown:
+        raise ValueError(f"fixture: unknown field(s) {sorted(unknown)}")
 
     pattern = supplied.get("pattern", spec.pattern)
     if pattern != spec.pattern:
@@ -215,13 +235,28 @@ def _resolve_fixture(
             f"fixture.meter {meter!r} does not match spec.meter {spec.meter!r}"
         )
 
-    n = int(supplied.get("n", _default_n(spec)))
-    closes = bool(supplied.get("closes", spec.select.closes == "close"))
-    rise = int(supplied.get("rise", spec.select.rise_min))
-    length = int(supplied.get("length", _default_length(spec)))
-    if length < 1:
-        raise ValueError("fixture.length must be >= 1")
-    bars = min(int(supplied.get("bars", length)), MAX_RENDER_BARS, length)
+    n = _fixture_int(supplied.get("n", _default_n(spec)), "fixture.n", minimum=0)
+    closes = _fixture_bool(
+        supplied.get("closes", spec.select.closes == "close"), "fixture.closes"
+    )
+    rise = _fixture_int(
+        supplied.get("rise", spec.select.rise_min), "fixture.rise", minimum=0
+    )
+    length = _fixture_int(
+        supplied.get("length", _default_length(spec)),
+        "fixture.length",
+        minimum=1,
+        maximum=MAX_PLAN_BARS,
+    )
+    bars = _fixture_int(supplied.get("bars", length), "fixture.bars", minimum=0)
+    bars = min(bars, MAX_RENDER_BARS, length)
+    character = supplied.get("character", "calm")
+    if character not in _CHARACTERS:
+        raise ValueError("fixture.character is not a known character")
+    mode = supplied.get("mode", "minor")
+    if mode not in _MODES:
+        raise ValueError("fixture.mode must be major or minor")
+    bpm = _fixture_int(supplied.get("bpm", 96), "fixture.bpm", minimum=1, maximum=400)
 
     return {
         "pattern": pattern,
@@ -230,10 +265,10 @@ def _resolve_fixture(
         "n": n,
         "closes": closes,
         "rise": rise,
-        "bars": max(0, bars),
-        "character": str(supplied.get("character", "calm")),
-        "mode": str(supplied.get("mode", "minor")),
-        "bpm": int(supplied.get("bpm", 96)),
+        "bars": bars,
+        "character": character,
+        "mode": mode,
+        "bpm": bpm,
         "matrix": _villa_matrix_axes(supplied.get("matrix")),
     }
 

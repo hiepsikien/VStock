@@ -62,7 +62,7 @@ import hashlib
 import importlib
 import json
 from dataclasses import dataclass, replace
-from typing import Any, Iterator, Mapping
+from typing import Any, Mapping
 
 from app.sonify.chords import C, CM
 from app.sonify.form import METER_34, METER_44, METER_68, compose_meter
@@ -78,7 +78,6 @@ from app.sonify.keys import active_register
 from app.sonify.model import Phrase, Run
 from app.sonify import sentence_specs
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
-from app.studio.sentence_spec import parse_spec
 
 MAX_RENDER_BARS = 16
 MAX_PLAN_BARS = 64
@@ -364,6 +363,25 @@ def _fixture_bool(value: Any, path: str) -> bool:
 
 def _resolve_fixture(spec: SentenceSpec, fixture: Mapping[str, Any] | None) -> dict[str, Any]:
     supplied = dict(fixture or {})
+    allowed = {
+        "pattern",
+        "meter",
+        "length",
+        "run_length",
+        "n",
+        "closes",
+        "rise",
+        "bars",
+        "character",
+        "mode",
+        "bpm",
+        "profile",
+        "matrix",
+    }
+    unknown = set(supplied) - allowed
+    if unknown:
+        raise SpecParseError(f"fixture: unknown field(s) {sorted(unknown)}")
+
     profile = supplied.get("profile")
     if profile is None:
         profile = "classic" if spec.span.cycle else "torroba"

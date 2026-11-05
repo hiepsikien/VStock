@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.store.db import get_db
-from app.studio import publish
+from app.studio import preview, publish
 from app.studio.sentence_spec import parse_spec
 
 router = APIRouter(prefix="/v1/studio", tags=["studio-publish"])
@@ -83,6 +83,13 @@ async def publish_sentence(
         spec = parse_spec(body)
     except _PARSE_ERRORS as exc:
         return PublishResponse(ok=False, errors=[_spec_error(exc)])
+
+    errors = [
+        SpecErrorOut(path=error.path, message=error.message)
+        for error in preview.validate_spec(spec)
+    ]
+    if errors:
+        return PublishResponse(ok=False, errors=errors)
 
     record = await publish.publish_spec(db, spec)
     return PublishResponse(

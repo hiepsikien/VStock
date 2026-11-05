@@ -142,6 +142,21 @@ def test_preview_respects_the_bounded_bars_fixture() -> None:
     assert short.row == full.row
 
 
+def test_fixture_is_bounded_and_rejects_unknown_keys() -> None:
+    spec = barrios_cathedral_spec()
+    for fixture in (
+        {"bars": -1},
+        {"n": -5},
+        {"bpm": -10},
+        {"mode": "lydian"},
+        {"nope": 1},
+    ):
+        result = preview_barrios_period(spec, fixture)
+        assert not result.ok, fixture
+        assert result.errors[0].path == "fixture"
+        assert "fixture" in result.errors[0].message
+
+
 def test_unknown_figure_is_rejected() -> None:
     spec = replace(
         barrios_cathedral_spec(),

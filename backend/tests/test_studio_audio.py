@@ -104,6 +104,22 @@ def test_a_cache_hit_does_not_synthesize_again(monkeypatch) -> None:
     assert len(list(studio_audio.audio_root().glob("*.wav"))) == 1
 
 
+def test_audio_rejects_when_synthesis_slots_are_full(monkeypatch) -> None:
+    import threading
+
+    monkeypatch.setattr(studio_audio, "_SLOTS", threading.BoundedSemaphore(1))
+    studio_audio._SLOTS.acquire()
+    try:
+        result = studio_audio.preview_audio(
+            CASTILLO_34_WALK, {"length": 9, "bars": 9}
+        )
+        assert not result.ok
+        assert result.errors[0][0] == "audio"
+        assert "busy" in result.errors[0][1]
+    finally:
+        studio_audio._SLOTS.release()
+
+
 def test_an_invalid_spec_returns_path_errors_and_writes_nothing() -> None:
     from dataclasses import replace
 

@@ -8,6 +8,7 @@ the Phase 0/1 runtime still reads the code specs.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 from fastapi import FastAPI
@@ -105,6 +106,21 @@ def test_list_filters_and_order(client: TestClient) -> None:
 
     limited = client.get(SPECS, params={"limit": 1}).json()["specs"]
     assert len(limited) == 1
+
+
+def test_publish_rejects_a_bad_realizer_without_storing(client: TestClient) -> None:
+    body = spec_to_mapping(
+        replace(
+            CASTILLO_34_WALK,
+            slots=(replace(CASTILLO_34_WALK.slots[0], figure=999),),
+        )
+    )
+    response = client.post(PUBLISH, json=body)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is False
+    assert data["errors"][0]["path"] == "slots[0].figure"
+    assert client.get(SPECS).json()["specs"] == []
 
 
 def test_invalid_payload_is_rejected(client: TestClient) -> None:

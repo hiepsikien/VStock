@@ -2,8 +2,7 @@
 
 No auth, database, queue, or publish here: this is the Phase 0/1 authoring
 loop against the real renderers. The JSON parser is workstream A's
-`app.studio.sentence_spec.parse_spec`, reached through the adapter in
-`app.studio.preview`.
+`app.studio.sentence_spec.parse_spec` directly.
 """
 
 from __future__ import annotations

@@ -75,7 +75,8 @@ async def publish_spec(db: aiosqlite.Connection, spec: SentenceSpec) -> dict[str
         (spec_id,),
     )
     row = await cursor.fetchone()
-    assert row is not None
+    if row is None:  # pragma: no cover - the insert just succeeded
+        raise RuntimeError("published sentence row disappeared")
     return _row_to_summary(row)
 
 

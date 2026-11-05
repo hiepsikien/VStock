@@ -33,6 +33,7 @@ import os
 import re
 import threading
 import time
+import weakref
 from array import array
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -58,6 +59,8 @@ MAX_CACHE_FILES = max(1, int(os.environ.get("VSTOCK_STUDIO_AUDIO_MAX_FILES", "64
 MAX_CACHE_AGE_DAYS = max(
     1, int(os.environ.get("VSTOCK_STUDIO_AUDIO_MAX_AGE_DAYS", "7"))
 )
+MAX_CONCURRENCY = max(1, int(os.environ.get("VSTOCK_STUDIO_AUDIO_SLOTS", "2")))
+_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENCY)
 
 _METER_BEATS = {
     "3/4": int(METER_34.quarter_beats),
@@ -68,7 +71,7 @@ _RENDER_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _AUDIO_NAME = re.compile(r"^[0-9a-f]{64}\.wav$")
 _URL = "/v1/studio/sentence/audio/{name}"
 
-_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValueDictionary()
 _LOCKS_GUARD = threading.Lock()
 
 
@@ -415,6 +418,12 @@ def preview_audio(
             errors=tuple((error.path, error.message) for error in result.errors),
             render_hash=result.render_hash,
         )
+    if not _SLOTS.acquire(blocking=False):
+        return AudioResult(
+            ok=False,
+            errors=(("audio", "preview audio is busy; retry"),),
+            render_hash=result.render_hash,
+        )
     try:
         meter_beats = beats_per_bar(spec, fixture)
         asset = ensure_audio(result.render_hash, result.notes, meter_beats)
@@ -424,6 +433,8 @@ def preview_audio(
             errors=(("audio", str(exc)),),
             render_hash=result.render_hash,
         )
+    finally:
+        _SLOTS.release()
     return AudioResult(ok=True, asset=asset, render_hash=result.render_hash)
 
 

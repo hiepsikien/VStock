@@ -29,6 +29,7 @@ from app.studio.candidates import (
 )
 from app.studio.sentence_spec import parse_payload, specs_to_payload
 from app.studio.villa_preview import (
+    MAX_PLAN_BARS,
     VILLA_PATTERNS,
     preview_villa_sentence,
     validate_villa_spec,
@@ -171,6 +172,19 @@ def test_fixture_must_be_selected_by_the_spec() -> None:
     result = preview_villa_sentence(villa_candidate_spec(), {"length": 2})
     assert not result.ok
     assert result.errors[0].path == "fixture"
+
+
+def test_villa_fixture_is_bounded_and_rejects_unknown_keys() -> None:
+    spec = villa_candidate_spec()
+    huge = preview_villa_sentence(spec, {"length": MAX_PLAN_BARS + 1})
+    assert not huge.ok
+    assert huge.errors[0].path == "fixture"
+    assert "fixture.length" in huge.errors[0].message
+
+    unknown = preview_villa_sentence(spec, {"nope": 1})
+    assert not unknown.ok
+    assert unknown.errors[0].path == "fixture"
+    assert "unknown field" in unknown.errors[0].message
 
 
 def test_a_longer_fixture_repeats_the_three_bar_tile() -> None:

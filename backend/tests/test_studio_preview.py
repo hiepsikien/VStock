@@ -246,6 +246,13 @@ def test_fixture_rejects_bad_types_and_values() -> None:
         assert path in result.errors[0].message, (fixture, result.errors)
 
 
+def test_fixture_rejects_unknown_keys() -> None:
+    result = preview_spec(CASTILLO_34_WALK, {"nope": 1})
+    assert not result.ok
+    assert result.errors[0].path == "fixture"
+    assert "unknown field" in result.errors[0].message
+
+
 def test_matrix_slices_before_converting() -> None:
     # Invalid values past the accepted axis slice must not be converted.
     matrix = {

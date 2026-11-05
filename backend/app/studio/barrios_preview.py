@@ -36,11 +36,16 @@ from app.sonify.keys import active_register
 from app.sonify.model import Phrase, Run
 from app.sonify.sentence_specs import SentenceSpec
 from app.studio.preview import (
+    MAX_PLAN_BARS,
     MAX_RENDER_BARS,
     Error,
     PreviewResult,
     SpecParseError,
+    _CHARACTERS,
     _METERS,
+    _MODES,
+    _fixture_bool,
+    _fixture_int,
     _notes,
     _render_hash,
     _shape_ok,
@@ -188,19 +193,38 @@ def _matrix_axes(
     raw_n = supplied.get("n", [n])
     raw_closes = supplied.get("closes", [closes])
     raw_rise = supplied.get("rise", [rise])
-    try:
-        lengths = sorted(
-            {
-                int(value)
-                for value in raw_lengths
-                if int(value) >= 1
-            }
-        )
-        n_values = [int(value) for value in raw_n][:8]
-        closes_values = [bool(value) for value in raw_closes][:2]
-        rise_values = [int(value) for value in raw_rise][:8]
-    except (TypeError, ValueError) as exc:
-        raise SpecParseError(f"fixture.matrix: {exc}") from exc
+    for name, raw in (
+        ("lengths", raw_lengths),
+        ("n", raw_n),
+        ("closes", raw_closes),
+        ("rise", raw_rise),
+    ):
+        if not isinstance(raw, (list, tuple)):
+            raise SpecParseError(f"fixture.matrix.{name} must be a list")
+
+    lengths = sorted(
+        {
+            _fixture_int(
+                item,
+                "fixture.matrix.lengths",
+                minimum=1,
+                maximum=MAX_PLAN_BARS,
+            )
+            for item in raw_lengths[: MAX_PLAN_BARS * 2]
+        }
+    )
+    n_values = [
+        _fixture_int(item, "fixture.matrix.n", minimum=0)
+        for item in raw_n[:8]
+    ]
+    closes_values = [
+        _fixture_bool(item, "fixture.matrix.closes")
+        for item in raw_closes[:2]
+    ]
+    rise_values = [
+        _fixture_int(item, "fixture.matrix.rise", minimum=0)
+        for item in raw_rise[:8]
+    ]
     if not lengths or not n_values or not closes_values or not rise_values:
         raise SpecParseError("fixture.matrix axes must be non-empty")
     if (
@@ -222,6 +246,23 @@ def _resolve_fixture(
     spec: SentenceSpec, fixture: Mapping[str, Any] | None
 ) -> dict[str, Any]:
     supplied = dict(fixture or {})
+    allowed = {
+        "pattern",
+        "meter",
+        "length",
+        "bars",
+        "n",
+        "closes",
+        "rise",
+        "mode",
+        "character",
+        "bpm",
+        "matrix",
+    }
+    unknown = set(supplied) - allowed
+    if unknown:
+        raise SpecParseError(f"fixture: unknown field(s) {sorted(unknown)}")
+
     pattern = supplied.get("pattern", spec.pattern)
     if pattern != spec.pattern:
         raise SpecParseError(
@@ -239,26 +280,45 @@ def _resolve_fixture(
     length = _exact_length(spec)
     if length is None:
         raise SpecParseError("the candidate period has no exact length")
-    requested = int(supplied.get("length", length))
+    requested = _fixture_int(
+        supplied.get("length", length),
+        "fixture.length",
+        minimum=1,
+        maximum=MAX_PLAN_BARS,
+    )
     if requested != length:
         raise SpecParseError(
             f"fixture.length {requested} does not match the exact period length {length}"
         )
-    bars = min(int(supplied.get("bars", length)), MAX_RENDER_BARS, length)
-    n = int(supplied.get("n", _default_n(spec)))
-    closes = bool(supplied.get("closes", spec.select.closes == "close"))
-    rise = int(supplied.get("rise", spec.select.rise_min))
+    bars = _fixture_int(supplied.get("bars", length), "fixture.bars", minimum=0)
+    bars = min(bars, MAX_RENDER_BARS, length)
+    n = _fixture_int(supplied.get("n", _default_n(spec)), "fixture.n", minimum=0)
+    closes = _fixture_bool(
+        supplied.get("closes", spec.select.closes == "close"), "fixture.closes"
+    )
+    rise = _fixture_int(
+        supplied.get("rise", spec.select.rise_min), "fixture.rise", minimum=0
+    )
+    mode = supplied.get("mode", _DEFAULT_MODE)
+    if mode not in _MODES:
+        raise SpecParseError("fixture.mode must be major or minor")
+    character = supplied.get("character", _DEFAULT_CHARACTER)
+    if character not in _CHARACTERS:
+        raise SpecParseError("fixture.character is not a known character")
+    bpm = _fixture_int(
+        supplied.get("bpm", _DEFAULT_BPM), "fixture.bpm", minimum=1, maximum=400
+    )
     return {
         "pattern": pattern,
         "meter": meter,
         "length": length,
-        "bars": max(0, bars),
+        "bars": bars,
         "n": n,
         "closes": closes,
         "rise": rise,
-        "mode": str(supplied.get("mode", _DEFAULT_MODE)),
-        "character": str(supplied.get("character", _DEFAULT_CHARACTER)),
-        "bpm": int(supplied.get("bpm", _DEFAULT_BPM)),
+        "mode": mode,
+        "character": character,
+        "bpm": bpm,
         "matrix": _matrix_axes(
             supplied.get("matrix"),
             length=length,
