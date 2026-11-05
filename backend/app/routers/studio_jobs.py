@@ -21,11 +21,11 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.studio import jobs
+from app.studio import jobs, session as studio_session
 
 router = APIRouter(prefix="/v1/studio/jobs", tags=["studio"])
 
@@ -70,10 +70,15 @@ def _missing(job_id: str) -> JSONResponse:
 
 
 @router.post("", status_code=202, response_model=JobAcceptedResponse)
-def submit_job(body: JobRequest) -> JobAcceptedResponse:
+def submit_job(
+    body: JobRequest,
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
+) -> JobAcceptedResponse:
     """Admit one validate/preview job to the global Studio worker."""
     try:
-        job = jobs.get_registry().submit(body.kind, body.spec, body.fixture)
+        job = jobs.get_registry().submit(
+            body.kind, body.spec, body.fixture, owner_id=owner_id
+        )
     except jobs.JobQueueFull as exc:
         raise HTTPException(
             status_code=429,

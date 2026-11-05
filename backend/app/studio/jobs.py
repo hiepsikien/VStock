@@ -55,12 +55,19 @@ DEFAULT_MAX_JOBS = max(1, int(os.environ.get("VSTOCK_STUDIO_JOBS_MAX", "64")))
 DEFAULT_TTL_SECONDS = max(
     1.0, float(os.environ.get("VSTOCK_STUDIO_JOBS_TTL_SECONDS", "600"))
 )
+DEFAULT_MAX_PER_OWNER = max(
+    1, int(os.environ.get("VSTOCK_STUDIO_JOBS_PER_OWNER", "8"))
+)
 
 _PARSE_ERRORS = (ValueError, KeyError, TypeError)
 
 
 class JobQueueFull(RuntimeError):
     """The bounded registry has no room for another job."""
+
+
+class JobOwnerFull(JobQueueFull):
+    """One owner already holds its share of the active job slots."""
 
 
 @dataclass
@@ -71,6 +78,7 @@ class _Job:
     kind: str
     spec: SentenceSpec | Mapping[str, Any]
     fixture: dict[str, Any]
+    owner_id: str
     created_at: float
     status: str = QUEUED
     started_at: float | None = None
@@ -152,12 +160,16 @@ class JobRegistry:
         *,
         max_jobs: int | None = None,
         ttl_seconds: float | None = None,
+        max_per_owner: int | None = None,
         clock: Any = time.monotonic,
         executor: ThreadPoolExecutor | None = None,
     ) -> None:
         self._max_jobs = max(1, int(DEFAULT_MAX_JOBS if max_jobs is None else max_jobs))
         self._ttl_seconds = max(
             0.0, float(DEFAULT_TTL_SECONDS if ttl_seconds is None else ttl_seconds)
+        )
+        self._max_per_owner = max(
+            1, int(DEFAULT_MAX_PER_OWNER if max_per_owner is None else max_per_owner)
         )
         self._clock = clock
         self._lock = threading.Lock()
@@ -182,11 +194,17 @@ class JobRegistry:
     def ttl_seconds(self) -> float:
         return self._ttl_seconds
 
+    @property
+    def max_per_owner(self) -> int:
+        return self._max_per_owner
+
     def submit(
         self,
         kind: str,
         spec: SentenceSpec | Mapping[str, Any],
         fixture: Mapping[str, Any] | None = None,
+        *,
+        owner_id: str = "anonymous",
     ) -> JobStatus:
         """Register and schedule one job, returning its initial snapshot.
 
@@ -204,10 +222,20 @@ class JobRegistry:
             # JSON data and are never mutated by the worker.
             spec=spec if isinstance(spec, SentenceSpec) else dict(spec),
             fixture=dict(fixture or {}),
+            owner_id=owner_id,
             created_at=now,
         )
         with self._lock:
             self._make_room_locked(now)
+            active_for_owner = sum(
+                1
+                for existing in self._jobs.values()
+                if existing.owner_id == owner_id and existing.status not in TERMINAL
+            )
+            if active_for_owner >= self._max_per_owner:
+                raise JobOwnerFull(
+                    f"Studio job owner already has {self._max_per_owner} active jobs"
+                )
             self._jobs[job.id] = job
             snapshot = _snapshot(job)
 
@@ -276,6 +304,10 @@ class JobRegistry:
             job.finished_at = finished_at
             job.result = result
             job.errors = errors
+            # Terminal jobs keep only the response; the submitted spec/fixture
+            # can be large and no longer needs to sit in memory until TTL.
+            job.spec = {}
+            job.fixture = {}
 
     # ------------------------------------------------------------------
     # pruning and bounds, always called with the lock held

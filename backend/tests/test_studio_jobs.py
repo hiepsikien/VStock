@@ -288,6 +288,54 @@ def test_full_queue_rejects_when_every_job_is_active(monkeypatch) -> None:
     reg.shutdown(wait=True)
 
 
+def test_owner_cap_limits_active_jobs(monkeypatch) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    original = dispatch.preview_sentence
+
+    def blocking_preview(spec, fixture=None):
+        started.set()
+        assert release.wait(5.0)
+        return original(spec, fixture)
+
+    monkeypatch.setattr(dispatch, "preview_sentence", blocking_preview)
+    reg = jobs.JobRegistry(max_per_owner=1)
+
+    first = reg.submit(
+        "preview",
+        _castillo_payload(),
+        {"length": 9, "bars": 2},
+        owner_id="owner-a",
+    )
+    assert started.wait(5.0)
+    with pytest.raises(jobs.JobOwnerFull):
+        reg.submit(
+            "validate", _castillo_payload(), owner_id="owner-a"
+        )
+    second = reg.submit(
+        "validate", _castillo_payload(), owner_id="owner-b"
+    )
+
+    release.set()
+    assert _wait_registry(reg, first.id).status == "ok"
+    assert _wait_registry(reg, second.id).status == "ok"
+    reg.shutdown(wait=True)
+
+
+def test_finished_job_releases_the_submitted_spec_and_fixture() -> None:
+    reg = jobs.JobRegistry()
+    accepted = reg.submit(
+        "preview",
+        _castillo_payload(),
+        {"length": 9, "bars": 2},
+    )
+    assert _wait_registry(reg, accepted.id).status == "ok"
+    job = reg._jobs[accepted.id]
+    assert job.spec == {}
+    assert job.fixture == {}
+    reg.shutdown(wait=True)
+
+
 def test_ttl_prunes_only_finished_jobs(monkeypatch) -> None:
     clock = _Clock()
     reg = jobs.JobRegistry(ttl_seconds=30, clock=clock)
