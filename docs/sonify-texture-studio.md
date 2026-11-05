@@ -1118,7 +1118,7 @@ figure writer (level gốc)
 
 ### 7.2. Phase 2: `texture_registry.py`
 
-> **Trạng thái code:** `backend/app/sonify/texture_registry.py` và `backend/app/sonify/textures/` **chưa tồn tại**. Runtime chỉ đọc registry `SENTENCE_SPECS` code-backed.
+> **Trạng thái code:** `backend/app/sonify/texture_registry.py` **đã có** (lazy, fail-soft, schema allowlist, `renderer_version` gate, duplicate/skip report). `backend/app/sonify/textures/` vẫn chưa có spec production; loader **chưa** được runtime/planner đọc. Runtime hiện vẫn đọc `SENTENCE_SPECS` code-backed.
 
 Thêm loader:
 
