@@ -102,6 +102,17 @@ import {
   sessionHeader,
   sessionLabel,
 } from './session';
+import {
+  applyOffsetPreview,
+  normalizeVelocityContour,
+  noteKey,
+  pinnedLabel,
+  velocityLaneDiff,
+  velocityLaneExtent,
+  velocityLaneLabel,
+  velocityLaneRows,
+  type MicroVelocity,
+} from './velocity';
 
 function equal<T>(actual: T, expected: T) {
   if (actual !== expected) {
@@ -404,6 +415,16 @@ deepEqual(preview.plan, [[13, [0, 1]]]);
 equal(preview.row, null);
 equal(preview.notes, null);
 equal(preview.matrix, null);
+equal(preview.microVelocity, null);
+
+// The phase-2 contour field passes through unchanged; the lane normaliser
+// handles the documented shape.
+const contourPreview = normalizePreviewResponse({
+  ok: true,
+  notes: [],
+  microVelocity: { kind: 'offsets', notes: [] },
+});
+deepEqual(contourPreview.microVelocity, { kind: 'offsets', notes: [] });
 
 // Examples: documented payload, a `spec` alias, and invalid rows are dropped.
 deepEqual(
@@ -1604,6 +1625,246 @@ equal(nextJobPollDelayMs(4), 4800);
 equal(nextJobPollDelayMs(99), 4800);
 equal(nextJobPollDelayMs(0, 2), 2000);
 equal(nextJobPollDelayMs(3, 99), 5000);
+
+// ---------------------------------------------------------------------------
+// Micro-velocity lane (docs §6.9): pure rows, pinned writers, rule seam.
+
+const laneNotes = [
+  { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+  { bar: 0, beat: 1, duration: 0.5, midi: 65, voice: 1, velocity: 72 },
+  {
+    bar: 0,
+    beat: 1,
+    duration: 0.5,
+    midi: 67,
+    voice: 1,
+    velocity: 72,
+    finger: 'a',
+  },
+  { bar: 0, beat: 0.5, duration: 0.5, midi: 60, voice: 2, velocity: 60 },
+  { bar: 0, beat: 0, duration: 1, midi: 48, voice: 3, velocity: 58 },
+  { bar: 1, beat: 0, duration: 1, midi: 55, voice: 4, velocity: 61 },
+];
+
+function laneRow(rows: ReturnType<typeof velocityLaneRows>, midi: number) {
+  const row = rows.find((item) => item.note.midi === midi);
+  if (!row) throw new Error(`missing lane row for midi ${midi}`);
+  return row;
+}
+
+// No contour: every offset is 0, every row is read-only and keeps realized
+// velocity. Lane 4 exists because these notes use it.
+const defaultRows = velocityLaneRows(laneNotes);
+equal(defaultRows.length, 6);
+equal(defaultRows.every((row) => row.offset === 0), true);
+equal(defaultRows.every((row) => row.authored === false), true);
+equal(defaultRows.every((row) => row.pinned === false), true);
+equal(laneRow(defaultRows, 64).previewVelocity, 70);
+equal(laneRow(defaultRows, 64).lane, 'voice1');
+equal(laneRow(defaultRows, 55).lane, 'voice4');
+equal(velocityLaneRows(laneNotes, null, { includeVoice4: false }).length, 5);
+
+// A finger-`p` voice-3 note is the thumb lane even with no contour.
+const defaultThumbRow = velocityLaneRows([
+  { bar: 0, beat: 0, duration: 1, midi: 43, voice: 3, velocity: 55, finger: 'p' },
+])[0];
+equal(defaultThumbRow?.lane, 'thumb');
+equal(defaultThumbRow?.offset, 0);
+equal(defaultThumbRow?.previewVelocity, 55);
+
+const offsetsContour: MicroVelocity = {
+  kind: 'offsets',
+  notes: [
+    { bar: 0, eighth: 0, voice: 1, offset: -6 },
+    { bar: 0, eighth: 2, voice: 1, finger: 'a', offset: 3 },
+  ],
+  thumb: [{ bar: 0, eighth: 0, voice: 3, finger: 'p', offset: -4 }],
+};
+
+const offsetRows = velocityLaneRows(laneNotes, offsetsContour);
+equal(laneRow(offsetRows, 64).offset, -6);
+equal(laneRow(offsetRows, 64).authored, true);
+equal(laneRow(offsetRows, 64).previewVelocity, 64);
+// A fingerless note does not borrow a finger-specific offset.
+equal(laneRow(offsetRows, 65).offset, 0);
+equal(laneRow(offsetRows, 65).previewVelocity, 72);
+// A finger-specific note matches exactly.
+equal(laneRow(offsetRows, 67).offset, 3);
+equal(laneRow(offsetRows, 67).previewVelocity, 75);
+// Voice 3 + the thumb coordinate is its own lane, even without a note finger.
+equal(laneRow(offsetRows, 48).lane, 'thumb');
+equal(laneRow(offsetRows, 48).offset, -4);
+equal(laneRow(offsetRows, 48).previewVelocity, 54);
+equal(velocityLaneRows(laneNotes, offsetsContour, { includeThumb: false }).length, 5);
+equal(velocityLaneRows(laneNotes, offsetsContour, { voice: 2 }).length, 2);
+equal(
+  velocityLaneRows(laneNotes, offsetsContour, { voice: 2 }).every(
+    (row) => row.thumb || row.voice === 2,
+  ),
+  true,
+);
+
+// Pinned attacks keep the absolute writer's velocity and never apply an offset.
+const pinnedNote = [
+  {
+    bar: 0,
+    beat: 0,
+    duration: 1,
+    midi: 64,
+    voice: 1,
+    velocity: 70,
+    pinned: true,
+    pinnedLayer: 'snap',
+    velocityOffset: -9,
+  },
+];
+const pinnedRows = velocityLaneRows(pinnedNote, {
+  kind: 'offsets',
+  notes: [{ bar: 0, eighth: 0, voice: 1, offset: -6, pinned: true, velocity: 84, layer: 'snap' }],
+});
+equal(pinnedRows[0]?.pinned, true);
+equal(pinnedRows[0]?.offset, -6);
+equal(pinnedRows[0]?.previewVelocity, 84);
+equal(pinnedRows[0]?.pinnedLayer, 'snap');
+equal(pinnedLabel(pinnedRows[0] ?? {}), 'snap · v84');
+equal(pinnedLabel({ velocity: 60 }), 'pinned · v60');
+equal(pinnedLabel({ layer: 'trim', velocity: 52 }), 'trim · v52');
+equal(pinnedLabel({}), 'pinned');
+
+const pinnedPreview = applyOffsetPreview(pinnedNote, {
+  kind: 'offsets',
+  notes: [{ bar: 0, eighth: 0, voice: 1, pinned: true, velocity: 84, layer: 'snap' }],
+});
+equal(pinnedPreview[0]?.pinned, true);
+equal(pinnedPreview[0]?.velocity, 84);
+equal(pinnedPreview[0]?.previewVelocity, 84);
+
+// Rule contours are not flattened unless a table is supplied. Unmatched rows
+// carry needsRule instead of a guessed value.
+const ruleContour: MicroVelocity = {
+  kind: 'rule',
+  ruleId: 'galop1',
+  ruleVersion: 1,
+  params: { step: 2, floor: 40, peakQuarter: 3 },
+  notes: [],
+};
+const ruleNotes = [
+  { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+  { bar: 0, beat: 1, duration: 1, midi: 65, voice: 1, velocity: 70 },
+];
+const ruleRows = velocityLaneRows(ruleNotes, ruleContour);
+equal(ruleRows.every((row) => row.needsRule), true);
+equal(ruleRows.every((row) => row.offset === 0 && row.authored === false), true);
+equal(velocityLaneExtent(ruleRows).needsRule, true);
+
+const flattened = velocityLaneRows(ruleNotes, ruleContour, {
+  ruleOffsets: { [noteKey(0, 0, 1)]: 4 },
+});
+equal(laneRow(flattened, 64).offset, 4);
+equal(laneRow(flattened, 64).needsRule, false);
+equal(laneRow(flattened, 64).authored, true);
+equal(laneRow(flattened, 65).needsRule, true);
+
+// Figure/slot-relative contour bars can wrap over a tiled preview.
+const wrapped = velocityLaneRows(
+  [{ bar: 8, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 }],
+  { kind: 'offsets', notes: [{ bar: 0, eighth: 0, voice: 1, offset: -6 }] },
+  { barSpan: 8 },
+);
+equal(wrapped[0]?.bar, 8);
+equal(wrapped[0]?.offset, -6);
+
+// The same figure can start later; barOffset shifts the contour coordinate.
+const shifted = velocityLaneRows(
+  [{ bar: 4, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 }],
+  { kind: 'offsets', notes: [{ bar: 0, eighth: 0, voice: 1, offset: -6 }] },
+  { barOffset: 4 },
+);
+equal(shifted[0]?.offset, -6);
+
+// Display-only preview copies notes; the source objects are untouched.
+const sourceNotes = [
+  { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+  { bar: 0, beat: 0, duration: 0.5, midi: 48, voice: 3, velocity: 58 },
+];
+const before = JSON.stringify(sourceNotes);
+const previewNotes = applyOffsetPreview(sourceNotes, offsetsContour);
+equal(JSON.stringify(sourceNotes), before);
+if (previewNotes[0] === (sourceNotes[0] as unknown)) {
+  throw new Error('applyOffsetPreview must not return the source note object');
+}
+equal(previewNotes[0]?.previewVelocity, 64);
+equal(previewNotes[0]?.authoredOffset, -6);
+equal(previewNotes[1]?.lane, 'thumb');
+equal(previewNotes[1]?.previewVelocity, 54);
+
+const diff = velocityLaneDiff(
+  [
+    { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+    { bar: 0, beat: 0.5, duration: 0.5, midi: 65, voice: 1, velocity: 70 },
+  ],
+  {
+    kind: 'offsets',
+    notes: [
+      { bar: 0, eighth: 0, voice: 1, offset: -5 },
+      { bar: 0, eighth: 1, voice: 1, pinned: true, velocity: 90, layer: 'stab' },
+    ],
+  },
+);
+equal(diff.total, 2);
+equal(diff.offsetRows, 1);
+equal(diff.pinnedRows, 1);
+equal(diff.needsRule, 0);
+equal(diff.maxAbsOffset, 5);
+equal(diff.velocityDelta, -5);
+
+// Extent covers both offset directions, pinned absolute velocity and bars.
+const extentRows = velocityLaneRows(
+  [
+    { bar: 0, beat: 0, duration: 1, midi: 64, voice: 1, velocity: 70 },
+    { bar: 0, beat: 0.5, duration: 0.5, midi: 60, voice: 3, velocity: 60, pinned: true },
+    { bar: 1, beat: 0, duration: 1, midi: 65, voice: 1, velocity: 70 },
+  ],
+  {
+    kind: 'offsets',
+    notes: [
+      { bar: 0, eighth: 0, voice: 1, offset: -6 },
+      { bar: 1, eighth: 0, voice: 1, offset: 3 },
+      { bar: 0, eighth: 1, voice: 3, pinned: true, velocity: 90, layer: 'stab' },
+    ],
+  },
+);
+const extent = velocityLaneExtent(extentRows);
+equal(extent.minOffset, -6);
+equal(extent.maxOffset, 3);
+equal(extent.minVelocity, 90);
+equal(extent.maxVelocity, 90);
+equal(extent.maxAbsOffset, 6);
+equal(extent.barStart, 0);
+equal(extent.barEnd, 1);
+equal(extent.barCount, 2);
+equal(extent.hasPinned, true);
+equal(extent.needsRule, false);
+
+equal(
+  velocityLaneLabel({ bar: 1, eighth: 2, voice: 1, finger: 'a' }),
+  'bar 2 · eighth 2 · voice 1 · finger a',
+);
+equal(velocityLaneLabel({ bar: 0, eighth: 0, voice: 3, thumb: true }), 'bar 1 · eighth 0 · voice 3 · thumb');
+
+const normalizedContour = normalizeVelocityContour({
+  kind: 'offsets',
+  notes: [{ bar: 0, eighth: 0, voice: 1, offset: -3 }],
+  thumb: [],
+});
+if (!normalizedContour || normalizedContour.kind !== 'offsets') {
+  throw new Error('expected an offsets contour');
+}
+equal(normalizedContour.notes.length, 1);
+equal(normalizedContour.thumb?.length, 0);
+equal(normalizeVelocityContour({ kind: 'mystery' }), null);
+equal(normalizeVelocityContour(null), null);
+
 
 type FakeStore = {
   value: string | null;

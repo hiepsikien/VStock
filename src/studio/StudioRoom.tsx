@@ -48,6 +48,8 @@ import {
   type StudioValidateResponse,
 } from './api';
 import { nextJobPollDelayMs, resolveAudioUrl } from './protocol';
+import { VelocityLane } from './VelocityLane';
+import { normalizeVelocityContour } from './velocity';
 import { sessionLabel } from './session';
 import { studioSessionId } from './sessionStorage';
 import {
@@ -2518,6 +2520,50 @@ function AudioControls({
   );
 }
 
+function PreviewVelocityPanel({ data }: { data: StudioPreviewResponse }) {
+  const [open, setOpen] = useState(false);
+  const notes = Array.isArray(data.notes) ? data.notes : [];
+  const contour = useMemo(
+    () => normalizeVelocityContour(data.microVelocity),
+    [data.microVelocity],
+  );
+
+  if (!data.ok || notes.length === 0) return null;
+
+  const status =
+    contour == null
+      ? 'Realized velocities only · authored offsets are not loaded yet'
+      : contour.kind === 'rule'
+        ? `Rule contour ${contour.ruleId} v${contour.ruleVersion} · needs a flatten table`
+        : 'Authored micro-velocity offsets loaded';
+
+  return (
+    <View style={styles.velocityPanel}>
+      <Pressable
+        onPress={() => setOpen((current) => !current)}
+        accessibilityRole="button"
+        accessibilityLabel={`${open ? 'Hide' : 'Show'} velocity lane`}
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [styles.velocityToggle, pressed && styles.pressed]}
+      >
+        <View style={styles.velocityHeaderText}>
+          <Text style={[type.section, styles.velocityTitle]}>Velocity lane</Text>
+          <Text style={styles.velocityHint}>{status}</Text>
+        </View>
+        <Text style={styles.velocityToggleText}>{open ? 'Hide' : 'Show'}</Text>
+      </Pressable>
+      {open ? (
+        <VelocityLane
+          notes={notes}
+          contour={contour}
+          editable={contour != null}
+          title="Preview velocity"
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function ResultPanel({
   result,
   job,
@@ -2668,6 +2714,8 @@ function ResultPanel({
       <ResultBlock label="Row" lines={row} empty="No row returned." />
       <ResultBlock label="Matrix" lines={matrix} empty="No matrix returned." />
       <ResultBlock label="Notes" lines={notes} empty="No notes returned." />
+
+      <PreviewVelocityPanel data={data} />
     </View>
   );
 }
@@ -3268,6 +3316,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.hairline,
     backgroundColor: palette.surface,
+  },
+  velocityPanel: {
+    gap: 4,
+    paddingTop: 4,
+  },
+  velocityToggle: {
+    minHeight: TOUCH_TARGET,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  velocityHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  velocityTitle: {
+    color: palette.textFaint,
+  },
+  velocityHint: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  velocityToggleText: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
   },
   audioRow: {
     flexDirection: 'row',

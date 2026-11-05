@@ -53,6 +53,12 @@ export type StudioPreviewResponse = StudioValidateResponse & {
   plan: unknown;
   row: unknown;
   notes: unknown;
+  /**
+   * Authored micro-velocity contour (docs §6.9). The backend does not serve it
+   * yet; the field stays `null` until Phase 2. `normalizeVelocityContour()`
+   * accepts the documented `{ kind: "offsets" | "rule", ... }` shape.
+   */
+  microVelocity: unknown;
   renderHash: string | null;
   matrix: unknown;
 };
@@ -282,6 +288,7 @@ export function normalizePreviewResponse(body: unknown): StudioPreviewResponse {
     plan: body.plan ?? null,
     row: body.row ?? null,
     notes: body.notes ?? null,
+    microVelocity: body.microVelocity ?? body.velocityContour ?? null,
     renderHash: hash,
     matrix: body.matrix ?? null,
   };
