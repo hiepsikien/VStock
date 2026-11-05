@@ -19,13 +19,16 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Loader | `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True` |
 | Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}` |
 | Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix |
-| UI | Studio room: JSON editor, Validate, Preview; audio để sprint sau |
-| Sandbox | Preview plan trên **bản copy registry**; `plan_sentence`/`plan_run` nhận `registry=` nên không mutate `SENTENCE_SPECS` |
+| Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |
+| Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
+| Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; preview báo “not implemented”, chưa render |
+| UI | Studio room: JSON editor, Validate, Preview; nút audio để sprint sau |
+| Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
 | Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; không interpreter |
 
 Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
 
-**Chưa làm:** publish/DB/versioning đầy đủ, audio preview, figure/texture mới cho Villa/Barrios/Brouwer, procedure/Bach exposition, Phase 2 interpreter.
+**Chưa làm:** nút audio trên UI, figure/texture mới cho Villa/Barrios/Brouwer (Villa đã có pilot preview-only), Bach exposition, Phase 2 interpreter.
 
 ---
 
