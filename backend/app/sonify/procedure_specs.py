@@ -9,6 +9,10 @@ The spec is deliberately narrower than a procedure engine. `ImitationSpec`
 names only the parameters the fuga renderer actually reads; `check_realized`
 refuses a value the renderer does not know, so a spec edit can fail loudly
 instead of silently changing nothing.
+
+`PROCEDURES` is the id table a sentence slot may point at. It is data only:
+this module does not plan spans, and `sentence_specs.plan_sentence`/`plan_run`
+never emit a procedure.
 """
 
 from __future__ import annotations
@@ -51,3 +55,23 @@ BACH_IMITATION = ImitationSpec(
     retrograde=False,
     inversion=False,
 )
+
+# The ids a sentence slot may name. A procedure is not a span-fill plan: the
+# owner/renderer resolves it, so `plan_sentence`/`plan_run` never emit it.
+PROCEDURES: dict[str, ImitationSpec] = {"bach_imitation": BACH_IMITATION}
+
+
+def validate_procedure(procedure_id: str) -> str:
+    """Return `procedure_id` if it names a registered procedure.
+
+    Raises ``ValueError`` naming the unknown id, so a registry or authoring
+    caller can fail loudly instead of carrying a dead reference.
+    """
+    if not isinstance(procedure_id, str) or not procedure_id:
+        raise ValueError("a procedure id must be a non-empty string")
+    if procedure_id not in PROCEDURES:
+        raise ValueError(
+            f"unknown procedure {procedure_id!r}; "
+            f"expected one of {sorted(PROCEDURES)}"
+        )
+    return procedure_id
