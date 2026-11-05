@@ -11,7 +11,7 @@ midnight for ``Retry-After``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 import aiosqlite
@@ -34,6 +34,9 @@ class QuotaDecision:
     limit: int
     remaining: int
     retry_after_seconds: int
+    # "global" lets the router explain a server-wide cap instead of blaming the
+    # caller's per-owner limit.
+    scope: str = "owner"
 
 
 def _now(now: datetime | None) -> datetime:
@@ -125,7 +128,7 @@ async def consume_with_global(
     """
     global_decision = await consume(db, GLOBAL_OWNER, kind, global_limit, now=now)
     if not global_decision.allowed:
-        return global_decision
+        return replace(global_decision, scope="global")
 
     decision = await consume(db, owner_id, kind, limit, now=now)
     if not decision.allowed:

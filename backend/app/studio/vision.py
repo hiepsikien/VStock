@@ -149,6 +149,15 @@ class _VisionError(Exception):
 
 
 DEFAULT_CACHE_MAX_AGE_DAYS = 30
+DEFAULT_CACHE_MAX_FILES = 5000
+
+
+def cache_max_files() -> int:
+    raw = os.environ.get("VSTOCK_STUDIO_VISION_CACHE_MAX_FILES", "").strip()
+    try:
+        return max(0, int(raw)) if raw else DEFAULT_CACHE_MAX_FILES
+    except ValueError:
+        return DEFAULT_CACHE_MAX_FILES
 
 
 def cache_max_age_days() -> int:
@@ -166,13 +175,26 @@ def _prune_cache(path: Path) -> None:
         children = list(path.iterdir())
     except OSError:
         return
+    keep: list[tuple[float, Path]] = []
     for child in children:
         try:
-            if not child.is_file() or child.stat().st_mtime >= cutoff:
+            if not child.is_file():
                 continue
-            child.unlink()
+            mtime = child.stat().st_mtime
+            if mtime < cutoff:
+                child.unlink()
+                continue
+            keep.append((mtime, child))
         except OSError:
             continue
+    limit = cache_max_files()
+    if limit and len(keep) > limit:
+        keep.sort(key=lambda item: item[0])
+        for _mtime, child in keep[: len(keep) - limit]:
+            try:
+                child.unlink()
+            except OSError:
+                continue
 
 
 def cache_dir() -> Path:

@@ -929,7 +929,7 @@ deepEqual(normalizeAnalyzeResponse({ warnings: [{ message: 'faint tab' }] }).war
   'faint tab',
 ]);
 deepEqual(normalizeAnalyzeResponse({}).notes, []);
-equal(normalizeAnalyzeResponse({}).ok, true);
+equal(normalizeAnalyzeResponse({}).ok, false);
 let analyzeThrew = false;
 try {
   normalizeAnalyzeResponse(null);

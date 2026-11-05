@@ -642,7 +642,13 @@ export function normalizeAnalyzeResponse(body: unknown): StudioAnalyzeDraft {
         .filter((item): item is StudioAnalysisNote => item !== null)
     : [];
   return {
-    ok: typeof body.ok === 'boolean' ? body.ok : errors.length === 0,
+    ok:
+      typeof body.ok === 'boolean'
+        ? body.ok
+        : errors.length === 0 &&
+          (measures.length > 0 ||
+            notes.length > 0 ||
+            Boolean(text(draft.review))),
     measures,
     notes,
     warnings: warningList(draft.warnings),
@@ -650,6 +656,7 @@ export function normalizeAnalyzeResponse(body: unknown): StudioAnalyzeDraft {
     cached:
       booleanFlag(body.cached) ||
       booleanFlag(body.cacheHit) ||
+      booleanFlag(draft.cacheHit) ||
       booleanFlag(body.cache_hit) ||
       booleanFlag(draft.cached),
     partial: booleanFlag(body.partial) || booleanFlag(draft.partial),

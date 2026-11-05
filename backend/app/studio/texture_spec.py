@@ -553,7 +553,8 @@ class AuthoredEvent:
     sounding_pitch: str | None = None
     confidence: float | None = None
     conflict: bool = False
-    review: str = "edited"
+    # Fail closed: a missing review must not import as already approved.
+    review: str = "pending"
 
     def to_mapping(self) -> dict[str, Any]:
         mapping: dict[str, Any] = {
@@ -617,7 +618,7 @@ def _parse_authored_event(mapping: Mapping[str, Any], path: str) -> AuthoredEven
         sounding_pitch=_optional_string(data.get("sounding_pitch"), f"{path}.sounding_pitch"),
         confidence=_optional_number(data.get("confidence"), f"{path}.confidence"),
         conflict=_boolean(data.get("conflict", False), f"{path}.conflict"),
-        review=_string(data.get("review", "edited"), f"{path}.review"),
+        review=_string(data.get("review", "pending"), f"{path}.review"),
     )
 
 

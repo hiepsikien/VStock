@@ -34,6 +34,18 @@ function randomUuid(): string | null {
 }
 
 function randomHex(length: number): string {
+  const bytes = new Uint8Array(Math.ceil(length / 2));
+  const cryptoObj = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => void } }).crypto;
+  if (cryptoObj?.getRandomValues) {
+    try {
+      cryptoObj.getRandomValues(bytes);
+      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, length);
+    } catch {
+      // Fall through to Math.random only if the platform rejects the buffer.
+    }
+  }
   let out = '';
   while (out.length < length) {
     out += Math.random().toString(16).slice(2);

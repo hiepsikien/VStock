@@ -575,6 +575,9 @@ export function StudioRoom({ wide, onMode }: Props) {
 
   const pickFile = useCallback(
     (file: File | null) => {
+      // Replace flow is delete-then-pick; an already-uploaded file must not
+      // silently mint a second row/quota charge.
+      if (upload.kind === 'ready') return;
       uploadController.current?.abort();
       uploadController.current = null;
       analyzeController.current?.abort();
@@ -643,7 +646,7 @@ export function StudioRoom({ wide, onMode }: Props) {
       setSelectedPreview(preview);
       setUpload({ kind: 'idle' });
     },
-    [access],
+    [access, upload.kind],
   );
 
   const uploadSelected = useCallback(async () => {
@@ -1011,7 +1014,8 @@ export function StudioRoom({ wide, onMode }: Props) {
   const uploadBusy = upload.kind === 'uploading' || upload.kind === 'deleting';
   const analyzeBusy = draftState.kind === 'running';
   const uploaded = upload.kind === 'ready' ? upload.upload : null;
-  const canUpload = uploadEnabled && selectedFile !== null && !uploadBusy;
+  const canUpload =
+    uploadEnabled && selectedFile !== null && !uploadBusy && upload.kind !== 'ready';
   const canAnalyze = uploadEnabled && Boolean(uploaded?.id) && !analyzeBusy && !uploadBusy;
   const previewUri = uploadImageUri(uploaded) ?? selectedPreview;
   const accessNote =
@@ -1104,10 +1108,19 @@ export function StudioRoom({ wide, onMode }: Props) {
                     {React.createElement('input', {
                       type: 'file',
                       accept: 'image/png,image/jpeg,image/webp',
-                      disabled: !uploadEnabled || uploadBusy || accessLoading,
+                      disabled:
+                        !uploadEnabled ||
+                        uploadBusy ||
+                        accessLoading ||
+                        upload.kind === 'ready',
                       'aria-label': 'Choose a score image',
-                      onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
-                        pickFile(event.target.files?.[0] ?? null),
+                      onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+                        const file = event.target.files?.[0] ?? null;
+                        // Reset so choosing the same file after an error fires
+                        // onChange again.
+                        event.target.value = '';
+                        pickFile(file);
+                      },
                       style: { color: palette.textMuted, fontSize: 12, maxWidth: '100%' },
                     })}
                     <Text numberOfLines={1} style={styles.fileName}>

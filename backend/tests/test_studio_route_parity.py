@@ -24,6 +24,7 @@ UI_ROUTES = {
     ("GET", "/v1/musicalize/studio/access"),
     ("POST", "/v1/musicalize/studio/uploads"),
     ("GET", "/v1/musicalize/studio/uploads/{upload_id}"),
+    ("DELETE", "/v1/musicalize/studio/uploads/{upload_id}"),
     ("POST", "/v1/musicalize/studio/analyze"),
 }
 

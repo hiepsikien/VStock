@@ -43,6 +43,16 @@ _UPLOAD_OVERHEAD = 64 * 1024
 
 def _content_length_guard(request: Request) -> None:
     """Reject an obviously oversized multipart body before Starlette spools it."""
+    if "chunked" in request.headers.get("transfer-encoding", "").lower():
+        # Without a declared length the multipart parser can spool an unbounded
+        # body before this route runs. Browsers send Content-Length for FormData.
+        raise HTTPException(
+            status_code=411,
+            detail=_detail(
+                "length_required",
+                "Uploads must declare Content-Length; chunked uploads are not accepted",
+            ),
+        )
     raw = request.headers.get("content-length", "").strip()
     if not raw:
         return
@@ -147,7 +157,12 @@ def _quota_error(decision: studio_quota.QuotaDecision) -> HTTPException:
         detail={
             **_detail(
                 "quota_exceeded",
-                f"Daily {decision.kind} quota ({decision.limit}) is exhausted",
+                (
+                    f"Server-wide daily {decision.kind} quota "
+                    f"({decision.limit}) is exhausted"
+                    if getattr(decision, "scope", "owner") == "global"
+                    else f"Daily {decision.kind} quota ({decision.limit}) is exhausted"
+                ),
             ),
             "kind": decision.kind,
             "day": decision.day,

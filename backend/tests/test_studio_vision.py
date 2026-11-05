@@ -328,6 +328,20 @@ def test_content_length_guard_rejects_oversized_multipart() -> None:
     assert exc.value.status_code == 413
 
 
+def test_chunked_upload_is_rejected_before_spooling() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/uploads",
+            "headers": [(b"transfer-encoding", b"chunked")],
+        }
+    )
+    with pytest.raises(HTTPException) as exc:
+        studio_vision_router._content_length_guard(request)
+    assert exc.value.status_code == 411
+
+
 def test_global_quota_stops_session_rotation(
     client: TestClient, monkeypatch
 ) -> None:
@@ -345,6 +359,7 @@ def test_global_quota_stops_session_rotation(
     )
     assert second.status_code == 429
     assert second.json()["detail"]["kind"] == "upload"
+    assert "Server-wide" in second.json()["detail"]["message"]
 
 
 def test_vision_cache_prunes_old_drafts(tmp_path, monkeypatch) -> None:
@@ -363,6 +378,26 @@ def test_vision_cache_prunes_old_drafts(tmp_path, monkeypatch) -> None:
     assert vision.cache_dir() == path
     assert not old.exists()
     assert fresh.exists()
+
+
+def test_vision_cache_prunes_to_max_files(tmp_path, monkeypatch) -> None:
+    import os
+    import time
+
+    monkeypatch.setenv("VSTOCK_STUDIO_DIR", str(tmp_path))
+    monkeypatch.setenv("VSTOCK_STUDIO_VISION_CACHE_MAX_FILES", "1")
+    path = tmp_path / "vision-cache"
+    path.mkdir()
+    older = path / "older.json"
+    newer = path / "newer.json"
+    older.write_text("{}", encoding="utf-8")
+    newer.write_text("{}", encoding="utf-8")
+    now = time.time()
+    os.utime(older, (now - 60, now - 60))
+    os.utime(newer, (now, now))
+    vision.cache_dir()
+    assert not older.exists()
+    assert newer.exists()
 
 
 def test_missing_secret_is_random_not_a_known_constant(monkeypatch) -> None:
