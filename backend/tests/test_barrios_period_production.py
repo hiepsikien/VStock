@@ -213,6 +213,47 @@ def test_flag_on_falls_back_when_the_movement_is_framed(monkeypatch) -> None:
     assert _digest(on) == off
 
 
+def test_flag_on_runs_the_shared_production_tail(monkeypatch) -> None:
+    """The period must end in `_finish_voices`, not its old local shape pass."""
+    import app.sonify.guitar_patterns as patterns
+    import app.sonify.guitar_wave as guitar_wave
+
+    finish_calls: list[dict] = []
+    wave_calls: list[int] = []
+    preludio_bass_calls: list[int] = []
+
+    original_finish = patterns._finish_voices
+
+    def finish_spy(ctx, patterns_, lead, support, low, **kwargs):
+        finish_calls.append(kwargs)
+        return original_finish(ctx, patterns_, lead, support, low, **kwargs)
+
+    original_wave = guitar_wave.apply_guitar_wave
+
+    def wave_spy(ctx, lead, support, low, patterns_=None, relaxed=None, scale_eighths=None):
+        wave_calls.append(ctx.bars)
+        return original_wave(
+            ctx, lead, support, low, patterns_, relaxed, scale_eighths
+        )
+
+    monkeypatch.setattr(patterns, "_finish_voices", finish_spy)
+    monkeypatch.setattr(guitar_wave, "apply_guitar_wave", wave_spy)
+    monkeypatch.setattr(
+        patterns,
+        "_preludio_bass",
+        lambda ctx, patterns_: preludio_bass_calls.append(ctx.bars) or [],
+    )
+
+    with period.use_barrios_period(True):
+        _render()
+
+    assert len(finish_calls) == 1
+    # The period's own per-bar figure already writes the ringing pedal.
+    assert finish_calls[0]["preludio_bass"] is False
+    assert preludio_bass_calls == []
+    assert wave_calls == [12]
+
+
 def test_env_flag_auditions_without_the_context(monkeypatch) -> None:
     monkeypatch.setenv(ENV, "on")
     calls = _spy_figures(monkeypatch)

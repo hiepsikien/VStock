@@ -53,7 +53,7 @@ from app.sonify.production_flags import (
 )
 from app.sonify.sentence_production import (
     SentenceVoices,
-    bar_figures,
+    bar_plan,
     has_pedal_bars,
     mark_trace,
     phrase_at,
@@ -136,11 +136,13 @@ def eligible(ctx: Any) -> bool:
     return not has_pedal_bars(ctx)
 
 
-def _plan(ctx: Any) -> dict[int, int] | None:
+def _plan(
+    ctx: Any,
+) -> tuple[dict[int, int], dict[int, Any]] | None:
     if not enabled() or not eligible(ctx):
         return None
     ensure_registered()
-    planned = sentence_specs.plan_sentence(
+    planned = sentence_specs.plan_slots(
         BROUWER_PATTERN,
         BROUWER_METER,
         ctx.bars,
@@ -148,14 +150,15 @@ def _plan(ctx: Any) -> dict[int, int] | None:
         closes=False,
         rise=0,
     )
-    return bar_figures(planned, ctx.bars)
+    return bar_plan(planned, ctx.bars)
 
 
 def render_sentence(ctx: Any) -> SentenceVoices | None:
     """Render the ABA for an eligible movement, or return None to fall back."""
-    figures = _plan(ctx)
-    if figures is None:
+    plan = _plan(ctx)
+    if plan is None:
         return None
+    figures, slot_contours = plan
 
     state = BrouwerFigureState.build(ctx)
     lead: list = []
@@ -178,4 +181,6 @@ def render_sentence(ctx: Any) -> SentenceVoices | None:
         low.extend(part_low)
 
     mark_trace(ctx)
-    return SentenceVoices(lead, support, low, figures)
+    return SentenceVoices(
+        lead, support, low, figures, slot_contours=slot_contours
+    )
