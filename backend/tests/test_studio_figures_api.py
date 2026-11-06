@@ -15,9 +15,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.routers import studio_figures
-from app.sonify.pattern_doors import STUDIO_DOORS
+from app.sonify.pattern_doors import STUDIO_DOOR_METERS, STUDIO_DOORS
 from app.sonify.pattern_figures import PatternFigure
-from app.sonify.pattern_promote import promote_figures, unapply_promotion
+from app.sonify.pattern_promote import (
+    promote_figures,
+    reset_promotions,
+    unapply_promotion,
+)
 from app.sonify.sentence_specs import (
     SENTENCE_SPECS,
     Select,
@@ -34,12 +38,16 @@ METER = "3/4"
 
 
 @pytest.fixture(autouse=True)
-def _isolate_registries():
+def _isolate_registries(monkeypatch):
+    monkeypatch.setenv("VSTOCK_STUDIO_FIGURE_PROMOTE", "on")
+    reset_promotions()
     saved_cells = {key: dict(value) for key, value in TEXTURE_CELLS.items()}
     saved_doors = dict(STUDIO_DOORS)
+    saved_meters = dict(STUDIO_DOOR_METERS)
     saved_specs = dict(SENTENCE_SPECS)
     TEXTURE_CELLS.clear()
     STUDIO_DOORS.clear()
+    STUDIO_DOOR_METERS.clear()
     SENTENCE_SPECS.clear()
     try:
         yield
@@ -47,9 +55,12 @@ def _isolate_registries():
         TEXTURE_CELLS.clear()
         TEXTURE_CELLS.update(saved_cells)
         STUDIO_DOORS.clear()
+        STUDIO_DOOR_METERS.clear()
         STUDIO_DOORS.update(saved_doors)
+        STUDIO_DOOR_METERS.update(saved_meters)
         SENTENCE_SPECS.clear()
         SENTENCE_SPECS.update(saved_specs)
+        reset_promotions()
 
 
 @pytest.fixture()
@@ -452,7 +463,7 @@ def test_unpromote_removes_the_latest_explicit_promotion(client: TestClient) -> 
 
     removed = client.post(
         "/v1/studio/figure/unpromote",
-        json=_body(),
+        json={"pattern": PATTERN, "meter": METER, "ensemble": "villa"},
         headers=headers,
     )
     body = removed.json()
@@ -460,3 +471,42 @@ def test_unpromote_removes_the_latest_explicit_promotion(client: TestClient) -> 
     assert body["removed"] is True
     assert (PATTERN, METER) not in TEXTURE_CELLS
     assert ("villa", PATTERN) not in STUDIO_DOORS
+
+
+def test_unpromote_also_reverts_the_body_sentence(client: TestClient) -> None:
+    headers = {"X-Studio-Session": "test-owner"}
+    promoted = client.post(
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers=headers,
+    )
+    assert promoted.json()["ok"] is True
+    assert (PATTERN, METER) in SENTENCE_SPECS
+
+    removed = client.post(
+        "/v1/studio/figure/unpromote",
+        json={"pattern": PATTERN, "meter": METER, "ensemble": "villa"},
+        headers=headers,
+    )
+    assert removed.json()["removed"] is True
+    assert (PATTERN, METER) not in SENTENCE_SPECS
+
+
+def test_apply_is_disabled_by_default(client: TestClient, monkeypatch) -> None:
+    monkeypatch.delenv("VSTOCK_STUDIO_FIGURE_PROMOTE", raising=False)
+    response = client.post(
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers={"X-Studio-Session": "test-owner"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "figure_promote_disabled"
+
+
+def test_validate_rejects_a_production_pattern(client: TestClient) -> None:
+    payload = _body()
+    payload["pattern"] = "suite_schottish"
+    response = client.post("/v1/studio/figure/validate", json=payload)
+    body = response.json()
+    assert body["ok"] is False
+    assert any("production pattern" in error["message"] for error in body["errors"])

@@ -7,6 +7,7 @@ import pytest
 from app.sonify.form import METER_24, METER_44
 from app.sonify.guitar_frame import _RETAINED_DOORS, _extra_doors, frame_roles
 from app.sonify.pattern_doors import (
+    STUDIO_DOOR_METERS,
     STUDIO_DOORS,
     compile_figure_doors,
     frame_role_bar,
@@ -26,15 +27,19 @@ METER = "4/4"
 def _isolate_registries():
     saved_cells = {key: dict(value) for key, value in TEXTURE_CELLS.items()}
     saved_doors = dict(STUDIO_DOORS)
+    saved_meters = dict(STUDIO_DOOR_METERS)
     TEXTURE_CELLS.clear()
     STUDIO_DOORS.clear()
+    STUDIO_DOOR_METERS.clear()
     try:
         yield
     finally:
         TEXTURE_CELLS.clear()
         TEXTURE_CELLS.update(saved_cells)
         STUDIO_DOORS.clear()
+        STUDIO_DOOR_METERS.clear()
         STUDIO_DOORS.update(saved_doors)
+        STUDIO_DOOR_METERS.update(saved_meters)
 
 
 def _event(
@@ -399,5 +404,14 @@ def test_studio_door_cannot_shadow_a_production_door() -> None:
     def door(ctx, bar, role, **kwargs):
         return []
 
-    with pytest.raises(ValueError, match="production door"):
+    with pytest.raises(ValueError, match="production pattern/door"):
         register_studio_door("villa", "suite_schottish", door)
+
+
+def test_one_studio_door_pattern_cannot_switch_meter_silently() -> None:
+    def door(ctx, bar, role, **kwargs):
+        return []
+
+    assert register_studio_door("villa", "studio_meter_unit", door, meter="4/4")
+    with pytest.raises(ValueError, match="already registered for 4/4"):
+        register_studio_door("villa", "studio_meter_unit", door, meter="2/4", replace=True)

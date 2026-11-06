@@ -40,7 +40,7 @@ figure pool + plan + 1D series
    - `render()` → `_compose()` → `guitar` → `render_patterned_voices()` → `_finish_voices()`.
 2. **Tái sử dụng MusicXML/audio**:
    - `score_to_musicxml(score)`;
-   - `studio_audio.ensure_audio(...)`.
+   - production audio pipeline (MuseScore/`sonify/audio.py`), không dùng synth preview 45s cho Render Piece.
 3. **Không auto-publish**:
    - render/export/play là preview;
    - promote là hành động riêng.
@@ -75,7 +75,7 @@ render(..., studio_piece=...)
         │
         ├─ Score
         ├─ MusicXML
-        └─ WAV (ensure_audio / production audio)
+        └─ WAV (production audio; không cap 45s)
 ```
 
 ---
@@ -147,7 +147,8 @@ Response:
 
 Quy tắc:
 
-- `audio:true` nhưng quá 45s → trả `audioUrl:null`, warning; vẫn trả MusicXML.
+- `audio:true` luôn dùng production audio pipeline, không phân biệt ngắn/dài, không cap 45s.
+- Nếu production audio lỗi: trả MusicXML + lỗi audio rõ; không fallback sang synth preview.
 - `includeDoors:false` → chỉ body.
 - Không ghi `SENTENCE_SPECS`/registry.
 - Cache theo `renderHash`.
@@ -356,7 +357,7 @@ Hành vi:
 ### Phase C — API render/export
 - `POST /figure/render`.
 - cache hash.
-- WAV nếu <=45s; MusicXML luôn.
+- WAV luôn qua production audio pipeline; MusicXML luôn có.
 - tests.
 
 ### Phase D — Studio UI
@@ -394,7 +395,7 @@ Hành vi:
 |---|---|
 | `render` / `_finish_voices` | Có |
 | `score_to_musicxml` | Có |
-| `studio_audio.ensure_audio` | Có, cap 45s |
+| production audio / MuseScore | Có, dùng cho mọi độ dài |
 | `plan_week`/`plan_month` | Có |
 | `sentence_plan` | Có |
 | `pattern_promote`/`pattern_doors` | Có |
@@ -406,11 +407,12 @@ Hành vi:
 
 ## 12. Quyết định đã chốt
 
+0. **Promote hiện tại là registry preview, không phải composer selection.** `/promote` đăng ký cells/door/body nhưng chưa làm pattern mới selectable trong `_patterns()`/`selectable_pattern()`. Render Piece dùng seam `studio_piece` để render trực tiếp; muốn composer tự chọn pattern phải làm bước registry/flag riêng.
 1. **B material**: optional `contrast` tag. Nếu thiếu, fallback variation của `key` + warning; chỉ preview/export, không promote.
 2. **Close**: optional `close` tag cho body kết. Không có short/long; `outro.short/long` là door riêng. Fallback `VILLA_CADENCE` ở bar cuối nếu pattern hỗ trợ.
 3. **1D series mặc định**: `VIC 2026-10-14`.
-4. **Audio**: dùng luồng hiện tại.
-   - `<=45s`: `studio_audio.ensure_audio` + route audio hiện có.
-   - `>45s`: dùng production audio/MuseScore; nếu không có, trả MusicXML + warning, **không cắt im lặng**.
+4. **Audio**: Render Piece **luôn dùng production audio pipeline** (MuseScore/`sonify/audio.py`), cho cả bản ngắn và dài.
+   - Không dùng `studio_audio.ensure_audio` 45s cho Render Piece.
+   - Nếu production audio lỗi: trả MusicXML + lỗi audio rõ, không fallback synth và không cắt im lặng.
 5. **Quota**: render preview **không tiêu publish quota**. Có rate limit riêng cho render/audio; quota publish giữ nguyên.
 6. **Cache**: content hash `renderHash`, TTL 24h, LRU; MusicXML/WAV cùng key.

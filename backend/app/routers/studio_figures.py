@@ -17,11 +17,12 @@ or renders audio.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.sonify.pattern_figures import (
@@ -40,7 +41,10 @@ from app.sonify.pattern_promote import (
     promote_figures,
     register_body_sentence,
     unapply_promotion,
+    unapply_promotion_by_key,
 )
+from app.sonify.pattern_registry import PATTERN_META
+from app.sonify.sentence_specs import SENTENCE_SPECS
 from app.studio import session as studio_session
 from app.studio.sentence_spec import parse_spec, spec_to_mapping
 from app.studio.texture_spec import (
@@ -53,6 +57,43 @@ from app.studio.texture_spec import (
 router = APIRouter(prefix="/v1/studio/figure", tags=["studio-figure"])
 
 studio_owner = studio_session.owner_or_anonymous
+
+_PROMOTE_ENV = "VSTOCK_STUDIO_FIGURE_PROMOTE"
+_PROMOTE_TOKEN_ENV = "VSTOCK_STUDIO_FIGURE_PROMOTE_TOKEN"
+_TRUE = frozenset({"1", "true", "yes", "on"})
+
+
+def _promote_gate(
+    owner_id: str,
+    token: str | None,
+) -> None:
+    """Gate explicit registry mutation behind an off-by-default flag."""
+    enabled = os.environ.get(_PROMOTE_ENV, "").strip().lower() in _TRUE
+    if not enabled:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "figure_promote_disabled",
+                "message": f"set {_PROMOTE_ENV}=on to enable figure promotion",
+            },
+        )
+    if owner_id == "anonymous":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "studio_session_required",
+                "message": "X-Studio-Session is required for figure promotion",
+            },
+        )
+    expected = os.environ.get(_PROMOTE_TOKEN_ENV, "").strip()
+    if expected and token != expected:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "figure_promote_forbidden",
+                "message": "invalid X-Studio-Promote-Token",
+            },
+        )
 
 _MAX_FIGURES = 64
 _MAX_SENTENCES = 64
@@ -112,6 +153,12 @@ class FigureValidateResponse(BaseModel):
 class FigurePromoteResponse(FigureValidateResponse):
     applied: bool = False
     removed: bool = False
+
+
+class FigureUnpromoteRequest(BaseModel):
+    pattern: str = Field(min_length=1, max_length=_MAX_ID)
+    meter: str = Field(min_length=1, max_length=32)
+    ensemble: str = Field(default="villa", min_length=1, max_length=32)
 
 
 class FigureTagOut(BaseModel):
@@ -237,6 +284,17 @@ def _evaluate(body: FigureValidateRequest) -> _Evaluation:
     errors: list[FigureErrorOut] = []
     sentences, sentence_errors = _parse_sentences(body.sentences)
     errors.extend(sentence_errors)
+    if body.pattern in PATTERN_META:
+        errors.append(
+            _error(
+                "pattern",
+                f"{body.pattern!r} is a production pattern; Studio promotion "
+                "cannot shadow it",
+            )
+        )
+    existing_sentences = tuple(sentences) + tuple(
+        SENTENCE_SPECS.get((body.pattern, body.meter), ())
+    )
 
     figures: list[PatternFigure] = []
     pairs: list[tuple[PatternFigure, TextureSpec]] = []
@@ -286,7 +344,7 @@ def _evaluate(body: FigureValidateRequest) -> _Evaluation:
     missing = list(missing_figure_tags(figures))
     cell_ids = _project_cell_ids(figures)
     body_sentence = _derive_body_mapping(
-        body.pattern, body.meter, figures, sentences, errors
+        body.pattern, body.meter, figures, existing_sentences, errors
     )
 
     if errors or missing:
@@ -299,7 +357,10 @@ def _evaluate(body: FigureValidateRequest) -> _Evaluation:
 
     try:
         plan = promote_figures(
-            body.pattern, body.meter, pairs, existing_sentences=sentences
+            body.pattern,
+            body.meter,
+            pairs,
+            existing_sentences=existing_sentences,
         )
     except ValueError as exc:
         message = str(exc)
@@ -335,16 +396,13 @@ def validate_figures_route(body: FigureValidateRequest) -> FigureValidateRespons
 def promote_figures_route(
     body: FigurePromoteRequest,
     owner_id: str = Depends(studio_owner),
+    promote_token: str | None = Header(
+        default=None, alias="X-Studio-Promote-Token"
+    ),
 ) -> FigurePromoteResponse:
     """Validate first; register only when the caller explicitly sets ``apply``."""
-    if body.apply and owner_id == "anonymous":
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "studio_session_required",
-                "message": "X-Studio-Session is required for figure promotion",
-            },
-        )
+    if body.apply:
+        _promote_gate(owner_id, promote_token)
     evaluation = _evaluate(body)
     if not evaluation.complete or evaluation.plan is None:
         response = evaluation.response()
@@ -359,16 +417,19 @@ def promote_figures_route(
         )
 
     plan = evaluation.plan
+    applied = False
     try:
         apply_promotion(plan)
+        applied = True
         register_body_sentence(plan)
     except Exception as exc:  # noqa: BLE001 - transport boundary
-        # A partial apply must not leave cells or a door behind. ``unapply``
-        # only removes values this plan registered and is idempotent.
-        try:
-            unapply_promotion(plan)
-        except Exception:  # noqa: BLE001 - best-effort rollback
-            pass
+        # `apply_promotion` is atomic; only roll back when it completed and
+        # the separate body registration failed.
+        if applied:
+            try:
+                unapply_promotion(plan)
+            except Exception:  # noqa: BLE001 - best-effort rollback
+                pass
         response = evaluation.response()
         return FigurePromoteResponse(
             ok=False,
@@ -393,51 +454,38 @@ def promote_figures_route(
 
 @router.post("/unpromote", response_model=FigurePromoteResponse)
 def unpromote_figures_route(
-    body: FigurePromoteRequest,
+    body: FigureUnpromoteRequest,
     owner_id: str = Depends(studio_owner),
+    promote_token: str | None = Header(
+        default=None, alias="X-Studio-Promote-Token"
+    ),
 ) -> FigurePromoteResponse:
-    """Remove the latest explicit promotion for this pattern/meter.
+    """Revert the latest promotion by key, without the draft pool.
 
-    The body is the same draft pool used by ``/promote``. The route requires a
-    Studio session because it mutates the process-wide door/cell registries.
+    Unpromote must work even when the Studio draft is incomplete or edited, so
+    it only takes ``pattern``/``meter``/``ensemble``.
     """
-    if owner_id == "anonymous":
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "studio_session_required",
-                "message": "X-Studio-Session is required for figure unpromotion",
-            },
-        )
-    evaluation = _evaluate(body)
-    if evaluation.plan is None:
-        return FigurePromoteResponse(
-            **evaluation.response().model_dump(),
-            applied=False,
-            removed=False,
-        )
-    plan = evaluation.plan
+    _promote_gate(owner_id, promote_token)
     try:
-        unapply_promotion(plan, force=True)
+        removed = unapply_promotion_by_key(
+            body.ensemble, body.pattern, body.meter
+        )
     except Exception as exc:  # noqa: BLE001 - transport boundary
         return FigurePromoteResponse(
             ok=False,
             applied=False,
             removed=False,
             errors=[_error("unapply", _safe_promotion_error(exc))],
-            missing=[],
-            bodySentence=evaluation.body_sentence,
-            cellIds=dict(plan.cell_ids),
             complete=True,
         )
     return FigurePromoteResponse(
         ok=True,
         applied=False,
-        removed=True,
+        removed=removed,
         errors=[],
         missing=[],
-        bodySentence=evaluation.body_sentence,
-        cellIds=dict(plan.cell_ids),
+        bodySentence=None,
+        cellIds={},
         complete=True,
     )
 

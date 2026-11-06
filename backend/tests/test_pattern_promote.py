@@ -7,12 +7,13 @@ from dataclasses import replace
 import pytest
 
 from app.sonify.form import METER_44
-from app.sonify.pattern_doors import STUDIO_DOORS
+from app.sonify.pattern_doors import STUDIO_DOOR_METERS, STUDIO_DOORS
 from app.sonify.pattern_figures import PatternFigure
 from app.sonify.pattern_promote import (
     PromotionPlan,
     apply_promotion,
     promote_figures,
+    reset_promotions,
     register_body_sentence,
     unapply_promotion,
 )
@@ -27,11 +28,14 @@ METER = "4/4"
 
 @pytest.fixture(autouse=True)
 def _isolate_registries():
+    reset_promotions()
     saved_cells = {key: dict(value) for key, value in TEXTURE_CELLS.items()}
     saved_doors = dict(STUDIO_DOORS)
+    saved_meters = dict(STUDIO_DOOR_METERS)
     saved_specs = dict(SENTENCE_SPECS)
     TEXTURE_CELLS.clear()
     STUDIO_DOORS.clear()
+    STUDIO_DOOR_METERS.clear()
     SENTENCE_SPECS.clear()
     try:
         yield
@@ -39,9 +43,12 @@ def _isolate_registries():
         TEXTURE_CELLS.clear()
         TEXTURE_CELLS.update(saved_cells)
         STUDIO_DOORS.clear()
+        STUDIO_DOOR_METERS.clear()
         STUDIO_DOORS.update(saved_doors)
+        STUDIO_DOOR_METERS.update(saved_meters)
         SENTENCE_SPECS.clear()
         SENTENCE_SPECS.update(saved_specs)
+        reset_promotions()
 
 
 def _event(*, bar: int, midi: int) -> AuthoredEvent:

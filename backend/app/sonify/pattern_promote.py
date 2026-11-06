@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.sonify.pattern_doors import (
+    STUDIO_DOOR_METERS,
     STUDIO_DOORS,
     compile_figure_doors,
     register_studio_door,
@@ -35,6 +36,7 @@ from app.sonify.pattern_figures import (
     validate_figures,
 )
 from app.sonify.sentence_specs import (
+    SENTENCE_SPECS,
     SentenceSpec,
     register as register_sentence_specs,
 )
@@ -115,13 +117,16 @@ class PromotionPlan:
         return self.cells
 
 
-@dataclass(frozen=True)
+@dataclass
 class _Snapshot:
     """Previous registry state captured by one explicit apply."""
 
     plan: PromotionPlan
     cells: Mapping[str, TextureSpec | None]
     door: Callable[..., list[tuple]] | None
+    door_meter: str | None = None
+    sentences: tuple[SentenceSpec, ...] | None = None
+    body_added: bool = False
 
 
 def _promotion_key(plan: PromotionPlan) -> tuple[str, str, str]:
@@ -131,6 +136,29 @@ def _promotion_key(plan: PromotionPlan) -> tuple[str, str, str]:
 # One stack per pattern/meter so a failed re-promote can restore the previous
 # promotion instead of deleting cells that already existed.
 _APPLIED: dict[tuple[str, str, str], list[_Snapshot]] = {}
+
+
+def reset_promotions() -> None:
+    """Drop promote snapshots; tests and process resets use this explicitly."""
+    _APPLIED.clear()
+
+
+def unapply_promotion_by_key(
+    ensemble: str,
+    pattern: str,
+    meter: str,
+) -> bool:
+    """Revert the latest promotion for one pattern/meter without a draft.
+
+    ``/unpromote`` must work even if the Studio draft is incomplete or edited;
+    this helper only needs the registry key. Returns whether a snapshot was
+    restored.
+    """
+    stack = _APPLIED.get((ensemble, pattern, meter))
+    if not stack:
+        return False
+    unapply_promotion(stack[-1].plan, force=True)
+    return True
 
 
 def _non_empty_string(value: Any, name: str) -> str:
@@ -350,11 +378,17 @@ def apply_promotion(plan: PromotionPlan) -> SentenceSpec:
         # would make one unapply restore this same promotion and leave cells
         # behind.
         return plan.body
+    if stack is None and len(_APPLIED) >= 64:
+        raise ValueError("too many active figure promotions; unpromote one first")
+    if stack is not None and len(stack) >= 8:
+        raise ValueError("too many stacked promotions for this pattern; unpromote first")
     table = TEXTURE_CELLS.get((plan.pattern, plan.meter), {})
     snapshot = _Snapshot(
         plan=plan,
-        cells={cell_id: table.get(cell_id) for cell_id in plan.cells},
+        cells=dict(table),
         door=STUDIO_DOORS.get((plan.ensemble, plan.pattern)),
+        door_meter=STUDIO_DOOR_METERS.get((plan.ensemble, plan.pattern)),
+        sentences=SENTENCE_SPECS.get((plan.pattern, plan.meter)),
     )
     _APPLIED.setdefault(key, []).append(snapshot)
     try:
@@ -370,6 +404,7 @@ def apply_promotion(plan: PromotionPlan) -> SentenceSpec:
             plan.ensemble,
             plan.pattern,
             plan.door,
+            meter=plan.meter,
             replace=True,
         )
     except Exception:
@@ -396,19 +431,14 @@ def unapply_promotion(plan: PromotionPlan, *, force: bool = False) -> None:
         snapshot = stack.pop()
         if not stack:
             _APPLIED.pop(key, None)
-        table = TEXTURE_CELLS.get((plan.pattern, plan.meter))
+        current_table = TEXTURE_CELLS.get((plan.pattern, plan.meter))
+        if current_table is not None:
+            for cell_id in list(current_table):
+                if cell_id not in snapshot.cells:
+                    unregister_texture_cell(
+                        plan.pattern, plan.meter, cell_id
+                    )
         for cell_id, previous in snapshot.cells.items():
-            current = table.get(cell_id) if table else None
-            # Only restore values this promotion still owns. An explicitly
-            # replaced cell belongs to the caller and is left alone. A forced
-            # unpromote from a rebuilt plan bypasses identity because it
-            # intentionally targets the latest snapshot.
-            if (
-                not force
-                and current is not None
-                and plan.cells.get(cell_id) is not current
-            ):
-                continue
             if previous is None:
                 unregister_texture_cell(plan.pattern, plan.meter, cell_id)
             else:
@@ -422,6 +452,11 @@ def unapply_promotion(plan: PromotionPlan, *, force: bool = False) -> None:
         door_key = (plan.ensemble, plan.pattern)
         current_door = STUDIO_DOORS.get(door_key)
         if not force and current_door is not None and current_door is not plan.door:
+            if snapshot.body_added:
+                if snapshot.sentences is None:
+                    SENTENCE_SPECS.pop((plan.pattern, plan.meter), None)
+                else:
+                    SENTENCE_SPECS[(plan.pattern, plan.meter)] = snapshot.sentences
             return
         if snapshot.door is None:
             unregister_studio_door(plan.ensemble, plan.pattern)
@@ -430,8 +465,14 @@ def unapply_promotion(plan: PromotionPlan, *, force: bool = False) -> None:
                 plan.ensemble,
                 plan.pattern,
                 snapshot.door,
+                meter=snapshot.door_meter,
                 replace=True,
             )
+        if snapshot.body_added:
+            if snapshot.sentences is None:
+                SENTENCE_SPECS.pop((plan.pattern, plan.meter), None)
+            else:
+                SENTENCE_SPECS[(plan.pattern, plan.meter)] = snapshot.sentences
         return
 
     # Compatibility/no-snapshot path: remove only values this plan still owns.
@@ -462,5 +503,24 @@ def register_body_sentence(
     )
     if not isinstance(body, SentenceSpec):
         raise TypeError("expected a PromotionPlan or SentenceSpec")
+    key = (body.pattern, body.meter)
+    existing = SENTENCE_SPECS.get(key)
+    stack = _APPLIED.get(
+        (
+            plan_or_spec.ensemble
+            if isinstance(plan_or_spec, PromotionPlan)
+            else "villa",
+            body.pattern,
+            body.meter,
+        )
+    )
+    snapshot = stack[-1] if stack else None
+    if existing is None:
+        register_sentence_specs(body.pattern, body.meter, body, replace=replace)
+        if snapshot is not None:
+            snapshot.body_added = True
+        return body
     register_sentence_specs(body.pattern, body.meter, body, replace=replace)
+    if snapshot is not None and replace:
+        snapshot.body_added = True
     return body

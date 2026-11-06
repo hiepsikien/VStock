@@ -620,6 +620,22 @@ def _bach_outro_long(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
     return _bach_picardy(ctx, bar, _PP)
 
 
+def protected_door_keys() -> set[tuple[str, str]]:
+    """Read-only set of shipped door keys; never mutates `_RETAINED_DOORS`."""
+    keys = set(_RETAINED_DOORS)
+    for module_name in (
+        "app.sonify.guitar_frame_bach_sor",
+        "app.sonify.guitar_frame_rest",
+        "app.sonify.guitar_torroba_doors",
+    ):
+        try:
+            module = __import__(module_name, fromlist=["DOORS"])
+            keys.update(getattr(module, "DOORS", {}))
+        except ImportError:
+            continue
+    return keys
+
+
 def _extra_doors():
     doors = {}
     try:

@@ -53,6 +53,9 @@ DEFAULT_DOOR_VELOCITY = 56
 
 #: ``(ensemble, pattern)`` -> door callable. Empty at import.
 STUDIO_DOORS: dict[tuple[str, str], Callable[..., list[tuple]]] = {}
+#: Meter that produced each studio door. One pattern/meter promotion at a
+#: time; a different meter must unpromote first rather than silently shadow.
+STUDIO_DOOR_METERS: dict[tuple[str, str], str] = {}
 
 _FLAG_NAMES = (
     "tie_start",
@@ -240,6 +243,7 @@ def register_studio_door(
     pattern: str,
     door: Callable[..., list[tuple]],
     *,
+    meter: str | None = None,
     replace: bool = False,
 ) -> bool:
     """Add one door for ``_extra_doors`` to merge; return whether it changed.
@@ -251,29 +255,41 @@ def register_studio_door(
     if not callable(door):
         raise TypeError("door must be callable")
     if key not in STUDIO_DOORS:
-        # A Studio promotion must never shadow a shipped pattern door. The
-        # production door table is process-global; a request-local registration
-        # would otherwise change playback for every user on this worker.
+        # A Studio promotion must never shadow a shipped pattern door or a
+        # selectable composer pattern. The production tables are process-global.
         from app.sonify import guitar_frame
+        from app.sonify.pattern_registry import PATTERN_META
 
-        protected = key in guitar_frame._RETAINED_DOORS or key in guitar_frame._extra_doors()
+        protected = (
+            pattern in PATTERN_META
+            or key in guitar_frame.protected_door_keys()
+        )
         if protected:
             raise ValueError(
-                f"{key} is a production door; Studio promotion cannot shadow it"
+                f"{key} is a production pattern/door; Studio promotion cannot shadow it"
             )
     existing = STUDIO_DOORS.get(key)
     if existing is not None:
+        previous_meter = STUDIO_DOOR_METERS.get(key)
+        if meter is not None and previous_meter not in (None, meter):
+            raise ValueError(
+                f"a studio door for {key} is already registered for "
+                f"{previous_meter}; unpromote it before promoting {meter}"
+            )
         if existing is door:
             return False
         if not replace:
             raise ValueError(f"a studio door is already registered for {key}")
     STUDIO_DOORS[key] = door
+    if meter is not None:
+        STUDIO_DOOR_METERS[key] = meter
     return True
 
 
 def unregister_studio_door(ensemble: str, pattern: str) -> bool:
     """Remove one registered door; return whether it was present."""
     key = _door_key(ensemble, pattern)
+    STUDIO_DOOR_METERS.pop(key, None)
     return STUDIO_DOORS.pop(key, None) is not None
 
 
