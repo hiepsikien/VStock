@@ -40,7 +40,9 @@ SCHEMA_VERSION = 1
 RUNTIME = "code"
 
 _WRAPPER_KEYS = frozenset({"schema_version", "runtime", "specs"})
-_SPEC_KEYS = frozenset({"id", "pattern", "meter", "select", "span", "slots"})
+_SPEC_KEYS = frozenset(
+    {"id", "pattern", "meter", "select", "span", "slots", "role"}
+)
 _SELECT_KEYS = frozenset(
     {"length_min", "length_max", "n_parity", "n_mod", "closes", "rise_min"}
 )
@@ -60,31 +62,38 @@ def spec_to_mapping(spec: SentenceSpec) -> dict[str, Any]:
     """
     select = spec.select
     span = spec.span
-    return {
+    mapping: dict[str, Any] = {
         "id": spec.id,
         "pattern": spec.pattern,
         "meter": spec.meter,
-        "select": {
-            "length_min": select.length_min,
-            "length_max": select.length_max,
-            "n_parity": select.n_parity,
-            "n_mod": (
-                None
-                if select.n_mod is None
-                else {"mod": select.n_mod[0], "value": select.n_mod[1]}
-            ),
-            "closes": select.closes,
-            "rise_min": select.rise_min,
-        },
-        "span": {
-            "tile": span.tile,
-            "remainder": span.remainder,
-            "truncate_to_length": span.truncate_to_length,
-            "cycle": span.cycle,
-            "exact": span.exact,
-        },
-        "slots": [_slot_to_mapping(slot) for slot in spec.slots],
     }
+    if spec.role is not None:
+        mapping["role"] = spec.role
+    mapping.update(
+        {
+            "select": {
+                "length_min": select.length_min,
+                "length_max": select.length_max,
+                "n_parity": select.n_parity,
+                "n_mod": (
+                    None
+                    if select.n_mod is None
+                    else {"mod": select.n_mod[0], "value": select.n_mod[1]}
+                ),
+                "closes": select.closes,
+                "rise_min": select.rise_min,
+            },
+            "span": {
+                "tile": span.tile,
+                "remainder": span.remainder,
+                "truncate_to_length": span.truncate_to_length,
+                "cycle": span.cycle,
+                "exact": span.exact,
+            },
+            "slots": [_slot_to_mapping(slot) for slot in spec.slots],
+        }
+    )
+    return mapping
 
 
 def _slot_to_mapping(slot: Slot) -> dict[str, Any]:
@@ -117,11 +126,19 @@ def parse_spec(mapping: Mapping[str, Any], *, path: str = "spec") -> SentenceSpe
     global registry.
     """
     data = _mapping(mapping, path)
-    _check_keys(data, _SPEC_KEYS, path)
+    _check_keys(
+        data,
+        _SPEC_KEYS,
+        path,
+        optional=frozenset({"role"}),
+    )
 
     sid = _non_empty_str(data["id"], f"{path}.id")
     pattern = _non_empty_str(data["pattern"], f"{path}.pattern")
     meter = _non_empty_str(data["meter"], f"{path}.meter")
+    role = data.get("role")
+    if role is not None and role not in ("A", "B", "close"):
+        raise ValueError(f"{path}.role: must be 'A', 'B' or 'close'")
     select = _parse_select(_mapping(data["select"], f"{path}.select"), f"{path}.select")
     span = _parse_span(_mapping(data["span"], f"{path}.span"), f"{path}.span")
     slots = _parse_slots(data["slots"], f"{path}.slots")
@@ -133,6 +150,7 @@ def parse_spec(mapping: Mapping[str, Any], *, path: str = "spec") -> SentenceSpe
         select=select,
         span=span,
         slots=slots,
+        role=role,
     )
     try:
         _validate(spec, pattern, meter)
@@ -279,11 +297,17 @@ def _parse_slot(data: dict[str, Any], path: str) -> Slot:
     )
 
 
-def _check_keys(data: Mapping[str, Any], allowed: frozenset[str], path: str) -> None:
+def _check_keys(
+    data: Mapping[str, Any],
+    allowed: frozenset[str],
+    path: str,
+    *,
+    optional: frozenset[str] = frozenset(),
+) -> None:
     unknown = set(data) - allowed
     if unknown:
         raise ValueError(f"{path}: unknown field(s) {sorted(unknown)}")
-    missing = allowed - set(data)
+    missing = (allowed - optional) - set(data)
     if missing:
         raise ValueError(f"{path}: missing field(s) {sorted(missing)}")
 

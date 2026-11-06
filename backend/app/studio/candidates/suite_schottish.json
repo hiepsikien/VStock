@@ -6,6 +6,7 @@
       "id": "suite_schottish_arpeggio_abab",
       "meter": "4/4",
       "pattern": "villa_pattern",
+      "role": "A",
       "select": {
         "closes": null,
         "length_max": null,

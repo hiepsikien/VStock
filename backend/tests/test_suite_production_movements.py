@@ -965,7 +965,7 @@ def test_gate_specs_are_stable_sorted_and_unregister_cleanly(
     )
     assert isinstance(gate.specs, tuple)
     assert gate.specs == gate.specs == expected
-    assert [spec.role for spec in gate.specs] == [None, "close", "B"]
+    assert [spec.role for spec in gate.specs] == ["A", "close", "B"]
 
     with suite_schottish.use_suite_schottish_abab(True):
         assert specs.SENTENCE_SPECS[gate.key] == expected

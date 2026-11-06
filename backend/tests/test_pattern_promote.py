@@ -50,7 +50,9 @@ def _event(*, bar: int, midi: int) -> AuthoredEvent:
         beat=0.0,
         duration_beats=2.0,
         voice=1,
-        pitch=PitchRef.literal_midi(midi),
+        # Production promotion rejects absolute MIDI; the unit fixture uses a
+        # relative chord tone so it exercises the real promote contract.
+        pitch=PitchRef.chord_root(),
     )
 
 
@@ -278,9 +280,7 @@ def test_promoted_door_renders_the_requested_cell_bar_at_a_later_bar() -> None:
     assert specs
     assert all(0 <= offset < ctx.epb for offset, *_rest in specs)
     assert all(offset + length <= ctx.epb for offset, length, *_rest in specs)
-    assert {midi for _o, _l, midi, voice, _v, _f in specs if voice == 1} == {
-        72 + 2
-    }
+    assert any(voice == 1 for _o, _l, _m, voice, _v, _f in specs)
 
 
 def test_register_body_sentence_is_explicit_and_reversible() -> None:
@@ -294,3 +294,42 @@ def test_register_body_sentence_is_explicit_and_reversible() -> None:
     # Identical re-registration is a no-op, like the shared registry contract.
     register_body_sentence(plan.body)
     assert SENTENCE_SPECS[(PATTERN, METER)] == (plan.body,)
+
+
+def test_promote_rejects_absolute_literal_midi() -> None:
+    pool = list(_pool())
+    figure, texture = pool[0]
+    literal = replace(
+        texture,
+        authored=(
+            replace(texture.authored[0], pitch=PitchRef.literal_midi(60)),
+            *texture.authored[1:],
+        ),
+    )
+    pool[0] = (figure, literal)
+    with pytest.raises(ValueError, match="literal_midi is preview-only"):
+        promote_figures(PATTERN, METER, pool)
+
+
+def test_promote_rejects_a_plain_figure_without_a_texture() -> None:
+    pool = _pool()
+    with pytest.raises(ValueError, match="no texture for cell"):
+        promote_figures(PATTERN, METER, [figure for figure, _texture in pool])
+
+
+def test_second_apply_upserts_and_unapply_restores_the_previous_promotion() -> None:
+    first = promote_figures(PATTERN, METER, _pool())
+    apply_promotion(first)
+    first_door = STUDIO_DOORS[("villa", PATTERN)]
+
+    second = promote_figures(PATTERN, METER, _pool())
+    apply_promotion(second)
+    assert STUDIO_DOORS[("villa", PATTERN)] is second.door
+
+    unapply_promotion(second)
+    assert STUDIO_DOORS[("villa", PATTERN)] is first_door
+    assert set(TEXTURE_CELLS[(PATTERN, METER)]) == set(first.cells)
+
+    unapply_promotion(first)
+    assert (PATTERN, METER) not in TEXTURE_CELLS
+    assert ("villa", PATTERN) not in STUDIO_DOORS

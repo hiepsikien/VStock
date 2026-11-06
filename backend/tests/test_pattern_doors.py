@@ -393,3 +393,11 @@ def test_registered_studio_door_reaches_render_intro() -> None:
     # Cell bar 0 and 1 for the short script.
     assert {note.midi for note in lead if note.bar == 4} == {72}
     assert {note.midi for note in lead if note.bar == 5} == {73}
+
+
+def test_studio_door_cannot_shadow_a_production_door() -> None:
+    def door(ctx, bar, role, **kwargs):
+        return []
+
+    with pytest.raises(ValueError, match="production door"):
+        register_studio_door("villa", "suite_schottish", door)

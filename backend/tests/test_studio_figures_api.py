@@ -92,7 +92,7 @@ def _texture(spec_id: str, bars: int) -> dict[str, Any]:
                     "beat": 0.0,
                     "duration_beats": 1.0,
                     "voice": 1,
-                    "pitch": {"kind": "literal_midi", "value": 60 + bar},
+                    "pitch": {"kind": "chord_root"},
                     "confidence": 0.9,
                     "review": "pending",
                 }
@@ -298,7 +298,9 @@ def test_promote_with_apply_registers_cells_body_and_door(
     client: TestClient,
 ) -> None:
     response = client.post(
-        "/v1/studio/figure/promote", json={**_body(), "apply": True}
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers={"X-Studio-Session": "test-owner"},
     )
 
     body = response.json()
@@ -323,7 +325,11 @@ def test_promote_with_apply_registers_cells_body_and_door(
 def test_apply_is_reversible_through_the_promote_helpers(
     client: TestClient,
 ) -> None:
-    client.post("/v1/studio/figure/promote", json={**_body(), "apply": True})
+    client.post(
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers={"X-Studio-Session": "test-owner"},
+    )
 
     assert (PATTERN, METER) in TEXTURE_CELLS
     assert ("villa", PATTERN) in STUDIO_DOORS
@@ -367,7 +373,9 @@ def test_registration_failure_rolls_back_and_hides_the_trace(
     register_sentence_specs(PATTERN, METER, wrong)
 
     response = client.post(
-        "/v1/studio/figure/promote", json={**_body(), "apply": True}
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers={"X-Studio-Session": "test-owner"},
     )
 
     body = response.json()
@@ -395,3 +403,60 @@ def test_tags_endpoint_lists_the_five_roles(client: TestClient) -> None:
         {"name": "outro.short", "bars": 2},
         {"name": "outro.long", "bars": 4},
     ]
+
+
+def test_figure_apply_requires_a_studio_session(client: TestClient) -> None:
+    response = client.post(
+        "/v1/studio/figure/promote", json={**_body(), "apply": True}
+    )
+    assert response.status_code == 403
+
+
+def test_validate_rejects_literal_midi(client: TestClient) -> None:
+    payload = _body()
+    payload["figures"][0]["spec"]["authored"]["events"][0]["pitch"] = {
+        "kind": "literal_midi",
+        "value": 60,
+    }
+    response = client.post("/v1/studio/figure/validate", json=payload)
+    body = response.json()
+    assert body["ok"] is False
+    assert any("literal_midi is preview-only" in error["message"] for error in body["errors"])
+
+
+def test_apply_twice_is_an_upsert_not_a_door_collision(client: TestClient) -> None:
+    headers = {"X-Studio-Session": "test-owner"}
+    first = client.post(
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers=headers,
+    )
+    second = client.post(
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers=headers,
+    )
+    assert first.json()["ok"] is True
+    assert second.json()["ok"] is True
+    assert (PATTERN, METER) in TEXTURE_CELLS
+
+
+def test_unpromote_removes_the_latest_explicit_promotion(client: TestClient) -> None:
+    headers = {"X-Studio-Session": "test-owner"}
+    promoted = client.post(
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers=headers,
+    )
+    assert promoted.json()["ok"] is True
+
+    removed = client.post(
+        "/v1/studio/figure/unpromote",
+        json=_body(),
+        headers=headers,
+    )
+    body = removed.json()
+    assert body["ok"] is True
+    assert body["removed"] is True
+    assert (PATTERN, METER) not in TEXTURE_CELLS
+    assert ("villa", PATTERN) not in STUDIO_DOORS

@@ -115,6 +115,24 @@ class PromotionPlan:
         return self.cells
 
 
+@dataclass(frozen=True)
+class _Snapshot:
+    """Previous registry state captured by one explicit apply."""
+
+    plan: PromotionPlan
+    cells: Mapping[str, TextureSpec | None]
+    door: Callable[..., list[tuple]] | None
+
+
+def _promotion_key(plan: PromotionPlan) -> tuple[str, str, str]:
+    return (plan.ensemble, plan.pattern, plan.meter)
+
+
+# One stack per pattern/meter so a failed re-promote can restore the previous
+# promotion instead of deleting cells that already existed.
+_APPLIED: dict[tuple[str, str, str], list[_Snapshot]] = {}
+
+
 def _non_empty_string(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{name} must be a non-empty string")
@@ -189,16 +207,33 @@ def _normalise_figures(
 
         if texture is None:
             texture = TEXTURE_CELLS.get((pattern, meter), {}).get(figure.cell_id)
-        if texture is not None:
-            previous = cells.get(figure.cell_id)
-            if previous is not None and previous != texture:
-                raise ValueError(
-                    f"cell {figure.cell_id!r} is mapped to two different textures"
-                )
-            cells[figure.cell_id] = texture
+        if texture is None:
+            raise ValueError(
+                f"{figure.id}: no texture for cell {figure.cell_id!r}; "
+                "pass (figure, texture) or register the cell first"
+            )
+        previous = cells.get(figure.cell_id)
+        if previous is not None and previous != texture:
+            raise ValueError(
+                f"cell {figure.cell_id!r} is mapped to two different textures"
+            )
+        cells[figure.cell_id] = texture
         normalised.append(figure)
 
     return tuple(normalised), cells
+
+
+def _literal_pitch_error(cells: Mapping[str, TextureSpec]) -> str | None:
+    """Production promotion rejects absolute MusicXML MIDI."""
+    for cell_id, texture in cells.items():
+        for index, event in enumerate(texture.authored):
+            if event.pitch.kind == "literal_midi":
+                return (
+                    f"cell {cell_id!r} authored.events[{index}].pitch: "
+                    "literal_midi is preview-only; use scale_step, "
+                    "chord_degree, or chord_root for production"
+                )
+    return None
 
 
 def promote_figures(
@@ -208,6 +243,7 @@ def promote_figures(
     existing_sentences: Sequence[SentenceSpec] = (),
     *,
     ensemble: str = "villa",
+    allow_literal: bool = False,
 ) -> PromotionPlan:
     """Validate a complete pool and return a pure promotion plan.
 
@@ -228,6 +264,10 @@ def promote_figures(
         raise ValueError("figures must be a sequence")
 
     pool, cells = _normalise_figures(pattern, meter, figures)
+    if not allow_literal:
+        literal_error = _literal_pitch_error(cells)
+        if literal_error is not None:
+            raise ValueError(literal_error)
     errors = validate_figures(pool)
     if errors:
         raise ValueError("; ".join(errors))
@@ -296,30 +336,112 @@ def apply_promotion(plan: PromotionPlan) -> SentenceSpec:
     The body sentence is intentionally **not** registered here: this module
     does not own ``SENTENCE_SPECS``. Use :func:`register_body_sentence` or the
     caller's own registry helper.
+
+    Re-applying the same pattern upserts the cells and door. The previous
+    values are snapshotted so :func:`unapply_promotion` can restore them
+    instead of deleting pre-existing production cells.
     """
     if not isinstance(plan, PromotionPlan):
         raise TypeError("plan must be a PromotionPlan")
-    for cell_id, texture in plan.cells.items():
-        register_texture_cell(plan.pattern, plan.meter, cell_id, texture)
-    register_studio_door(plan.ensemble, plan.pattern, plan.door)
+    key = _promotion_key(plan)
+    stack = _APPLIED.get(key)
+    if stack and stack[-1].plan is plan:
+        # Re-applying the same plan is a no-op. Pushing a second snapshot
+        # would make one unapply restore this same promotion and leave cells
+        # behind.
+        return plan.body
+    table = TEXTURE_CELLS.get((plan.pattern, plan.meter), {})
+    snapshot = _Snapshot(
+        plan=plan,
+        cells={cell_id: table.get(cell_id) for cell_id in plan.cells},
+        door=STUDIO_DOORS.get((plan.ensemble, plan.pattern)),
+    )
+    _APPLIED.setdefault(key, []).append(snapshot)
+    try:
+        for cell_id, texture in plan.cells.items():
+            register_texture_cell(
+                plan.pattern,
+                plan.meter,
+                cell_id,
+                texture,
+                replace=True,
+            )
+        register_studio_door(
+            plan.ensemble,
+            plan.pattern,
+            plan.door,
+            replace=True,
+        )
+    except Exception:
+        # Restore exactly the state before this apply.
+        unapply_promotion(plan)
+        raise
     return plan.body
 
 
-def unapply_promotion(plan: PromotionPlan) -> None:
+def unapply_promotion(plan: PromotionPlan, *, force: bool = False) -> None:
     """Undo :func:`apply_promotion`; safe to call more than once.
 
-    A cell or door that was replaced after apply is left in place: unapply only
-    removes the exact values this plan registered.
+    Restores the snapshot captured by the matching apply. A cell or door that
+    was replaced after apply is left in place: unapply only restores values
+    that this promotion actually changed. ``force`` is for an explicit
+    unpromote route that rebuilds an equivalent plan; it restores the latest
+    snapshot for the pattern even when the plan object differs.
     """
     if not isinstance(plan, PromotionPlan):
         raise TypeError("plan must be a PromotionPlan")
+    key = _promotion_key(plan)
+    stack = _APPLIED.get(key)
+    if stack and (force or stack[-1].plan is plan):
+        snapshot = stack.pop()
+        if not stack:
+            _APPLIED.pop(key, None)
+        table = TEXTURE_CELLS.get((plan.pattern, plan.meter))
+        for cell_id, previous in snapshot.cells.items():
+            current = table.get(cell_id) if table else None
+            # Only restore values this promotion still owns. An explicitly
+            # replaced cell belongs to the caller and is left alone. A forced
+            # unpromote from a rebuilt plan bypasses identity because it
+            # intentionally targets the latest snapshot.
+            if (
+                not force
+                and current is not None
+                and plan.cells.get(cell_id) is not current
+            ):
+                continue
+            if previous is None:
+                unregister_texture_cell(plan.pattern, plan.meter, cell_id)
+            else:
+                register_texture_cell(
+                    plan.pattern,
+                    plan.meter,
+                    cell_id,
+                    previous,
+                    replace=True,
+                )
+        door_key = (plan.ensemble, plan.pattern)
+        current_door = STUDIO_DOORS.get(door_key)
+        if not force and current_door is not None and current_door is not plan.door:
+            return
+        if snapshot.door is None:
+            unregister_studio_door(plan.ensemble, plan.pattern)
+        else:
+            register_studio_door(
+                plan.ensemble,
+                plan.pattern,
+                snapshot.door,
+                replace=True,
+            )
+        return
+
+    # Compatibility/no-snapshot path: remove only values this plan still owns.
     table = TEXTURE_CELLS.get((plan.pattern, plan.meter))
     for cell_id, texture in plan.cells.items():
         current = table.get(cell_id) if table else None
         if current is not None and (current is texture or current == texture):
             unregister_texture_cell(plan.pattern, plan.meter, cell_id)
-    key = (plan.ensemble, plan.pattern)
-    if STUDIO_DOORS.get(key) is plan.door:
+    key_door = (plan.ensemble, plan.pattern)
+    if STUDIO_DOORS.get(key_door) is plan.door:
         unregister_studio_door(plan.ensemble, plan.pattern)
 
 

@@ -71,6 +71,7 @@ SUITE_SCHOTTISH_ABAB = SentenceSpec(
         Slot(start=2, bars=1, figure=VILLA_ARPEGGIO),
         Slot(start=3, bars=1, figure=VILLA_CHORD_MELODY),
     ),
+    role="A",
 )
 
 

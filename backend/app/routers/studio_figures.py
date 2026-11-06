@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.sonify.pattern_figures import (
@@ -41,6 +41,7 @@ from app.sonify.pattern_promote import (
     register_body_sentence,
     unapply_promotion,
 )
+from app.studio import session as studio_session
 from app.studio.sentence_spec import parse_spec, spec_to_mapping
 from app.studio.texture_spec import (
     TextureSpec,
@@ -50,6 +51,8 @@ from app.studio.texture_spec import (
 )
 
 router = APIRouter(prefix="/v1/studio/figure", tags=["studio-figure"])
+
+studio_owner = studio_session.owner_or_anonymous
 
 _MAX_FIGURES = 64
 _MAX_SENTENCES = 64
@@ -108,6 +111,7 @@ class FigureValidateResponse(BaseModel):
 
 class FigurePromoteResponse(FigureValidateResponse):
     applied: bool = False
+    removed: bool = False
 
 
 class FigureTagOut(BaseModel):
@@ -328,8 +332,19 @@ def validate_figures_route(body: FigureValidateRequest) -> FigureValidateRespons
 
 
 @router.post("/promote", response_model=FigurePromoteResponse)
-def promote_figures_route(body: FigurePromoteRequest) -> FigurePromoteResponse:
+def promote_figures_route(
+    body: FigurePromoteRequest,
+    owner_id: str = Depends(studio_owner),
+) -> FigurePromoteResponse:
     """Validate first; register only when the caller explicitly sets ``apply``."""
+    if body.apply and owner_id == "anonymous":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "studio_session_required",
+                "message": "X-Studio-Session is required for figure promotion",
+            },
+        )
     evaluation = _evaluate(body)
     if not evaluation.complete or evaluation.plan is None:
         response = evaluation.response()
@@ -362,12 +377,63 @@ def promote_figures_route(body: FigurePromoteRequest) -> FigurePromoteResponse:
             missing=response.missing,
             bodySentence=response.bodySentence,
             cellIds=response.cellIds,
-            complete=False,
+            complete=response.complete,
         )
 
     return FigurePromoteResponse(
         ok=True,
         applied=True,
+        errors=[],
+        missing=[],
+        bodySentence=evaluation.body_sentence,
+        cellIds=dict(plan.cell_ids),
+        complete=True,
+    )
+
+
+@router.post("/unpromote", response_model=FigurePromoteResponse)
+def unpromote_figures_route(
+    body: FigurePromoteRequest,
+    owner_id: str = Depends(studio_owner),
+) -> FigurePromoteResponse:
+    """Remove the latest explicit promotion for this pattern/meter.
+
+    The body is the same draft pool used by ``/promote``. The route requires a
+    Studio session because it mutates the process-wide door/cell registries.
+    """
+    if owner_id == "anonymous":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "studio_session_required",
+                "message": "X-Studio-Session is required for figure unpromotion",
+            },
+        )
+    evaluation = _evaluate(body)
+    if evaluation.plan is None:
+        return FigurePromoteResponse(
+            **evaluation.response().model_dump(),
+            applied=False,
+            removed=False,
+        )
+    plan = evaluation.plan
+    try:
+        unapply_promotion(plan, force=True)
+    except Exception as exc:  # noqa: BLE001 - transport boundary
+        return FigurePromoteResponse(
+            ok=False,
+            applied=False,
+            removed=False,
+            errors=[_error("unapply", _safe_promotion_error(exc))],
+            missing=[],
+            bodySentence=evaluation.body_sentence,
+            cellIds=dict(plan.cell_ids),
+            complete=True,
+        )
+    return FigurePromoteResponse(
+        ok=True,
+        applied=False,
+        removed=True,
         errors=[],
         missing=[],
         bodySentence=evaluation.body_sentence,

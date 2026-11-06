@@ -250,6 +250,17 @@ def register_studio_door(
     key = _door_key(ensemble, pattern)
     if not callable(door):
         raise TypeError("door must be callable")
+    if key not in STUDIO_DOORS:
+        # A Studio promotion must never shadow a shipped pattern door. The
+        # production door table is process-global; a request-local registration
+        # would otherwise change playback for every user on this worker.
+        from app.sonify import guitar_frame
+
+        protected = key in guitar_frame._RETAINED_DOORS or key in guitar_frame._extra_doors()
+        if protected:
+            raise ValueError(
+                f"{key} is a production door; Studio promotion cannot shadow it"
+            )
     existing = STUDIO_DOORS.get(key)
     if existing is not None:
         if existing is door:

@@ -84,6 +84,7 @@ SUITE_SCHOTTISH_ABAB = SentenceSpec(
         Slot(start=2, bars=1, figure=VILLA_ARPEGGIO),
         Slot(start=3, bars=1, figure=VILLA_CHORD_MELODY),
     ),
+    role="A",
 )
 # The phrase-plan variants. A stays the historical ABAB tile; B swaps the
 # arpeggio/chord order for contrast; close ends on the sustained cadence.

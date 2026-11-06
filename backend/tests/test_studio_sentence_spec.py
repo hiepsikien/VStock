@@ -8,6 +8,7 @@ it reproduces the code registry exactly.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 from pathlib import Path
 
@@ -234,3 +235,9 @@ def test_new_pattern_adds_and_identical_reload_is_a_noop(tmp_path: Path) -> None
     assert SENTENCE_SPECS[("studio_unit", "4/4")] == loaded
     assert load_specs(path) == loaded
     assert SENTENCE_SPECS[("studio_unit", "4/4")] == loaded
+
+
+def test_role_round_trips_through_the_spec_schema() -> None:
+    base = SENTENCE_SPECS[("galop", "*")][0]
+    tagged = dataclasses.replace(base, role="B")
+    assert parse_spec(spec_to_mapping(tagged)) == tagged
