@@ -390,8 +390,8 @@ Dùng tên canonical của registry:
 
 Nếu file Scottish thực tế là `1/4 → 2/4`:
 - không dùng template `4/4`;
-- cần figure/family `2/4` mới;
-- UI báo “chưa hỗ trợ meter/figure này”, không tạo draft sai.
+- backend tạo template một-bar `villa_2_4_arpeggio` (Villa figure) khi để Auto;
+- UI cho phép 2/4 với cảnh báo template mặc định.
 
 Tên file người dùng có thể là `choro-mazuka`, `valse-mazuka`, `scottish-mazuka`;
 trong docs/registry luôn dùng tên movement canonical:
@@ -466,7 +466,7 @@ MVP dừng ở **A + B + C**.
 - New pattern preview bằng renderer family, không cần đăng ký.
 - Thêm nhiều sentence vào cùng pattern draft.
 - Không match template → lỗi rõ, không tạo spec rác.
-- 2/4 không có figure → báo “chưa hỗ trợ”.
+- 2/4 dùng template mặc định `villa_2_4_arpeggio` và preview/audio được.
 - Gemini flag off → không request vision.
 - Draft không overwrite editor.
 - Export bundle đúng pattern + nhiều sentence + fixtures; parse lại và preview round-trip.

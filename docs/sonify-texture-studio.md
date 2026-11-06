@@ -257,7 +257,7 @@ Draft không phải runtime. Checklist tối thiểu:
 
 ### 0.5.6. Giới hạn hiện tại
 
-- `2/4` không có Villa template trong draft surface → lỗi rõ, không tạo draft sai.
+- `2/4` không có committed Villa template; backend tự tạo template một-bar `villa_2_4_arpeggio` cho draft.
 - Beat offset bị quantize về **whole bar**; tie ở biên partial-bar không được biểu diễn.
 - `MAX_PLAN_BARS = 64` (dài hơn → lỗi); `MAX_RENDER_BARS = 16` (dài hơn → warning, chỉ render 16 bar đầu).
 - Pickup/implicit measure dùng **full meter length**; độ dài pickup thật chưa giữ (có warning).

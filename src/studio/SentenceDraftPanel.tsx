@@ -597,8 +597,8 @@ export function SentenceDraftPanel({
           </View>
           {!newMeterSupported ? (
             <Text style={styles.warnText}>
-              Villa preview supports 3/4 and 4/4; choose a passage in one of those
-              meters.
+              Villa preview supports 2/4, 3/4 and 4/4; choose a passage in one
+              of those meters.
             </Text>
           ) : null}
           <TemplatePicker
@@ -608,7 +608,7 @@ export function SentenceDraftPanel({
             hint={
               villaTemplates.length
                 ? 'Auto picks the closest Villa template; choose one to override.'
-                : `No Villa template at ${meter || 'this meter'}; auto will try the closest.`
+                : `No committed Villa template at ${meter || 'this meter'}; auto uses a one-bar arpeggio.`
             }
           />
         </>

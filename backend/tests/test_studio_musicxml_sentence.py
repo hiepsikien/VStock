@@ -469,26 +469,6 @@ def test_new_pattern_ids_collide_with_existing_registries() -> None:
         assert expected in errors[0]["message"]
 
 
-def test_new_pattern_two_four_has_no_villa_template() -> None:
-    client = _client()
-    import_id = _upload(client, _two_four_fixture()).json()["importId"]
-
-    body = _draft(
-        client,
-        import_id,
-        barStart=1,
-        barEnd=4,
-        mode="new",
-        newPattern=_new_pattern(),
-    ).json()
-    assert body["ok"] is False
-    assert [error["path"] for error in body["errors"]] == [
-        "newPattern.templateId"
-    ]
-    assert "2/4" in body["errors"][0]["message"]
-    assert "Villa" in body["errors"][0]["message"]
-
-
 def test_new_pattern_requires_the_mvp_renderer_and_known_template() -> None:
     client = _client()
     import_id = _upload(client).json()["importId"]
@@ -714,3 +694,49 @@ def test_template_choice_is_deterministic() -> None:
     assert first_errors == second_errors == []
     assert first is not None and second is not None
     assert first.id == second.id
+
+
+def _two_four_fixture(bars: int = 2) -> bytes:
+    measures = []
+    for index in range(bars):
+        attributes = (
+            "<attributes><divisions>2</divisions>"
+            "<time><beats>2</beats><beat-type>4</beat-type></time>"
+            "</attributes>"
+            if index == 0
+            else ""
+        )
+        measures.append(
+            f"""<measure number="{index + 1}">{attributes}
+              <note><pitch><step>E</step><octave>4</octave></pitch>
+                <duration>4</duration><voice>1</voice><type>half</type></note>
+            </measure>"""
+        )
+    return _score("".join(measures))
+
+
+def test_new_two_four_pattern_uses_the_default_villa_template() -> None:
+    client = _client()
+    import_id = _upload(client, _two_four_fixture()).json()["importId"]
+
+    body = _draft(
+        client,
+        import_id,
+        barStart=1,
+        barEnd=2,
+        mode="new",
+        newPattern=_new_pattern(
+            id="villa_schottish_choro",
+            label="Schottish-Choro",
+            meter="2/4",
+            templateId="",
+        ),
+    ).json()
+
+    assert body["ok"] is True, body["errors"]
+    assert body["spec"]["meter"] == "2/4"
+    assert body["spec"]["pattern"] == "villa_schottish_choro"
+    assert body["templateId"] == "villa_2_4_arpeggio"
+    assert body["fixture"]["meter"] == "2/4"
+    assert _AUDIO_URL.match(body["preview"]["audioUrl"] or "")
+    assert body["preview"]["notes"] > 0

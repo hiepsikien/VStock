@@ -52,7 +52,7 @@ export type GenericPatternId = (typeof GENERIC_PATTERN_IDS)[number];
 export const VILLA_RENDERER = 'villa';
 export const VILLA_RENDERER_LABEL = 'Villa';
 export const VILLA_COMPOSER = 'Villa-Lobos';
-export const VILLA_DRAFT_METERS: readonly string[] = ['3/4', '4/4'];
+export const VILLA_DRAFT_METERS: readonly string[] = ['2/4', '3/4', '4/4'];
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;

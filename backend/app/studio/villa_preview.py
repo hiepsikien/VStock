@@ -25,7 +25,7 @@ from collections.abc import Collection
 from typing import Any, Mapping
 
 from app.sonify import sentence_specs
-from app.sonify.form import METER_34, METER_44, METER_68, compose_meter
+from app.sonify.form import METER_24, METER_34, METER_44, METER_68, compose_meter
 from app.sonify.guitar_villa_figures import (
     VILLA_FIGURES,
     VILLA_FIGURE_NAMES,
@@ -55,7 +55,12 @@ from app.studio.preview_fixture import (
 )
 
 VILLA_PATTERNS = frozenset({"villa_pattern", "chord_melody", "etude1", "etude11"})
-VILLA_METERS = {"3/4": METER_34, "4/4": METER_44, "6/8": METER_68}
+VILLA_METERS = {
+    "2/4": METER_24,
+    "3/4": METER_34,
+    "4/4": METER_44,
+    "6/8": METER_68,
+}
 
 # A minor-mode contour in the guitar's singing range. It repeats to fill the
 # fixture; the phrase is one continuous run, so the swell and apex are stable.

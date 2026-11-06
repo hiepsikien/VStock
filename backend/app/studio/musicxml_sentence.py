@@ -35,10 +35,14 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from app.sonify.pattern_registry import PATTERN_META
+from app.sonify.guitar_villa_figures import VILLA_ARPEGGIO
 from app.sonify.sentence_specs import (
     METER_ANY,
     SENTENCE_SPECS,
+    Select,
     SentenceSpec,
+    Slot,
+    Span,
     quarter_beats,
 )
 from app.studio import audio as studio_audio
@@ -208,6 +212,28 @@ def choose_template(
     return min(available, key=lambda template: _score(template, bars)), []
 
 
+def _default_villa_template(meter: str) -> Template:
+    """A one-bar Villa arpeggio sentence for meters without a committed example.
+
+    The figure is bar-level and already supports 2/4 in the preview adapter; the
+    template exists only for the draft and is never registered.
+    """
+    spec = SentenceSpec(
+        id=f"villa_{meter.replace('/', '_')}_arpeggio",
+        pattern="villa_pattern",
+        meter=meter,
+        select=Select(length_min=1),
+        span=Span(tile=1, remainder="same_figure", truncate_to_length=True),
+        slots=(Slot(start=0, bars=1, figure=VILLA_ARPEGGIO),),
+    )
+    return Template(
+        id=spec.id,
+        pattern=spec.pattern,
+        meter=meter,
+        spec=spec,
+    )
+
+
 def choose_villa_template(
     meter: str,
     bars: int,
@@ -258,6 +284,8 @@ def choose_villa_template(
         return chosen, []
 
     if not available:
+        if meter in _VILLA_METERS:
+            return _default_villa_template(meter), []
         return None, [
             Error(
                 "newPattern.templateId",

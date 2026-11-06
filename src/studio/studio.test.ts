@@ -3437,6 +3437,7 @@ equal(slugifyPatternId('---'), '');
 equal(newPatternId('Mazurka-Choro'), 'villa_mazurka_choro');
 equal(newPatternId('villa_valsa_choro'), 'villa_valsa_choro');
 equal(newPatternId('  '), '');
+equal(villaMeterSupported('2/4'), true);
 equal(villaMeterSupported('3/4'), true);
 equal(villaMeterSupported('4/4'), true);
 equal(villaMeterSupported('6/8'), false);

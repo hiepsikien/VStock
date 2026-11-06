@@ -98,6 +98,12 @@ def _villa_bass(ctx: _Ctx, bar: int) -> list[NoteEvent]:
             *_eighth_event(start, 3, root, epb, 3, _BASS),
             *_eighth_event(start + 3, 3, fifth, epb, 3, _BASS),
         ]
+    if ctx.kind == "2/4":
+        fifth = _bass_at(ctx, chord, 2, start + 2)
+        return [
+            *_eighth_event(start, 2, root, epb, 3, _BASS),
+            *_eighth_event(start + 2, 2, fifth, epb, 3, _BASS),
+        ]
     fifth = _bass_at(ctx, chord, 2, start + 4)
     return [
         *_eighth_event(start, 4, root, epb, 3, _BASS),

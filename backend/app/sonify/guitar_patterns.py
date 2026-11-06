@@ -343,6 +343,8 @@ def _meter_kind(meter) -> str:
         return "6/8"
     if meter.eighths_per_bar == 6:
         return "3/4"
+    if meter.eighths_per_bar == 4 and meter.beat_type == 4:
+        return "2/4"
     return "other"
 
 
@@ -1981,6 +1983,12 @@ def _omit_support_under_lowered_lead(
 
 
 def _support_eighths(kind: str, band: str, rolling: bool, level: int) -> set[int]:
+    if kind == "2/4":
+        if level >= 1 or band in {"mf", "f"}:
+            return {1, 3}
+        if band == "mp":
+            return {3}
+        return {1}
     if kind == "4/4":
         if level >= 1 or band in {"mf", "f"}:
             return {2, 3, 6, 7}
