@@ -147,6 +147,9 @@ class SentenceSpec:
     select: Select
     span: Span
     slots: tuple[Slot, ...]
+    # Optional phrase-plan role. `None` keeps legacy spec selection by
+    # `Select`; `A`/`B`/`close` let a multi-spec gate choose the role directly.
+    role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,6 +204,8 @@ def quarter_beats(meter: str) -> float | None:
 def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
     if spec.pattern != pattern or spec.meter != meter:
         raise ValueError(f"{spec.id}: pattern/meter do not match the registry key")
+    if spec.role not in (None, "A", "B", "close"):
+        raise ValueError(f"{spec.id}: role must be None, 'A', 'B' or 'close'")
     select = spec.select
     if select.n_parity not in _N_PARITY:
         raise ValueError(f"{spec.id}: n_parity must be one of {sorted(_N_PARITY)}")

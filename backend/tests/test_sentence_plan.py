@@ -219,3 +219,80 @@ def test_explicit_rejects_an_unknown_sentence_id() -> None:
         build_plan(
             PATTERN, METER, _views([0, 4, 8]), policy=policy, registry=REGISTRY
         )
+
+
+def test_role_tagged_specs_choose_the_matching_phrase_role() -> None:
+    def tagged(role: str, figure: int) -> SentenceSpec:
+        return SentenceSpec(
+            id=f"unit_role_{role}",
+            pattern=PATTERN,
+            meter=METER,
+            select=Select(
+                length_min=4,
+                closes="close" if role == "close" else None,
+            ),
+            span=Span(tile=4),
+            slots=tuple(Slot(bar, 1, figure) for bar in range(4)),
+            role=role,
+        )
+
+    registry = {
+        (PATTERN, METER): (
+            tagged("A", 1),
+            tagged("B", 2),
+            tagged("close", 3),
+        )
+    }
+    plan = build_plan(
+        PATTERN,
+        METER,
+        _views([0, 4, 8]),
+        policy=AutoAABA(),
+        registry=registry,
+    )
+    assert [phrase.role.role for phrase in plan.phrases] == ["A", "B", "close"]
+    assert {slot.figure for slot in plan.phrases[0].slots} == {1}
+    assert {slot.figure for slot in plan.phrases[1].slots} == {2}
+    assert {slot.figure for slot in plan.phrases[2].slots} == {3}
+
+
+def test_role_tagged_a_survives_a_rise_without_adding_a_second_b() -> None:
+    def tagged(role: str, figure: int) -> SentenceSpec:
+        return SentenceSpec(
+            id=f"unit_rise_{role}",
+            pattern=PATTERN,
+            meter=METER,
+            select=Select(
+                length_min=4,
+                closes="close" if role == "close" else None,
+                rise_min=3 if role == "B" else 0,
+            ),
+            span=Span(tile=4),
+            slots=tuple(Slot(bar, 1, figure) for bar in range(4)),
+            role=role,
+        )
+
+    registry = {
+        (PATTERN, METER): (
+            tagged("A", 1),
+            tagged("B", 2),
+            tagged("close", 3),
+        )
+    }
+    plan = build_plan(
+        PATTERN,
+        METER,
+        _views([0, 4, 8, 12], rises=[5, 0, 5, 0]),
+        policy=AutoAABA(),
+        registry=registry,
+    )
+    assert [phrase.role.role for phrase in plan.phrases] == [
+        "A",
+        "A",
+        "B",
+        "close",
+    ]
+    assert [slot.figure for slot in plan.phrases[0].slots] == [1, 1, 1, 1]
+    assert [slot.figure for slot in plan.phrases[1].slots] == [1, 1, 1, 1]
+    assert [slot.figure for slot in plan.phrases[2].slots] == [2, 2, 2, 2]
+    assert [slot.figure for slot in plan.phrases[3].slots] == [3, 3, 3, 3]

@@ -105,7 +105,14 @@ class SuiteGate:
 
     @property
     def specs(self) -> tuple[SentenceSpec, ...]:
-        return (self.spec, *self.extra_specs)
+        # `register` stores specs sorted by (length_min, id); return the same
+        # order so `ensure_registered`/`unregister` compare equal tuples.
+        return tuple(
+            sorted(
+                (self.spec, *self.extra_specs),
+                key=lambda spec: (spec.select.length_min, spec.id),
+            )
+        )
 
     @property
     def meta(self) -> PatternMeta:

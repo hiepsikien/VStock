@@ -332,7 +332,36 @@ def _plan_phrase(
     if role.sentence_id is not None:
         spec = _spec_by_id(specs, role.sentence_id)
         planned = _plan_named_spec(spec, phrase)
-    elif role.role == "B":
+        if not planned:
+            raise ValueError(f"phrase {phrase.index} planned no slots")
+        return planned
+
+    # Role-tagged specs are the multi-spec path. `A`/`B`/`close` choose their
+    # own group first; a spec whose `Select` does not fit falls through to the
+    # legacy registry path rather than silently choosing the wrong role.
+    role_specs = tuple(spec for spec in specs if spec.role == role.role)
+    if role_specs:
+        candidates = [
+            spec
+            for spec in role_specs
+            if _matches(
+                spec,
+                phrase.bars,
+                phrase.index,
+                role.role == "close",
+                phrase.rise if role.role == "B" else 0,
+            )
+        ]
+        if candidates:
+            if role.role == "B":
+                spec = max(candidates, key=lambda item: item.select.rise_min)
+            else:
+                spec = max(candidates, key=lambda item: item.select.length_min)
+            planned = _plan_named_spec(spec, phrase)
+            if planned:
+                return planned
+
+    if role.role == "B":
         # A rise may only change which B spec we choose. Prefer the matching
         # spec with the highest `rise_min`; it never creates a second B role.
         candidates = [

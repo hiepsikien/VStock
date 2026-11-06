@@ -283,6 +283,15 @@ def test_register_rejects_duplicate_ids() -> None:
         register("unit_dup", "3/4", first, second, replace=True)
 
 
+def test_register_rejects_an_unknown_phrase_role() -> None:
+    spec = replace(
+        _spec("unit_badrole", select=Select(), span=Span(tile=9)),
+        role="bad",
+    )
+    with pytest.raises(ValueError, match="role must be"):
+        register("unit_badrole", "3/4", spec, replace=True)
+
+
 def test_truncate_cycle_requires_truncation() -> None:
     spec = _spec(
         "unit_cycle_bad",

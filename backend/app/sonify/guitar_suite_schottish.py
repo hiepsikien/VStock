@@ -42,6 +42,7 @@ from app.sonify.guitar_suite_gate import (
 )
 from app.sonify.guitar_villa_figures import (
     VILLA_ARPEGGIO,
+    VILLA_CADENCE,
     VILLA_CHORD_MELODY,
     render_villa_figure,
 )
@@ -84,12 +85,57 @@ SUITE_SCHOTTISH_ABAB = SentenceSpec(
         Slot(start=3, bars=1, figure=VILLA_CHORD_MELODY),
     ),
 )
-SUITE_SCHOTTISH_SPECS = (SUITE_SCHOTTISH_ABAB,)
+# The phrase-plan variants. A stays the historical ABAB tile; B swaps the
+# arpeggio/chord order for contrast; close ends on the sustained cadence.
+SUITE_SCHOTTISH_B_ID = "suite_schottish_contrast_b"
+SUITE_SCHOTTISH_CLOSE_ID = "suite_schottish_close_cadence"
+SUITE_SCHOTTISH_B = replace(
+    SUITE_SCHOTTISH_ABAB,
+    id=SUITE_SCHOTTISH_B_ID,
+    role="B",
+    slots=(
+        Slot(start=0, bars=1, figure=VILLA_CHORD_MELODY),
+        Slot(start=1, bars=1, figure=VILLA_ARPEGGIO),
+        Slot(start=2, bars=1, figure=VILLA_CHORD_MELODY),
+        Slot(start=3, bars=1, figure=VILLA_ARPEGGIO),
+    ),
+)
+SUITE_SCHOTTISH_CLOSE = replace(
+    SUITE_SCHOTTISH_ABAB,
+    id=SUITE_SCHOTTISH_CLOSE_ID,
+    role="close",
+    select=Select(
+        length_min=SUITE_SCHOTTISH_MIN_BARS,
+        closes="close",
+    ),
+    slots=(
+        Slot(start=0, bars=1, figure=VILLA_ARPEGGIO),
+        Slot(start=1, bars=1, figure=VILLA_CHORD_MELODY),
+        Slot(start=2, bars=1, figure=VILLA_ARPEGGIO),
+        Slot(start=3, bars=1, figure=VILLA_CADENCE),
+    ),
+)
+SUITE_SCHOTTISH_SPECS = (
+    SUITE_SCHOTTISH_ABAB,
+    SUITE_SCHOTTISH_B,
+    SUITE_SCHOTTISH_CLOSE,
+)
 SUITE_SCHOTTISH_KEY = (SUITE_SCHOTTISH_PATTERN, SUITE_SCHOTTISH_METER)
 
-# The native 2/4 twin of the same ABAB tile. The meter is the only change.
+# The native 2/4 twin of the same role tiles. The meter is the only change.
 SUITE_SCHOTTISH_ABAB_24 = replace(
     SUITE_SCHOTTISH_ABAB, meter=SUITE_SCHOTTISH_METER_24
+)
+SUITE_SCHOTTISH_B_24 = replace(
+    SUITE_SCHOTTISH_B, meter=SUITE_SCHOTTISH_METER_24
+)
+SUITE_SCHOTTISH_CLOSE_24 = replace(
+    SUITE_SCHOTTISH_CLOSE, meter=SUITE_SCHOTTISH_METER_24
+)
+SUITE_SCHOTTISH_SPECS_24 = (
+    SUITE_SCHOTTISH_ABAB_24,
+    SUITE_SCHOTTISH_B_24,
+    SUITE_SCHOTTISH_CLOSE_24,
 )
 SUITE_SCHOTTISH_KEY_24 = (
     SUITE_SCHOTTISH_PATTERN,
@@ -114,6 +160,7 @@ GATE_44 = SuiteGate(
     # the ABAB tile covers; the door keeps the historical render.
     partial=True,
     movement_scopes=SCHOTTISH_SCOPES,
+    extra_specs=(SUITE_SCHOTTISH_B, SUITE_SCHOTTISH_CLOSE),
 )
 GATE_24 = SuiteGate(
     pattern=SUITE_SCHOTTISH_PATTERN,
@@ -128,6 +175,7 @@ GATE_24 = SuiteGate(
     use_flag=use_suite_schottish,
     partial=True,
     movement_scopes=SCHOTTISH_SCOPES,
+    extra_specs=(SUITE_SCHOTTISH_B_24, SUITE_SCHOTTISH_CLOSE_24),
 )
 GATES = (GATE_44, GATE_24)
 # Kept for callers that name the original 4/4 gate directly.

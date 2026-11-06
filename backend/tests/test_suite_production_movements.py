@@ -28,6 +28,7 @@ import pytest
 import app.sonify.guitar_frame as guitar_frame
 import app.sonify.guitar_patterns as patterns
 import app.sonify.guitar_suite_choros1 as suite_choros1
+import app.sonify.guitar_suite_gate as suite_gate
 import app.sonify.guitar_suite_gavotta as suite_gavotta
 import app.sonify.guitar_suite_schottish as suite_schottish
 import app.sonify.guitar_suite_valsa as suite_valsa
@@ -38,13 +39,15 @@ from app.sonify.form import compose_meter
 from app.sonify.guitar import _PEDAL
 from app.sonify.guitar_villa_figures import (
     VILLA_ARPEGGIO,
+    VILLA_CADENCE,
     VILLA_CHORD_MELODY,
     VILLA_FIGURES,
     render_villa_figure,
 )
 from app.sonify.guitar_wave import PROFILES
-from app.sonify.model import Bar
+from app.sonify.model import Bar, Phrase, Run
 from app.sonify.params import compose_params
+from app.sonify.sentence_plan import AutoAABA, PhraseView, build_plan
 from app.sonify.span import (
     attach_frame,
     plan_month,
@@ -91,6 +94,7 @@ class Case:
     env: str
     movement_span: str | None = None
     movement_index: int | None = None
+    specs: tuple[SentenceSpec, ...] | None = None
 
 
 VALSA_FIGURES = (
@@ -114,6 +118,18 @@ SCHOTTISH_FIGURES = (
     VILLA_CHORD_MELODY,
     VILLA_ARPEGGIO,
     VILLA_CHORD_MELODY,
+)
+SCHOTTISH_B_FIGURES = (
+    VILLA_CHORD_MELODY,
+    VILLA_ARPEGGIO,
+    VILLA_CHORD_MELODY,
+    VILLA_ARPEGGIO,
+)
+SCHOTTISH_CLOSE_FIGURES = (
+    VILLA_ARPEGGIO,
+    VILLA_CHORD_MELODY,
+    VILLA_ARPEGGIO,
+    VILLA_CADENCE,
 )
 CHOROS1_FIGURES = (
     VILLA_ARPEGGIO,
@@ -178,6 +194,7 @@ CASES = (
         env=flags.SUITE_SCHOTTISH_ENV,
         movement_span="1M",
         movement_index=2,
+        specs=suite_schottish.GATE_44.specs,
     ),
     Case(
         module=suite_choros1,
@@ -530,7 +547,8 @@ def test_on_registers_selects_and_renders_the_tile(monkeypatch, case: Case) -> N
     calls = _spy_figure(monkeypatch, case.module)
 
     with case.context(True):
-        assert specs.SENTENCE_SPECS.get(case.key) == (case.spec,)
+        expected = case.specs or (case.spec,)
+        assert specs.SENTENCE_SPECS.get(case.key) == expected
         tiled = (case.figures * (case.bars // len(case.figures) + 1))[: case.bars]
         assert specs.plan_sentence(
             case.pattern, case.meter_label, case.bars, 0
@@ -538,7 +556,13 @@ def test_on_registers_selects_and_renders_the_tile(monkeypatch, case: Case) -> N
 
         on = _render_case(case)
 
-        assert calls == list(enumerate(tiled))
+        if case.specs:
+            # A multi-spec gate plans A/B/close; the final body bar is the
+            # cadence figure, not the historical ABAB repeat.
+            assert [bar for bar, _figure in calls] == list(range(case.bars))
+            assert calls[-1][1] == VILLA_CADENCE
+        else:
+            assert calls == list(enumerate(tiled))
         assert on.divisions == 2
         assert {event.bar for event in on.lead} == set(range(case.bars))
         assert _digest(on) != off
@@ -843,3 +867,196 @@ def test_every_villa_figure_fits_a_2_4_bar() -> None:
                             event.beat + event.duration_beats
                             <= bar_beats + 1e-9
                         ), (figure, bar, event)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: phrase roles, cadence, and the multi-spec gate
+
+
+def _sentence_views(
+    count: int,
+    *,
+    start: int = 0,
+    bars: int = 4,
+    rises: list[int] | None = None,
+) -> tuple[PhraseView, ...]:
+    rises = rises or [0] * count
+    return tuple(
+        PhraseView(
+            index=index,
+            count=count,
+            start_bar=start + index * bars,
+            bars=bars,
+            closes=index == count - 1,
+            rise=rises[index],
+            kind="phrase",
+        )
+        for index in range(count)
+    )
+
+
+@pytest.mark.parametrize("gate", suite_schottish.GATES, ids=("44", "24"))
+def test_schottish_three_phrase_plan_uses_b_and_cadence(gate) -> None:
+    plan = build_plan(
+        gate.pattern,
+        gate.meter,
+        _sentence_views(3, start=2),
+        policy=AutoAABA(),
+        registry={gate.key: gate.specs},
+    )
+    assert [phrase.role.role for phrase in plan.phrases] == [
+        "A",
+        "B",
+        "close",
+    ]
+    assert [slot.figure for slot in plan.phrases[0].slots] == list(
+        SCHOTTISH_FIGURES
+    )
+    assert [slot.figure for slot in plan.phrases[1].slots] == list(
+        SCHOTTISH_B_FIGURES
+    )
+    assert [slot.figure for slot in plan.phrases[2].slots] == list(
+        SCHOTTISH_CLOSE_FIGURES
+    )
+    # The close phrase's final bar, at its absolute offset, is the cadence.
+    assert plan.slots[-1].figure == VILLA_CADENCE
+    assert plan.slots[-1].bars == (13,)
+    assert [
+        slot.figure for slot in plan.slots if slot.figure == VILLA_CADENCE
+    ] == [VILLA_CADENCE]
+
+
+@pytest.mark.parametrize("gate", suite_schottish.GATES, ids=("44", "24"))
+def test_schottish_four_phrase_plan_has_exactly_one_b(gate) -> None:
+    # A rise on the A phrases must not promote one of them to B.
+    plan = build_plan(
+        gate.pattern,
+        gate.meter,
+        _sentence_views(4, start=2, rises=[5, 5, 5, 0]),
+        policy=AutoAABA(),
+        registry={gate.key: gate.specs},
+    )
+    roles = [phrase.role.role for phrase in plan.phrases]
+    assert roles == ["A", "A", "B", "close"]
+    assert roles.count("B") == 1
+    assert [slot.figure for slot in plan.phrases[0].slots] == list(
+        SCHOTTISH_FIGURES
+    )
+    assert [slot.figure for slot in plan.phrases[1].slots] == list(
+        SCHOTTISH_FIGURES
+    )
+    assert [slot.figure for slot in plan.phrases[2].slots] == list(
+        SCHOTTISH_B_FIGURES
+    )
+    assert [slot.figure for slot in plan.phrases[3].slots] == list(
+        SCHOTTISH_CLOSE_FIGURES
+    )
+
+
+@pytest.mark.parametrize("gate", suite_schottish.GATES, ids=("44", "24"))
+def test_gate_specs_are_stable_sorted_and_unregister_cleanly(
+    gate,
+) -> None:
+    expected = tuple(
+        sorted(
+            (gate.spec, *gate.extra_specs),
+            key=lambda spec: (spec.select.length_min, spec.id),
+        )
+    )
+    assert isinstance(gate.specs, tuple)
+    assert gate.specs == gate.specs == expected
+    assert [spec.role for spec in gate.specs] == [None, "close", "B"]
+
+    with suite_schottish.use_suite_schottish_abab(True):
+        assert specs.SENTENCE_SPECS[gate.key] == expected
+        assert suite_gate.unregister(gate) is True
+        assert gate.key not in specs.SENTENCE_SPECS
+        assert suite_gate.unregister(gate) is False
+    assert gate.key not in specs.SENTENCE_SPECS
+
+
+@pytest.mark.parametrize("gate", suite_schottish.GATES, ids=("44", "24"))
+def test_phrase_plan_keeps_body_offset_and_door_bars(gate) -> None:
+    """The partial multi-spec plan writes body phrases at their offset."""
+    from tests.guitar_fixture import meter_named, pattern_case
+
+    sections = [
+        FormSection(0, 2, "warmup", 0),
+        FormSection(2, 14, "phrase", 0),
+        FormSection(14, 16, "outro", 0),
+    ]
+    with compose_params({}):
+        with suite_schottish.use_suite_schottish_abab(True):
+            ctx, _phrases = pattern_case(
+                "probe",
+                meter_named(gate.meter),
+                ensemble="villa",
+                mood="calm",
+                band="mf",
+                bpm=96,
+                bars=16,
+                first_body=True,
+                previous=[],
+                sections=sections,
+                movement_span="1W",
+                movement_index=0,
+            )
+            epb = ctx.epb
+
+            def phrase(start: int, end: int) -> Phrase:
+                return Phrase(
+                    start * epb,
+                    end * epb,
+                    (Run(start * epb, (end - start) * epb, 64),),
+                    False,
+                )
+
+            ctx = dataclasses.replace(
+                ctx,
+                phrases=(phrase(2, 6), phrase(6, 10), phrase(10, 14)),
+            )
+            views = suite_gate._phrase_views(ctx)
+            role_plan = build_plan(
+                gate.pattern,
+                gate.meter,
+                views,
+                policy=AutoAABA(),
+                registry={gate.key: gate.specs},
+            )
+            plan = suite_gate._phrase_plan(gate, ctx)
+
+    # Every body phrase survives, and only the middle one is B.
+    assert [phrase.role.role for phrase in role_plan.phrases] == [
+        "A",
+        "B",
+        "close",
+    ]
+    for planned in role_plan.phrases:
+        covered = {
+            bar for slot in planned.slots for bar in slot.bars
+        }
+        assert covered == set(
+            range(
+                planned.phrase.start_bar,
+                planned.phrase.start_bar + planned.phrase.bars,
+            )
+        )
+
+    assert plan is not None
+    figures, cells, contours, covered = plan
+    body = frozenset(range(2, 14))
+    assert covered == body
+    assert set(figures) == set(body)
+    assert not cells and not contours
+    # The warmup/outro door bars stay out of the sentence plan.
+    assert set(figures).isdisjoint({0, 1, 14, 15})
+    assert [figures[bar] for bar in range(2, 6)] == list(SCHOTTISH_FIGURES)
+    assert [figures[bar] for bar in range(6, 10)] == list(
+        SCHOTTISH_B_FIGURES
+    )
+    assert [figures[bar] for bar in range(10, 14)] == list(
+        SCHOTTISH_CLOSE_FIGURES
+    )
+    assert [
+        bar for bar in sorted(figures) if figures[bar] == VILLA_CADENCE
+    ] == [13]

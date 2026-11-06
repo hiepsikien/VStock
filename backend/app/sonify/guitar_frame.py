@@ -638,6 +638,15 @@ def _extra_doors():
 
     _RETAINED_DOORS.update(torroba_doors)
     doors.update(_RETAINED_DOORS)  # yours win on overlap
+    try:
+        from app.sonify.pattern_doors import studio_doors
+
+        # Phase 4 promoted doors are explicit registrations, so they win over
+        # the composer fallback and the retained table. The registry itself is
+        # not copied into `_RETAINED_DOORS`.
+        doors.update(studio_doors())
+    except ImportError:
+        pass
     return doors
 
 
