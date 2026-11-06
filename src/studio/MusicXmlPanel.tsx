@@ -17,9 +17,7 @@ import { type } from '../musicalize/type';
 import {
   requestMusicXmlPassage,
   uploadMusicXml,
-  validateTextureSpec,
   type StudioError,
-  type StudioValidateResponse,
 } from './api';
 import {
   MUSIC_XML_ROLE_LABELS,
@@ -50,14 +48,16 @@ import {
   type PassageRange,
 } from './musicxml';
 import { resolveAudioUrl } from './protocol';
-import { byteSizeLabel, describeRequestFailure, valueLines } from './spec';
+import { byteSizeLabel, describeRequestFailure } from './spec';
+import { SentenceDraftPanel } from './SentenceDraftPanel';
 
 /**
  * Rhythm-first MusicXML import panel.
  *
  * The panel owns every piece of MusicXML state: the uploaded score, the bar
- * range, voice filter, passage audio/spec and texture validation. It never
- * writes into the SentenceSpec editor, so StudioRoom's dirty flag is untouched.
+ * range, voice filter, passage audio and the local sentence/pattern draft. It
+ * never writes into the SentenceSpec editor, so StudioRoom's dirty flag is
+ * untouched.
  *
  * Pitch is intentionally hidden. Lead/Mid/Bass rows show rhythm cells only;
  * every gap is a faint explicit rest cell (empty cell = rest).
@@ -104,12 +104,6 @@ type AudioState = {
   playing: boolean;
   bpm: number;
 };
-
-type ValidationState =
-  | { kind: 'idle' }
-  | { kind: 'running' }
-  | { kind: 'done'; data: StudioValidateResponse }
-  | { kind: 'error'; message: string; errors: StudioError[] };
 
 function parseBarText(value: string): number {
   const trimmed = value.trim();
@@ -180,15 +174,11 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const [passage, setPassage] = useState<MusicXmlPassage | null>(null);
   const [passageBusy, setPassageBusy] = useState<'play' | 'use' | null>(null);
   const [passageError, setPassageError] = useState<PassageError | null>(null);
-  const [showSpec, setShowSpec] = useState(false);
   const [showWarnings, setShowWarnings] = useState(false);
   const [audio, setAudio] = useState<AudioState | null>(null);
-  const [validation, setValidation] = useState<ValidationState>({ kind: 'idle' });
-  const [copyNote, setCopyNote] = useState<string | null>(null);
 
   const uploadController = useRef<AbortController | null>(null);
   const passageController = useRef<AbortController | null>(null);
-  const validateController = useRef<AbortController | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
   const playheadFrame = useRef<number | null>(null);
   const playheadSpan = useRef<{ startTick: number; endTick: number; bpm: number } | null>(
@@ -221,22 +211,16 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const resetPassage = useCallback(() => {
     passageController.current?.abort();
     passageController.current = null;
-    validateController.current?.abort();
-    validateController.current = null;
     stopPlayer();
     setPassage(null);
     setPassageError(null);
     setPassageBusy(null);
-    setShowSpec(false);
-    setValidation({ kind: 'idle' });
-    setCopyNote(null);
   }, [stopPlayer]);
 
   useEffect(
     () => () => {
       uploadController.current?.abort();
       passageController.current?.abort();
-      validateController.current?.abort();
       const current = player.current;
       player.current = null;
       if (current) current.pause();
@@ -271,6 +255,8 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const rangeLabel = passageRangeLabel(bars, range);
   const voicesInScore = useMemo(() => voiceOptions(imported), [imported]);
   const warnings = useMemo(() => warningUnion(imported), [imported]);
+  const passageMeter =
+    rangeValidation.meters.length === 1 ? rangeValidation.meters[0] : '';
   // The passage echoes the score warnings; the summary toggle already lists
   // those, so only show passage-specific messages here.
   const passageWarnings = useMemo(
@@ -453,8 +439,6 @@ export function MusicXmlPanel({ compact = false }: Props) {
       passageController.current = controller;
       setPassageBusy(purpose);
       setPassageError(null);
-      setCopyNote(null);
-      setValidation({ kind: 'idle' });
       try {
         const data = await requestMusicXmlPassage(
           imported.importId,
@@ -565,47 +549,6 @@ export function MusicXmlPanel({ compact = false }: Props) {
       setAudio(null);
     }
   }, [cancelPlayhead, loadPassage, selectionTicks, startPlayhead, stopPlayer]);
-
-  const usePassage = useCallback(async () => {
-    const data = await loadPassage('use');
-    if (data) setShowSpec(true);
-  }, [loadPassage]);
-
-  const copySpec = useCallback(async () => {
-    if (!passage?.spec) return;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(JSON.stringify(passage.spec, null, 2));
-        setCopyNote('Passage spec JSON copied.');
-        return;
-      }
-    } catch {
-      // The spec block is selectable; fall through.
-    }
-    setCopyNote('Clipboard unavailable — select the passage spec instead.');
-  }, [passage]);
-
-  const validatePassageSpec = useCallback(async () => {
-    if (!passage?.spec) return;
-    validateController.current?.abort();
-    const controller = new AbortController();
-    validateController.current = controller;
-    setValidation({ kind: 'running' });
-    try {
-      const data = await validateTextureSpec(passage.spec, controller.signal);
-      if (controller.signal.aborted) return;
-      setValidation({ kind: 'done', data });
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      setValidation({
-        kind: 'error',
-        message: describeRequestFailure(error),
-        errors: [],
-      });
-    } finally {
-      if (validateController.current === controller) validateController.current = null;
-    }
-  }, [passage]);
 
   const tapBar = useCallback(
     (bar: number) => {
@@ -733,13 +676,6 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const canRequest =
     imported != null && rangeValidation.ok && passageBusy == null;
   const canPlay = canRequest && Platform.OS === 'web';
-  const specText = useMemo(
-    () =>
-      passage?.spec
-        ? valueLines(passage.spec, 240).join('\n')
-        : '',
-    [passage],
-  );
   const noteCellCount = lanes.reduce(
     (sum, lane) => sum + lane.cells.filter((cell) => !cell.rest).length,
     0,
@@ -759,8 +695,8 @@ export function MusicXmlPanel({ compact = false }: Props) {
         each onset; Mid is everything left. Pitch stays hidden. Gaps are explicit
         faint rest cells, never collapsed. Drag the lane body to select
         quarter-note beats, zoom the ruler without changing lane height, and Play
-        follows the preview audio with a vertical playhead. Passage audio/spec is
-        a preview only and never touches the sentence editor.
+        follows the preview audio with a vertical playhead. Passage audio and the
+        sentence draft are previews only and never touch the sentence editor.
       </Text>
 
       {Platform.OS === 'web' ? (
@@ -1264,20 +1200,14 @@ export function MusicXmlPanel({ compact = false }: Props) {
                 busy={passageBusy === 'play'}
                 busyLabel="Rendering…"
               />
-              <ActionButton
-                label="Use passage"
-                onPress={() => void usePassage()}
-                disabled={!canRequest}
-                busy={passageBusy === 'use'}
-                busyLabel="Building…"
-              />
               {audio?.playing ? (
                 <ActionButton label="Stop" onPress={stopPlayer} />
               ) : null}
             </View>
             {Platform.OS !== 'web' ? (
               <Text style={styles.legendHint}>
-                Play is web-only. Use passage still returns the read-only spec.
+                Passage Play is web-only. The sentence flow below still drafts
+                from the selected passage.
               </Text>
             ) : null}
             {audio ? (
@@ -1304,60 +1234,14 @@ export function MusicXmlPanel({ compact = false }: Props) {
             ) : null}
           </View>
 
-          {showSpec && passage?.spec ? (
-            <View style={styles.specBox}>
-              <View style={styles.specHeader}>
-                <Text style={[type.section, styles.blockLabel]}>
-                  Passage TextureSpec
-                </Text>
-                <Text style={styles.legendHint}>read-only preview</Text>
-              </View>
-              <Text style={styles.specHint}>
-                This spec is generated from {rangeLabel}. It is not loaded into
-                the SentenceSpec editor and nothing is registered or published.
-              </Text>
-              <ScrollView style={styles.specScroll} nestedScrollEnabled>
-                <Text selectable style={styles.specText}>
-                  {specText}
-                </Text>
-              </ScrollView>
-              <View style={styles.actionRow}>
-                <ActionButton label="Copy spec JSON" onPress={() => void copySpec()} />
-                <ActionButton
-                  label="Validate spec"
-                  onPress={() => void validatePassageSpec()}
-                  disabled={validation.kind === 'running'}
-                  busy={validation.kind === 'running'}
-                  busyLabel="Validating…"
-                />
-              </View>
-              {copyNote ? <Text style={styles.legendHint}>{copyNote}</Text> : null}
-              {validation.kind === 'done' ? (
-                <>
-                  <View style={styles.badgeRow}>
-                    <Badge
-                      ok={validation.data.ok}
-                      label={
-                        validation.data.ok
-                          ? 'TEXTURE SPEC OK'
-                          : 'TEXTURE SPEC ERRORS'
-                      }
-                    />
-                  </View>
-                  <ErrorRows errors={validation.data.errors} />
-                </>
-              ) : validation.kind === 'error' ? (
-                <View style={styles.errorBox}>
-                  <Text style={styles.errorTitle}>{validation.message}</Text>
-                  <ErrorRows errors={validation.errors} />
-                </View>
-              ) : (
-                <Text style={styles.legendHint}>
-                  Validate runs the existing offline TextureSpec validator only.
-                </Text>
-              )}
-            </View>
-          ) : null}
+          <SentenceDraftPanel
+            importId={imported.importId}
+            range={range}
+            rangeLabel={rangeLabel}
+            meter={passageMeter}
+            selectionValid={rangeValidation.ok}
+            voices={voices}
+          />
         </>
       ) : (
         <Text style={styles.emptyHint}>
