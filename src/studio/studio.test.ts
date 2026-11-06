@@ -147,6 +147,25 @@ import {
   velocitySlotLabel,
   type MicroVelocity,
 } from './velocity';
+import {
+  barLayouts,
+  buildRoleLanes,
+  defaultPassageRange,
+  isSupportedMeter,
+  keySignatureLabel,
+  meterChangeLabel,
+  meterGroupTicks,
+  meterGroups,
+  meterQuarterBeats,
+  meterTicks,
+  musicXmlGrid,
+  normalizeMusicXmlImport,
+  normalizeMusicXmlPassage,
+  passageRangeLabel,
+  validatePassageRange,
+  type MusicXmlImport,
+  type MusicXmlRoleLane,
+} from './musicxml';
 import { saveVelocityContourToSpec } from './velocitySpec';
 
 function equal<T>(actual: T, expected: T) {
@@ -2760,6 +2779,327 @@ const flattenedRuleContour = flattenedRuleSlot?.microVelocity as Record<string, 
 equal(flattenedRuleContour.kind, 'rule');
 equal(flattenedRuleContour.ruleId, 'galop1');
 equal(flattenedRuleContour.ruleVersion, 1);
+
+/* ------------------------------------------------------------------------- *
+ * MusicXML: meter, layout, role lanes, selection, normalizers.
+ * ------------------------------------------------------------------------- */
+
+function musicXmlImport(
+  summary: Record<string, unknown>,
+  notes: unknown[],
+): MusicXmlImport {
+  return normalizeMusicXmlImport({
+    ok: true,
+    importId: 'mxi_test',
+    filename: 'score.musicxml',
+    summary,
+    notes,
+  });
+}
+
+function roleLane(lanes: readonly MusicXmlRoleLane[], role: MusicXmlRoleLane['role']) {
+  const lane = lanes.find((item) => item.role === role);
+  if (!lane) throw new Error(`missing ${role} lane`);
+  return lane;
+}
+
+function assertLanesContiguous(
+  lanes: readonly MusicXmlRoleLane[],
+  bars: ReturnType<typeof barLayouts>,
+) {
+  for (const lane of lanes) {
+    for (const bar of bars) {
+      const cells = lane.cells.filter((cell) => cell.bar === bar.bar);
+      if (cells.length === 0) {
+        throw new Error(`${lane.role} bar ${bar.bar}: no cells`);
+      }
+      let cursor = 0;
+      for (const cell of cells) {
+        if (cell.startTick !== cursor) {
+          throw new Error(
+            `${lane.role} bar ${bar.bar}: expected tick ${cursor}, got ${cell.startTick}`,
+          );
+        }
+        if (cell.ticks <= 0) {
+          throw new Error(`${lane.role} bar ${bar.bar}: non-positive cell`);
+        }
+        cursor += cell.ticks;
+      }
+      if (cursor !== bar.ticks) {
+        throw new Error(
+          `${lane.role} bar ${bar.bar}: cells end at ${cursor}, bar is ${bar.ticks}`,
+        );
+      }
+    }
+  }
+}
+
+equal(meterQuarterBeats('3/4'), 3);
+equal(meterQuarterBeats('6/8'), 3);
+equal(meterQuarterBeats('1/4'), 1);
+equal(meterTicks('1/4'), 24);
+equal(meterTicks('2/4'), 48);
+equal(meterTicks('3/4'), 72);
+equal(meterTicks('4/4'), 96);
+equal(meterTicks('6/8'), 72);
+equal(isSupportedMeter('6/8'), true);
+equal(isSupportedMeter('2/4'), true);
+equal(isSupportedMeter('5/8'), false);
+deepEqual(meterGroups('6/8'), [3, 3]);
+deepEqual(meterGroups('4/4'), [4, 4]);
+deepEqual(meterGroups('3/4'), [3]);
+deepEqual(meterGroups('2/4'), [2]);
+deepEqual(meterGroups('1/4'), [1]);
+deepEqual(meterGroupTicks('6/8'), [36, 36]);
+deepEqual(meterGroupTicks('4/4'), [48, 48]);
+deepEqual(meterGroupTicks('3/4'), [72]);
+
+const roleImport = musicXmlImport(
+  {
+    title: 'Roles',
+    meter: '4/4',
+    measureCount: 1,
+    measureMeters: ['4/4'],
+    keyFifths: 0,
+    tempo: 96,
+  },
+  [
+    { bar: 0, beat: 0, duration: 1, voice: 1, midi: 72 },
+    { bar: 0, beat: 0, duration: 1, voice: 1, midi: 76, chord: true },
+    { bar: 0, beat: 0, duration: 1, voice: 1, midi: null, rest: true },
+    { bar: 0, beat: 0, duration: 1, voice: 2, midi: 60 },
+    { bar: 0, beat: 0, duration: 1, voice: 2, midi: 64 },
+    { bar: 0, beat: 0, duration: 1, voice: 3, midi: 48 },
+    { bar: 0, beat: 2, duration: 1, voice: 1, midi: 67 },
+  ],
+);
+const roleBars = barLayouts(roleImport.summary);
+const roleLanes = buildRoleLanes(roleImport.notes, roleBars);
+const leadLane = roleLane(roleLanes, 'lead');
+const midLane = roleLane(roleLanes, 'mid');
+const bassLane = roleLane(roleLanes, 'bass');
+deepEqual(
+  leadLane.cells.map((cell) => ({
+    start: cell.startTick,
+    ticks: cell.ticks,
+    rest: cell.rest,
+    count: cell.count,
+  })),
+  [
+    { start: 0, ticks: 24, rest: false, count: 2 },
+    { start: 24, ticks: 24, rest: true, count: 0 },
+    { start: 48, ticks: 24, rest: false, count: 1 },
+    { start: 72, ticks: 24, rest: true, count: 0 },
+  ],
+);
+deepEqual(
+  midLane.cells.map((cell) => ({
+    start: cell.startTick,
+    ticks: cell.ticks,
+    rest: cell.rest,
+    count: cell.count,
+  })),
+  [
+    { start: 0, ticks: 24, rest: false, count: 2 },
+    { start: 24, ticks: 72, rest: true, count: 0 },
+  ],
+);
+deepEqual(
+  bassLane.cells.map((cell) => ({
+    start: cell.startTick,
+    ticks: cell.ticks,
+    rest: cell.rest,
+    count: cell.count,
+  })),
+  [
+    { start: 0, ticks: 24, rest: false, count: 1 },
+    { start: 24, ticks: 72, rest: true, count: 0 },
+  ],
+);
+equal(bassLane.cells[0]?.voice, 3);
+assertLanesContiguous(roleLanes, roleBars);
+
+const restImport = musicXmlImport(
+  { meter: '4/4', measureCount: 2, measureMeters: ['4/4', '4/4'] },
+  [{ bar: 0, beat: 1, duration: 1, voice: 1, midi: 72 }],
+);
+const restBars = barLayouts(restImport.summary);
+const restLanes = buildRoleLanes(restImport.notes, restBars);
+assertLanesContiguous(restLanes, restBars);
+const restLead = roleLane(restLanes, 'lead');
+deepEqual(
+  restLead.cells.filter((cell) => cell.bar === 1).map((cell) => ({
+    start: cell.startTick,
+    ticks: cell.ticks,
+    rest: cell.rest,
+  })),
+  [
+    { start: 0, ticks: 24, rest: true },
+    { start: 24, ticks: 24, rest: false },
+    { start: 48, ticks: 48, rest: true },
+  ],
+);
+deepEqual(
+  roleLane(restLanes, 'mid')
+    .cells.filter((cell) => cell.bar === 2)
+    .map((cell) => ({ start: cell.startTick, ticks: cell.ticks, rest: cell.rest })),
+  [{ start: 0, ticks: 96, rest: true }],
+);
+deepEqual(
+  roleLane(restLanes, 'bass')
+    .cells.filter((cell) => cell.bar === 1)
+    .map((cell) => ({ start: cell.startTick, ticks: cell.ticks, rest: cell.rest })),
+  [{ start: 0, ticks: 96, rest: true }],
+);
+
+const crossingImport = musicXmlImport(
+  { meter: '4/4', measureCount: 1, measureMeters: ['4/4'] },
+  [{ bar: 0, beat: 3, duration: 4, voice: 1, midi: 72 }],
+);
+const crossingLead = roleLane(
+  buildRoleLanes(crossingImport.notes, barLayouts(crossingImport.summary)),
+  'lead',
+);
+const crossingCell = crossingLead.cells.find((cell) => !cell.rest);
+if (!crossingCell) throw new Error('crossing note cell missing');
+equal(crossingCell.startTick, 72);
+equal(crossingCell.ticks, 24);
+equal(crossingCell.tie, null);
+
+const sixEightBars = barLayouts({
+  meter: '6/8',
+  measureCount: 1,
+  measureMeters: null,
+  meterChanges: [],
+});
+equal(sixEightBars[0]?.ticks, 72);
+const sixEightGrid = musicXmlGrid(sixEightBars);
+deepEqual(sixEightGrid.bars[0]?.beatTicks, [0, 36]);
+equal(sixEightGrid.bars[0]?.meterStart, true);
+equal(sixEightGrid.totalTicks, 72);
+
+// Scottish pickup: bar 1 is 1/4, the body is 2/4; the default skips the
+// one-bar opening run and caps at four bars.
+const scottishImport = musicXmlImport(
+  {
+    meter: '1/4',
+    measureCount: 6,
+    measureMeters: ['1/4', '2/4', '2/4', '2/4', '2/4', '2/4'],
+  },
+  [],
+);
+const scottishBars = barLayouts(scottishImport.summary);
+deepEqual(defaultPassageRange(scottishBars), { barStart: 2, barEnd: 5 });
+equal(meterChangeLabel(scottishBars), '1/4 → 2/4 at bar 2');
+equal(passageRangeLabel(scottishBars, { barStart: 2, barEnd: 5 }), 'bars 2–5 · 2/4');
+
+const mixedBars = barLayouts({
+  meter: '1/4',
+  measureCount: 2,
+  measureMeters: ['1/4', '2/4'],
+  meterChanges: [],
+});
+const mixedRange = validatePassageRange(mixedBars, 1, 2);
+equal(mixedRange.ok, false);
+equal(mixedRange.mixedMeter, true);
+if (mixedRange.errors.length === 0) throw new Error('mixed range needs an error');
+equal(passageRangeLabel(mixedBars, { barStart: 1, barEnd: 2 }), 'bars 1–2 · 1/4 → 2/4');
+equal(validatePassageRange(mixedBars, 2, 2).ok, true);
+equal(validatePassageRange(mixedBars, 2, 1).ok, false);
+equal(validatePassageRange(mixedBars, 0, 1).ok, false);
+equal(validatePassageRange(mixedBars, 1, 3).ok, false);
+deepEqual(defaultPassageRange(mixedBars), { barStart: 1, barEnd: 1 });
+
+const missingMeters = musicXmlImport(
+  {
+    title: 'No meter list',
+    meter: '3/4',
+    measureCount: 2,
+    keyFifths: -2,
+    keyMode: 'minor',
+    tempo: 88,
+    noteCount: 1,
+    voices: [1],
+  },
+  [
+    {
+      bar: 1,
+      beat: 0,
+      duration: 1,
+      voice: 1,
+      midi: 60,
+      written_midi: 59,
+      written_pitch: 'B3',
+      sounding_pitch: 'C4',
+    },
+  ],
+);
+equal(missingMeters.summary.measureMeters, null);
+deepEqual(
+  barLayouts(missingMeters.summary).map((bar) => bar.meter),
+  ['3/4', '3/4'],
+);
+equal(missingMeters.notes[0]?.writtenMidi, 59);
+equal(missingMeters.notes[0]?.writtenPitch, 'B3');
+equal(missingMeters.notes[0]?.soundingPitch, 'C4');
+if (!keySignatureLabel(missingMeters.summary).includes('2b')) {
+  throw new Error('flat key label should include 2b');
+}
+
+const noMeter = musicXmlImport({ measureCount: 1 }, []);
+equal(noMeter.summary.meter, '');
+const noMeterBars = barLayouts(noMeter.summary);
+equal(noMeterBars[0]?.meter, '4/4');
+equal(noMeterBars[0]?.ticks, 96);
+
+const changedMeter = musicXmlImport(
+  {
+    meter: '4/4',
+    measureCount: 3,
+    meterChanges: [{ bar: 3, meter: '3/4' }],
+  },
+  [],
+);
+deepEqual(
+  barLayouts(changedMeter.summary).map((bar) => bar.meter),
+  ['4/4', '4/4', '3/4'],
+);
+
+const relativePassage = normalizeMusicXmlPassage(
+  {
+    ok: true,
+    passageId: 'mxp_relative',
+    audioUrl: '/v1/studio/sentence/audio/relative.wav',
+    notes: [{ bar: 0, beat: 0, duration: 1, midi: 60, voice: 1 }],
+    durationSec: 1.25,
+  },
+  'https://api.test',
+);
+equal(
+  relativePassage.audioUrl,
+  'https://api.test/v1/studio/sentence/audio/relative.wav',
+);
+equal(relativePassage.meter, '');
+equal(relativePassage.beatsPerBar, 0);
+equal(relativePassage.notes.length, 1);
+equal(relativePassage.durationSec, 1.25);
+
+const sixEightPassage = normalizeMusicXmlPassage({
+  ok: true,
+  passageId: 'mxp_68',
+  meter: '6/8',
+  audioUrl: 'https://cdn.test/audio/absolute.wav',
+  notes: [],
+});
+equal(sixEightPassage.beatsPerBar, 3);
+equal(sixEightPassage.audioUrl, 'https://cdn.test/audio/absolute.wav');
+
+const failedPassage = normalizeMusicXmlPassage({
+  ok: false,
+  errors: [{ path: 'meter', message: 'meter 5/8 is not supported' }],
+});
+equal(failedPassage.ok, false);
+equal(failedPassage.errors[0]?.path, 'meter');
 
 type FakeStore = {
   value: string | null;

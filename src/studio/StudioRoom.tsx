@@ -32,6 +32,8 @@ import {
   studioAccessUrl,
   studioAnalyzeUrl,
   studioJobsUrl,
+  studioMusicXmlImportUrl,
+  studioMusicXmlUrl,
   studioSentenceUrl,
   studioTextureValidateUrl,
   studioUploadsUrl,
@@ -56,6 +58,7 @@ import {
   resolveAudioUrl,
 } from './protocol';
 import { VelocityLane, type VelocityLaneSaveInfo } from './VelocityLane';
+import { MusicXmlPanel } from './MusicXmlPanel';
 import {
   ruleContourStatus,
   velocityLaneRows,
@@ -2151,6 +2154,7 @@ export function StudioRoom({ wide, onMode }: Props) {
             </View>
 
             <View style={[styles.column, wide && !compact && styles.columnWide]}>
+              <MusicXmlPanel compact={compact} />
               <View style={[styles.card, styles.resultCard, compact && styles.cardCompact]}>
                 <View style={styles.resultHeader}>
                   <Text style={[type.section, styles.cardLabel]}>IMG · Gemini draft</Text>
@@ -2415,6 +2419,15 @@ export function StudioRoom({ wide, onMode }: Props) {
                     </Text>
                     <Text selectable style={styles.endpoint}>
                       POST {studioAnalyzeUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioMusicXmlUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioMusicXmlImportUrl('<id>')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioMusicXmlImportUrl('<id>')}/passage
                     </Text>
                     <Text selectable style={styles.endpoint}>
                       GET {studioSentenceUrl('examples')}

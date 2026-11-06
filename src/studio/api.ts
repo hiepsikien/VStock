@@ -47,6 +47,21 @@ import {
   type StudioVisibility,
 } from './protocol';
 import { studioSessionHeaders } from './sessionStorage';
+import {
+  normalizeMusicXmlImport,
+  normalizeMusicXmlPassage,
+  type MusicXmlImport,
+  type MusicXmlPassage,
+} from './musicxml';
+
+export type {
+  MusicXmlImport,
+  MusicXmlImportSummary,
+  MusicXmlImportedNote,
+  MusicXmlMeterChange,
+  MusicXmlPassage,
+  MusicXmlSynthNote,
+} from './musicxml';
 
 export type {
   CropRect,
@@ -124,6 +139,29 @@ export const STUDIO_TEXTURE_PREFIX = (
 
 export function studioTextureValidateUrl(): string {
   return `${getApiBaseUrl()}${STUDIO_TEXTURE_PREFIX}/validate`;
+}
+
+/**
+ * MusicXML import + passage preview. Prefix is `/v1/studio/import`; override it
+ * with `EXPO_PUBLIC_STUDIO_MUSICXML_PREFIX` when a proxy mounts it elsewhere.
+ */
+export const DEFAULT_STUDIO_MUSICXML_PREFIX = '/v1/studio/import';
+
+export const STUDIO_MUSICXML_PREFIX = (
+  process.env.EXPO_PUBLIC_STUDIO_MUSICXML_PREFIX ??
+  DEFAULT_STUDIO_MUSICXML_PREFIX
+).replace(/\/+$/, '');
+
+export function studioMusicXmlUrl(): string {
+  return `${getApiBaseUrl()}${STUDIO_MUSICXML_PREFIX}/musicxml`;
+}
+
+export function studioMusicXmlImportUrl(id: string): string {
+  return `${studioMusicXmlUrl()}/${encodeURIComponent(id)}`;
+}
+
+export function studioMusicXmlPassageUrl(id: string): string {
+  return `${studioMusicXmlImportUrl(id)}/passage`;
 }
 
 /** Roll back to a published version by creating a new version from its payload. */
@@ -308,6 +346,89 @@ export async function deleteStudioUpload(
   });
   return normalizeDeleteUploadResponse(
     await readStudioResponse(res, await res.text()),
+  );
+}
+
+/** Browser File/Blob upload options for MusicXML; native pickers stay out. */
+export type MusicXmlUploadOptions = {
+  /** Overrides `File.name`; defaults to `score.musicxml`. */
+  filename?: string;
+  signal?: AbortSignal;
+};
+
+function musicXmlFilename(file: Blob): string {
+  if (typeof File !== 'undefined' && file instanceof File && file.name.trim()) {
+    return file.name;
+  }
+  return 'score.musicxml';
+}
+
+/**
+ * `POST /v1/studio/import/musicxml` as multipart field `file`. The session
+ * header is harmless here (the route does not require it) and keeps every
+ * Studio panel on one ownership story.
+ */
+export async function uploadMusicXml(
+  file: Blob,
+  options: MusicXmlUploadOptions = {},
+): Promise<MusicXmlImport> {
+  if (typeof FormData === 'undefined') {
+    throw new Error('MusicXML upload needs a browser File/FormData runtime.');
+  }
+  const form = new FormData() as unknown as {
+    append(name: string, value: Blob, filename?: string): void;
+  };
+  form.append('file', file, options.filename ?? musicXmlFilename(file));
+  const res = await fetch(studioMusicXmlUrl(), {
+    method: 'POST',
+    headers: await studioSessionHeaders(),
+    body: form as unknown as BodyInit,
+    signal: options.signal,
+  });
+  return normalizeMusicXmlImport(await readStudioResponse(res, await res.text()));
+}
+
+/** `GET /v1/studio/import/musicxml/{id}` for a previously uploaded score. */
+export async function fetchMusicXmlImport(
+  id: string,
+  signal?: AbortSignal,
+): Promise<MusicXmlImport> {
+  return normalizeMusicXmlImport(
+    await getStudio(studioMusicXmlImportUrl(id), signal),
+  );
+}
+
+export type MusicXmlPassageRequest = {
+  /** 1-based, inclusive. */
+  barStart: number;
+  /** 1-based, inclusive. */
+  barEnd: number;
+  /** Omit/empty means every voice. */
+  voices?: number[];
+};
+
+/**
+ * `POST /v1/studio/import/musicxml/{id}/passage`. The response carries the
+ * preview-only TextureSpec plus synth notes and (when the render succeeded) a
+ * relative audio URL resolved against the API base.
+ */
+export async function requestMusicXmlPassage(
+  id: string,
+  range: MusicXmlPassageRequest,
+  signal?: AbortSignal,
+): Promise<MusicXmlPassage> {
+  const body: Record<string, unknown> = {
+    barStart: Math.trunc(range.barStart),
+    barEnd: Math.trunc(range.barEnd),
+  };
+  if (range.voices && range.voices.length) {
+    body.voices = [...new Set(range.voices.map((voice) => Math.trunc(voice)))].sort(
+      (left, right) => left - right,
+    );
+  }
+  return normalizeMusicXmlPassage(
+    await postStudioUrl(studioMusicXmlPassageUrl(id), body, signal),
+    getApiBaseUrl(),
   );
 }
 
