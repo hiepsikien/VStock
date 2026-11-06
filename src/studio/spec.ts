@@ -23,6 +23,24 @@ export type { CropRect } from './protocol';
  * compile/publish path later, not by this screen.
  */
 
+/**
+ * Build-time switch for the Gemini/image-scan front half of Studio (the score
+ * photo upload/crop card, the analyze draft card, and `GET /studio/access`).
+ *
+ * `EXPO_PUBLIC_*` values are inlined by Expo at bundle time, so changing this
+ * needs a Metro restart; it is not a runtime setting. Off by default: the
+ * MusicXML matrix/play, preview, and publish paths never depend on it, and no
+ * vision request is issued while it is off.
+ */
+export const STUDIO_VISION_ENABLED = studioVisionEnabled(
+  process.env.EXPO_PUBLIC_STUDIO_VISION,
+);
+
+/** Pure env check so the flag can be tested without touching `process.env`. */
+export function studioVisionEnabled(value: string | null | undefined): boolean {
+  return value === '1' || value === 'true';
+}
+
 export type PatternId =
   | 'castillo'
   | 'sonatina'

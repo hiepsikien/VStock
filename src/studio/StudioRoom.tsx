@@ -75,6 +75,7 @@ import {
   SAMPLES,
   STUDIO_FLOW_LABEL,
   STUDIO_LOCAL_NOTICE,
+  STUDIO_VISION_ENABLED,
   accessReasonLabel,
   accessStatusLabel,
   audioStatusLabel,
@@ -564,8 +565,10 @@ export function StudioRoom({ wide, onMode }: Props) {
   );
 
   // Capability gate + quota. The editor keeps working if this fails; only the
-  // upload/analyze panel depends on `enabled`.
+  // upload/analyze panel depends on `enabled`. With the vision flag off this
+  // never runs, so mounting Studio makes no `/studio/access` request.
   const loadAccess = useCallback(async () => {
+    if (!STUDIO_VISION_ENABLED) return;
     accessController.current?.abort();
     const controller = new AbortController();
     accessController.current = controller;
@@ -583,6 +586,7 @@ export function StudioRoom({ wide, onMode }: Props) {
   }, []);
 
   useEffect(() => {
+    if (!STUDIO_VISION_ENABLED) return;
     void loadAccess();
     return () => accessController.current?.abort();
   }, [loadAccess]);
@@ -1618,8 +1622,10 @@ export function StudioRoom({ wide, onMode }: Props) {
             <Text style={[type.displayNarrow, styles.title]}>Sentence lab</Text>
             <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>
               Flow: pick an example → edit the spec JSON → Validate/Preview → play the
-              short WAV → Publish. The JSON editor is the source of truth. The score
-              photo panel is a separate front half and never overwrites this JSON.
+              short WAV → Publish. The JSON editor is the source of truth.
+              {STUDIO_VISION_ENABLED
+                ? ' The score photo panel is a separate front half and never overwrites this JSON.'
+                : null}
             </Text>
           </View>
 
@@ -1647,16 +1653,21 @@ export function StudioRoom({ wide, onMode }: Props) {
               </Text>
               <CopyButton value={sessionId} label="Copy session" />
             </View>
-            <View style={[styles.statusCell, styles.statusCellGrow]}>
-              <Text style={styles.statusLabel}>Access & quota</Text>
-              <StatusText line={accessLine} />
-              {access.kind === 'error' ? (
-                <MiniButton label="Retry access" onPress={() => void loadAccess()} />
-              ) : null}
-            </View>
+            {STUDIO_VISION_ENABLED ? (
+              <View style={[styles.statusCell, styles.statusCellGrow]}>
+                <Text style={styles.statusLabel}>Access & quota</Text>
+                <StatusText line={accessLine} />
+                {access.kind === 'error' ? (
+                  <MiniButton label="Retry access" onPress={() => void loadAccess()} />
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           <View style={[styles.columns, wide && !compact && styles.columnsWide]}>
+            {/* Vision front half: upload/crop/analyze. Gated at render time so
+                the code stays here but nothing mounts while the flag is off. */}
+            {STUDIO_VISION_ENABLED ? (
             <View style={[styles.column, wide && !compact && styles.columnWide]}>
               <View style={[styles.card, compact && styles.cardCompact]}>
                 <View style={styles.resultHeader}>
@@ -2152,9 +2163,11 @@ export function StudioRoom({ wide, onMode }: Props) {
                 ) : null}
               </View>
             </View>
+            ) : null}
 
             <View style={[styles.column, wide && !compact && styles.columnWide]}>
               <MusicXmlPanel compact={compact} />
+              {STUDIO_VISION_ENABLED ? (
               <View style={[styles.card, styles.resultCard, compact && styles.cardCompact]}>
                 <View style={styles.resultHeader}>
                   <Text style={[type.section, styles.cardLabel]}>IMG · Gemini draft</Text>
@@ -2270,8 +2283,9 @@ export function StudioRoom({ wide, onMode }: Props) {
                   </>
                 )}
               </View>
+              ) : null}
 
-              {textureDraft ? (
+              {STUDIO_VISION_ENABLED && textureDraft ? (
                 <View style={[styles.card, styles.resultCard, compact && styles.cardCompact]}>
                   <View style={styles.resultHeader}>
                     <Text style={[type.section, styles.cardLabel]}>

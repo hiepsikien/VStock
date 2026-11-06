@@ -40,6 +40,7 @@ import {
   SAMPLES,
   STUDIO_FLOW_LABEL,
   STUDIO_LOCAL_NOTICE,
+  STUDIO_VISION_ENABLED,
   accessDetail,
   accessReasonLabel,
   accessStatusLabel,
@@ -113,6 +114,7 @@ import {
   shortId,
   studioBusyHint,
   studioNextStep,
+  studioVisionEnabled,
   textStats,
   textureDraftJson,
   textureDraftSummary,
@@ -190,6 +192,23 @@ function deepEqual(actual: unknown, expected: unknown) {
 function paths(value: Array<{ path: string }>): string[] {
   return value.map((item) => item.path);
 }
+
+// The vision flag is build-time only: `studioVisionEnabled` is the pure parser
+// (only `1` / `true` turn it on) and the exported constant is whatever
+// `EXPO_PUBLIC_STUDIO_VISION` inlined when the module loaded.
+equal(studioVisionEnabled('1'), true);
+equal(studioVisionEnabled('true'), true);
+equal(studioVisionEnabled('0'), false);
+equal(studioVisionEnabled('false'), false);
+equal(studioVisionEnabled('TRUE'), false);
+equal(studioVisionEnabled(' true '), false);
+equal(studioVisionEnabled(''), false);
+equal(studioVisionEnabled(undefined), false);
+equal(studioVisionEnabled(null), false);
+equal(
+  STUDIO_VISION_ENABLED,
+  studioVisionEnabled(process.env.EXPO_PUBLIC_STUDIO_VISION),
+);
 
 // Every template must be a real SentenceSpec shape and survive the local
 // pre-flight unchanged. This is the guard against a typo in SAMPLES shipping a
