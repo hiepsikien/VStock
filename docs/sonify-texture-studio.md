@@ -1504,7 +1504,10 @@ backend/app/studio/                    # sentence_spec, texture_spec, preview, d
 - `beatStart`/`beatEnd` là offset quarter-note trong `barStart`/`barEnd`; `beatEnd` **exclusive**, bỏ trống = hết bar `barEnd`. Note overlap được cắt ở boundary và rebase để selection start = 0. Range kết thúc đúng barline không tính bar kế.
 - Meter hỗ trợ: `1/4`, `2/4`, `3/4`, `4/4`, `6/8` (`6/8` = 3 quarter beats). Range trộn meter → `ok:false`, `path:"meter"`. Meter không hỗ trợ chỉ bị chặn khi range **chạm** vào bar đó; các bar khác vẫn dùng độ dài thật để tính absolute tick.
 - Passage `spec` dùng literal MIDI, `materializer=null`, **không** tự ghi vào SentenceSpec; WAV dùng code-only synth. Response có `bpm` (96) để UI map playhead, không dùng `durationSec` vì WAV có tail.
-- UI matrix: role lane **Lead** (voice 1), **Mid** (chord tone còn lại), **Bass** (nốt thấp nhất mỗi onset); grid **24 tick/quarter**; pitch ẩn; ô trống = rest; tie nối block. Zoom 50–300% chỉ đổi chiều rộng; kéo chuột chọn beat; playhead dọc chạy theo audio preview.
+- UI matrix: role lane **Lead** (voice 1), **Mid** (chord tone còn lại), **Bass** (nốt thấp nhất mỗi onset); grid **24 tick/quarter**; pitch ẩn; ô trống = rest. Tie hiện trong accessibility label và spec/audio merge, **chưa vẽ connector** giữa các block. Zoom 50–300% chỉ đổi chiều rộng; kéo chuột chọn beat; playhead dọc chạy theo audio preview.
+- Note vắt qua virtual barline (beat selection bắt đầu giữa bar) được tách trong authored spec với `tie start/continue/stop`; synth note được merge lại để không tấn công lần hai.
+- Entity declaration (`<!ENTITY>`) bị từ chối trước khi parse XML.
+- Pickup/implicit measure hiện dùng **full meter length** để tính tick/layout; độ dài measure thực chưa được giữ — có warning.
 
 Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. Job queue là **in-memory/process-local** (không durable): cap global 64, cap 8 active/owner, `GET` scope theo owner (owner khác → 404), terminal job giải phóng `spec/fixture`; vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
 

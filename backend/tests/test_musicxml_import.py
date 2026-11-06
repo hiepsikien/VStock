@@ -529,3 +529,44 @@ def test_extreme_alter_and_octave_are_skipped() -> None:
     assert score.notes[0].midi == 52
     assert any("alter" in item for item in score.warnings)
     assert any("octave" in item for item in score.warnings)
+
+
+def test_entity_declarations_are_rejected_before_parsing() -> None:
+    document = (
+        b'<!DOCTYPE score-partwise [<!ENTITY a "boom">]>' + _single_bar()
+    )
+    with pytest.raises(MusicXmlImportError, match="entity"):
+        parse_musicxml(document)
+
+
+def test_pickup_measure_warns_about_full_meter_layout() -> None:
+    document = b"""<score-partwise version="4.0">
+      <part-list>
+        <score-part id="P1"><part-name>Guitar</part-name></score-part>
+      </part-list>
+      <part id="P1">
+        <measure number="1" implicit="yes">
+          <attributes>
+            <divisions>1</divisions>
+            <time><beats>4</beats><beat-type>4</beat-type></time>
+          </attributes>
+          <note><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>1</duration><voice>1</voice></note>
+        </measure>
+      </part>
+    </score-partwise>"""
+    score = parse_musicxml(document)
+
+    assert score.measure_meters == ("4/4",)
+    assert any("pickup/implicit" in item for item in score.warnings)
+
+
+def test_extreme_value_warning_is_truncated() -> None:
+    notes = (
+        "<note><pitch><step>C</step><octave>4</octave></pitch>"
+        f"<duration>{'9' * 400}</duration><voice>1</voice></note>"
+    )
+    score = parse_musicxml(_extreme_document(notes))
+
+    assert score.notes == ()
+    assert all(len(item) < 200 for item in score.warnings)

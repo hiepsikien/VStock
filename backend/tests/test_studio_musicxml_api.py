@@ -720,11 +720,24 @@ def test_upload_rejects_too_many_notes(monkeypatch) -> None:
 
 def test_upload_rejects_entity_declarations() -> None:
     client = _client()
-    payload = (
-        b'<!DOCTYPE score-partwise [<!ENTITY a "boom">]><score-partwise/>'
-    )
+    # A valid score plus an internal entity: rejection must come from the
+    # entity policy, not from the missing-part path.
+    payload = b"""<!DOCTYPE score-partwise [<!ENTITY a "boom">]>
+      <score-partwise version="4.0">
+        <part-list>
+          <score-part id="P1"><part-name>Guitar</part-name></score-part>
+        </part-list>
+        <part id="P1"><measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <note><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>1</duration><voice>1</voice></note>
+        </measure></part>
+      </score-partwise>"""
     response = _upload(client, payload, filename="entity.musicxml")
     assert response.status_code == 400
+    body = response.json()
+    assert body["ok"] is False
+    assert "entity" in body["errors"][0]["message"].lower()
 
 
 def test_router_is_registered_on_the_app() -> None:
@@ -953,11 +966,17 @@ def test_two_four_beat_range_still_works() -> None:
     assert _AUDIO_URL.match(body["audioUrl"] or "")
     assert _note_map(body) == {
         (0, 0.0, 52): 1.5,
-        # The second note crosses the offset relative barline at tick 2, so
-        # it is split there and the tail starts bar 1.
-        (0, 1.5, 52): 0.5,
-        (1, 0.0, 52): 1.0,
+        # The second note crosses the offset relative barline at tick 2. The
+        # authored spec keeps two tied pieces, while the synth note is merged
+        # back into one sustained attack.
+        (0, 1.5, 52): 1.5,
     }
+    ties = {
+        (event["bar"], event["beat"], event["tie"])
+        for event in body["spec"]["authored"]["events"]
+    }
+    assert (0, 1.5, "start") in ties
+    assert (1, 0.0, "stop") in ties
     assert body["durationSec"] == pytest.approx(3 * 0.625 + 0.5, abs=0.05)
 
 

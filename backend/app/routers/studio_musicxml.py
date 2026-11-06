@@ -765,6 +765,16 @@ def _resolve_beat_window(
     )
 
 
+def _tie_label(start: bool, stop: bool) -> str:
+    if start and stop:
+        return "continue"
+    if start:
+        return "start"
+    if stop:
+        return "stop"
+    return "none"
+
+
 def _clip_and_rebase(
     notes: list[dict[str, Any]], window: _BeatWindow
 ) -> list[dict[str, Any]]:
@@ -830,6 +840,7 @@ def _clip_and_rebase(
         remaining = (
             duration if not (start_clipped or end_clipped) else clipped_duration
         )
+        pieces: list[dict[str, Any]] = []
         while remaining > _QUARTER_EPS:
             room = window.bar_length - relative_beat
             if room <= _QUARTER_EPS:
@@ -843,10 +854,30 @@ def _clip_and_rebase(
             copy["bar"] = relative_bar
             copy["beat"] = relative_beat
             copy["duration"] = piece
-            rebased.append(copy)
+            pieces.append(copy)
             remaining -= piece
             relative_bar += 1
             relative_beat = 0.0
+
+        if len(pieces) > 1:
+            original_tie = str(note.get("tie") or "none")
+            original_start = original_tie in ("start", "continue", "next_bar") or bool(
+                note.get("tie_start")
+            )
+            original_stop = original_tie in ("stop", "continue") or bool(
+                note.get("tie_stop")
+            )
+            for index, piece in enumerate(pieces):
+                start = index < len(pieces) - 1 or original_start
+                stop = index > 0 or original_stop
+                piece["tie"] = _tie_label(start, stop)
+                piece["tie_start"] = start
+                piece["tie_stop"] = stop
+                # The audio path merges these pieces back into one sustained
+                # note; keep a private id so the response notes do not retrigger
+                # at the virtual barline.
+                piece["_split_group"] = id(note)
+        rebased.extend(pieces)
     return rebased
 
 
@@ -913,6 +944,59 @@ def _sanitize_endpoints(notes: list[dict[str, Any]]) -> None:
                         notes[index][field] = "none"
             for index in open_starts:
                 notes[index][field] = "none"
+
+
+def _audio_notes(
+    notes: list[dict[str, Any]], beats_per_bar: int
+) -> list[dict[str, Any]]:
+    """Synth notes, merging split fragments back into one sustained note.
+
+    The authored spec keeps the split pieces with tie labels. The preview
+    synth has no tie support, so a piece group is recombined here to avoid a
+    second attack at the virtual barline.
+    """
+    result: list[dict[str, Any]] = []
+    last_by_group: dict[tuple[Any, int], dict[str, Any]] = {}
+    for note in notes:
+        if note.get("rest"):
+            continue
+        try:
+            midi = int(note.get("midi"))
+            bar = int(note.get("bar") or 0)
+            beat = float(note.get("beat") or 0.0)
+            duration = float(note.get("duration") or 0.0)
+            voice = int(note.get("voice") or 1)
+        except (TypeError, ValueError):
+            continue
+        if duration <= 0.0:
+            continue
+        group = note.get("_split_group")
+        if group is not None:
+            previous = last_by_group.get((group, voice))
+            if previous is not None:
+                previous_end = (
+                    previous["bar"] * beats_per_bar
+                    + previous["beat"]
+                    + previous["duration"]
+                )
+                onset = bar * beats_per_bar + beat
+                if abs(previous_end - onset) <= _QUARTER_EPS:
+                    previous["duration"] += duration
+                    continue
+        entry = {
+            "bar": bar,
+            "beat": beat,
+            "duration": duration,
+            "midi": midi,
+            "voice": voice,
+            "velocity": 64,
+            "accent": bool(note.get("accent")),
+            "staccato": bool(note.get("staccato")),
+        }
+        result.append(entry)
+        if group is not None:
+            last_by_group[(group, voice)] = entry
+    return result
 
 
 def _assign_playable_voices(
@@ -1236,19 +1320,7 @@ def _passage_payload(
         )
     ]
 
-    synth_notes = [
-        {
-            "bar": int(event.bar),
-            "beat": float(event.beat),
-            "duration": float(event.duration_beats),
-            "midi": int(event.pitch.value or 0),
-            "voice": int(event.voice),
-            "velocity": 64,
-            "accent": bool(event.accent),
-            "staccato": bool(event.staccato),
-        }
-        for event in events
-    ]
+    synth_notes = _audio_notes(notes, beats_per_bar)
 
     audio_url: str | None = None
     duration_sec = 0.0

@@ -174,6 +174,10 @@ def parse_musicxml(
             "compressed MusicXML (.mxl) is not supported; unzip it and pass the "
             "extracted .musicxml/.xml bytes"
         )
+    if b"<!entity" in raw.lower():
+        raise MusicXmlImportError(
+            "entity declarations are not allowed in imported MusicXML"
+        )
 
     try:
         root = ET.fromstring(raw)
@@ -420,6 +424,12 @@ class _Parser:
         self.bar = index
         number = (measure.get("number") or "").strip()
         self.source_measure = number or str(index + 1)
+        if (measure.get("implicit") or "").strip().lower() in {"yes", "true", "1"}:
+            self.warn(
+                f"{self._measure()}: pickup/implicit measure is laid out at the "
+                f"full {self.current_meter or 'meter'} length; the actual "
+                "measure length is not preserved"
+            )
         self.cursor = Fraction(0)
         self.last_onset = None
         self.last_duration_units = None
@@ -570,7 +580,8 @@ class _Parser:
         elif meter != self.current_meter:
             self.warn(
                 f"{self._measure()}: meter changes from {self.current_meter} "
-                f"to {meter}; the summary keeps {self.meter}"
+                f"to {meter}; the summary keeps {self.meter} as its first "
+                "meter and records the per-measure values"
             )
         self.current_meter = meter
         if self.bar < len(self.measure_meters):
@@ -682,14 +693,14 @@ class _Parser:
         value = _int_text(text)
         if value is None:
             self.warn(
-                f"{self._measure()}: {what} with invalid duration {text!r} "
-                "ignored"
+                f"{self._measure()}: {what} with invalid duration "
+                f"{_short_text(text)!r} ignored"
             )
             return None
         if value > _MAX_DURATION_UNITS:
             self.warn(
-                f"{self._measure()}: {what} duration {value} is too large; "
-                "ignored"
+                f"{self._measure()}: {what} duration "
+                f"{_short_text(value)} is too large; ignored"
             )
             return None
         return value
@@ -844,14 +855,15 @@ class _Parser:
         step = step_text.upper()
         if step not in _STEP_PC:
             self.warn(
-                f"{self._measure()}: unknown pitch step {step_text!r} skipped"
+                f"{self._measure()}: unknown pitch step "
+                f"{_short_text(step_text)!r} skipped"
             )
             return None
         octave = _int_text(octave_text)
         if octave is None or not -1 <= octave <= 9:
             self.warn(
-                f"{self._measure()}: pitch octave {octave_text!r} is outside "
-                "-1..9; note skipped"
+                f"{self._measure()}: pitch octave "
+                f"{_short_text(octave_text)!r} is outside -1..9; note skipped"
             )
             return None
 
@@ -862,14 +874,15 @@ class _Parser:
                 raw_alter = float(alter_text)
             except ValueError:
                 self.warn(
-                    f"{self._measure()}: invalid pitch alter {alter_text!r} "
-                    "treated as 0"
+                    f"{self._measure()}: invalid pitch alter "
+                    f"{_short_text(alter_text)!r} treated as 0"
                 )
             else:
                 if not math.isfinite(raw_alter) or abs(raw_alter) > 127:
                     self.warn(
-                        f"{self._measure()}: pitch alter {alter_text!r} is "
-                        "outside +/-127; note skipped"
+                        f"{self._measure()}: pitch alter "
+                        f"{_short_text(alter_text)!r} is outside +/-127; "
+                        "note skipped"
                     )
                     return None
                 if not raw_alter.is_integer():
@@ -884,6 +897,11 @@ class _Parser:
 # ---------------------------------------------------------------------------
 # XML and value helpers
 # ---------------------------------------------------------------------------
+
+
+def _short_text(value: object, limit: int = 32) -> str:
+    text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}…"
 
 
 def _strip_namespaces(root: ET.Element) -> None:
