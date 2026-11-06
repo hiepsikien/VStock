@@ -23,6 +23,8 @@ Track B (Studio preview `source`/`aaba`) tách riêng tại
 | Schema `KeyFigureSpec` song song | Dùng `TextureSpec`/`PitchRef` hiện có; kind mới phải thêm validation |
 | Form thật có intro/outro/pedal | Thêm **Phase 0**: audit + body/door merge design trước Phase 1 |
 | `SuiteGate` dùng chung nhiều movement | Single-spec path byte-identical; multi-spec là opt-in |
+| Cadence chỉ là “chọn spec” | Phase 2 thêm `VILLA_CADENCE = 5`; không dựa vào figure hiện có |
+| Partial merge chưa chốt | Chốt cách A + `covered: frozenset[int]` |
 
 ---
 
@@ -174,7 +176,7 @@ không phải sentence.
 
 #### 3.0.2. Partial `SentenceVoices`
 
-Đề xuất tối thiểu, giữ default tương thích:
+**Đã chốt:** `covered: frozenset[int] | None`.
 
 ```python
 @dataclass
@@ -185,6 +187,8 @@ class SentenceVoices:
 
 - `None` giữ nguyên hành vi cũ.
 - Partial plan trả `covered` = bar body sentence chiếm.
+- `frozenset` cho membership O(1), hỗ trợ body không liên tục, và merge/union đơn giản.
+- Không dùng `range` vì chỉ biểu diễn được một đoạn liên tục; pickup/pedal chèn giữa sẽ phải đổi schema.
 
 #### 3.0.3. Partial `bar_plan`
 
@@ -198,7 +202,7 @@ def bar_plan(planned, bars, *, require_full=True):
 
 #### 3.0.4. Merge body + door
 
-Đề xuất:
+**Đã chốt cách A** — render base toàn movement rồi thay bar body:
 
 1. Render base bar-loop cho **toàn** movement (đã có door/pedal).
 2. Render sentence voices cho body bars.
@@ -209,6 +213,17 @@ def bar_plan(planned, bars, *, require_full=True):
    - merge `figures`/`contours`/`slot_contours`;
    - `preludio_bass` chỉ do sentence own nếu toàn movement.
 6. Test intro/outro + body: door notes còn nguyên; body không trùng note; không tràn bar.
+
+Lý do chọn A:
+
+- door/pedal do đúng path cũ tạo, không phải viết lại;
+- `_finish_voices` thấy voices đầy đủ, ít rủi ro nhất;
+- `covered=None` giữ byte-identical path;
+- chấp nhận render thừa body bar để đổi lấy tính đúng đắn.
+
+Cách B (chỉ render base ngoài body rồi ghép) để sau, chỉ khi perf thành vấn đề:
+`_finish_voices`/`apply_scale_passages`/`_apply_campanella` đang giả định mạch liên tục,
+nên B cần thêm test biên body/door.
 
 #### 3.0.5. `eligible` opt-in
 
@@ -274,15 +289,43 @@ else: A
 
 #### 3.2.3. Cadence artifact
 
-MVP chọn **một** hướng:
+**Đã chốt:** thêm `VILLA_CADENCE = 5` trong `guitar_villa_figures.py` ở Phase 2.
+Không dựa vào figure hiện có để “hy vọng” ra cadence.
 
-- **Close spec dùng figure hiện có**, không thêm figure mới:
-  - final bar: bass `chord_root` ở beat 0;
-  - lead kết ở tonic/scale step 0, duration dài;
-  - support chord tone, không arpeggio chạy;
-  - `select.closes=True` chỉ là điều kiện chọn, không phải nhạc kết.
-- Nếu audition cho thấy không đủ kết: thêm `VILLA_CADENCE` figure ở Phase 2 follow-up,
-  có test riêng. Không thêm cả hai trong một PR.
+Lý do: `SentenceSpec` chỉ chọn figure id, không viết note.
+`VILLA_ARPEGGIO`/`VILLA_CHORD_MELODY` là writer tổng quát, không biết bar nào là bar kết,
+nên không đảm bảo tonic/bass root.
+
+Thiết kế `VILLA_CADENCE`:
+
+```python
+VILLA_CADENCE = 5
+
+def _cadence_bar(ctx, bar, phrase):
+    # low: chord_root ở beat 0
+    # support: chord tones ở beat 0 (và 2 nếu meter cho phép)
+    # lead: tonic/scale_step 0, sustain đến cuối bar
+```
+
+- Là adapter mới, **không** viết renderer mới:
+  - tái dùng `_render_block_bar`/`_sustain`/`_chord_grid` hiện có;
+  - chỉ cố định voicing và final note.
+- Thêm vào:
+  - `VILLA_FIGURES`;
+  - `VILLA_FIGURE_NAMES`;
+  - `FIGURE_CONTOURS` có thể để trống.
+- `valid_figures` vẫn là `VILLA_FIGURES`, không cần registry mới.
+- `SentenceSpec` close dùng figure 5 ở bar cuối.
+- `select.closes=True` chỉ là điều kiện chọn spec, không phải nhạc kết.
+
+Test:
+
+- final bar có bass root ở beat 0;
+- lead kết tonic/scale step 0, duration dài;
+- không có arpeggio chạy ở final bar;
+- bar trước/sau không bị đổi;
+- 4/4 và 2/4 không tràn bar;
+- Studio preview và production dùng cùng figure.
 
 A2 variation (MVP):
 
@@ -371,6 +414,8 @@ Khi thêm pattern/meter variant:
   - `_LOUD_DOWN_PATTERNS`;
   - `_NARROW_ROWS`;
   - `_HOST`.
+- `guitar_villa_figures.py`
+  - `VILLA_CADENCE`/`VILLA_FIGURES`/`VILLA_FIGURE_NAMES` nếu Phase 2 thêm cadence.
 - `program.py`
   - `_PATTERN_TITLE`.
 - `pattern_registry.py`
@@ -459,7 +504,7 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 
 1. **Phase 0 bắt buộc.** Audit form thật + body/door merge trước Phase 1.
 2. **Phase 1 = 4/4 fold, giữ ABAB.** Dùng `suite_schottish`; không tạo pattern id mới; không tuyên bố final.
-3. **Phase 2 = phrase-level plan + cadence artifact.** Chọn A/B/close theo phrase; close dùng figure hiện có trước, `VILLA_CADENCE` chỉ khi cần.
+3. **Phase 2 = phrase-level plan + cadence artifact.** Chọn A/B/close theo phrase; thêm `VILLA_CADENCE` ở Phase 2, không dựa vào figure hiện có.
 4. **Phase 3 = native 2/4.** `FormSpec`/`span` + meter-aware wave/frame + `_chord_grid` fix + test composer thật.
 5. **Quota = policy 70% ±10%, chưa enforce MVP.** Semantics chốt Phase 5.
 6. **Preset trước, user-authorable sau.** Phase 1–2 preset; Phase 3–4 mở Studio.
@@ -579,7 +624,7 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 1. `SuiteGate.eligible` reject toàn movement khi có pedal bar → Phase 0.
 2. `bar_plan` đòi cover mọi bar → partial plan Phase 0.
 3. `_gated_sentence`/`_render_sentence_tail` chỉ render toàn movement → body/door merge Phase 0.
-4. Không có cadence figure → Phase 2 close spec, `VILLA_CADENCE` fallback.
+4. Không có cadence figure → Phase 2 thêm `VILLA_CADENCE = 5`.
 5. `PROFILES`/`profile_for`/`frame_bars_for` không meter-aware → Phase 3.
 6. Quota bar vs lead layer chưa chốt → Phase 5.
 7. `PitchRef` thiếu `melody_at_beat`/`bass_root` → Phase 4 chỉ dùng kind hiện có.
@@ -588,8 +633,8 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 
 ---
 
-## 15. Câu cần chốt trước khi code Phase 0
+## 15. Quyết định đã chốt trước Phase 0
 
-1. Partial merge: thay thế base events trên `covered` bar (đề xuất) hay render sentence-only rồi chèn door?
-2. `SentenceVoices.covered` là `frozenset[int]` (đề xuất) hay `range`?
-3. Close spec dùng figure hiện có trước (đề xuất) hay thêm `VILLA_CADENCE` ngay?
+1. **Partial merge = cách A**: render base toàn movement, thay base events trên `covered` bar.
+2. **`SentenceVoices.covered = frozenset[int] | None`**, `None` = toàn movement.
+3. **Close dùng `VILLA_CADENCE = 5`** ở Phase 2; không dựa vào figure hiện có.
