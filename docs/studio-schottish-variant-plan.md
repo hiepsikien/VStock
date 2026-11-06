@@ -282,7 +282,9 @@ figure pool có đủ **5 tag** (xem Track A §3.5):
 - Track B **không tự sinh door** từ `_villa_pattern_door`; mặc định `complete:false`.
 - UI ghi rõ: “Key-only preview; tag intro/outro before promote.”
 - Export draft được phép khi thiếu; ghi `complete:false` + `missing[]`.
-- Promote/publish bị chặn nếu thiếu bất kỳ tag nào.
+- Promote/publish bị chặn nếu thiếu bất kỳ tag nào hoặc key body không derivable.
+- `key` tag đủ để auto-create body SentenceSpec khi promote; không bắt user tạo sentence thủ công.
+- Draft cũ chỉ có `sentences` → `figures:[]`, `complete:false`.
 - UI hiển thị `3/3 role`, `5/5 tag`; figure intro/outro preview `2 bars` / `4 bars`.
 
 ---
@@ -355,6 +357,7 @@ figure pool có đủ **5 tag** (xem Track A §3.5):
 - Export round-trip `previewMode`.
 - Quota one unit per request.
 - Pattern draft `complete:false` khi thiếu tag; `missing[]` đúng.
+- Old draft `{sentences}` → `figures:[]`, `complete:false`.
 - `previewMode` chỉ thuộc key, không áp dụng intro/outro.
 
 ---

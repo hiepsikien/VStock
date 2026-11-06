@@ -920,7 +920,9 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 #### 3.4.8. Promote
 
 - Compile tagged figures → `TEXTURE_CELLS`/`DOORS` trong module pattern mới.
-- `key` tag → `SentenceSpec` body dùng `Slot(cell=...)`.
+- `key` tag → body `SentenceSpec`:
+  - dùng sentence có sẵn nếu `Slot(cell=key.cellId)`;
+  - nếu không, auto-create default body (§3.5).
 - `intro.*`/`outro.*` tag → door callable.
 - `ensure_registered`/`valid_cells`; flag default off.
 - Promote là code/flag explicit; Studio chỉ export/publish draft trước.
@@ -1056,6 +1058,11 @@ type PatternDraftFigure = {
 - **Promote** mới kiểm `TEXTURE_CELLS` + `valid_cells`.
 - `figures[].id` khác `cellId` chỉ khi có mapping tường minh; `valid_cells` kiểm `cellId`.
 - Draft cũ chỉ có `sentences` vẫn load được, nhưng **không `complete`** nếu chưa có figures/tags.
+- Migration:
+  - load draft cũ `{sentences:[...]}` → `figures:[]`, `complete:false`, không tạo figure giả;
+  - `keyFigures` cũ **không** tự convert; chỉ projection khi export nếu cần;
+  - export mới luôn có `figures[]` + `sentences[]` + `complete`/`missing[]`;
+  - `keyFigures` không được đọc làm nguồn khi load.
 - `complete` chỉ tính khi draft opt-in Studio authoring (`figures` có mặt).
 - `keyFigures` projection optional để back-compat; không dùng làm nguồn.
 - Export:
@@ -1068,6 +1075,44 @@ type PatternDraftFigure = {
   }
   ```
 
+#### Key tag → body SentenceSpec
+
+`key` tag là nguồn body; **không** bắt user tạo `SentenceSpec` thủ công.
+
+- Khi promote, nếu chưa có sentence nào reference `key.cellId`, auto-create:
+
+```python
+SentenceSpec(
+    id=f"{pattern}_{cell_id}_body",
+    pattern=pattern,
+    meter=meter,
+    select=Select(length_min=figure.bars),
+    span=Span(
+        tile=figure.bars,
+        remainder="same_figure",
+        truncate_to_length=True,
+    ),
+    slots=(
+        Slot(start=0, bars=figure.bars, cell=figure.cellId),
+    ),
+)
+```
+
+- Nếu `sentences[]` đã có sentence dùng `Slot(cell=key.cellId)`, dùng sentence đó;
+  không tạo trùng.
+- Preview body dùng projection này; Studio có thể hiện “Body sentence: derived from key”.
+- `complete` gate kiểm **body derivable**, không kiểm “có sentence trong `sentences[]`”.
+- `missing[]` dùng `key.body` khi key figure thiếu/bar count sai, không dùng khi thiếu sentence thủ công.
+- Nếu sentence dùng key cell:
+  - `slot.bars` phải bằng `figure.bars`;
+  - `span.tile >= figure.bars`;
+  - tile 2 bar + key 4 bar → reject.
+- Test:
+  - đủ 5 tag, không có sentence → vẫn `complete:true` (body auto);
+  - key 4 bar + sentence tile 2 bar → reject;
+  - key 4 bar + sentence tile 4 bar → dùng sentence đó;
+  - key figure thiếu → `missing:["key.body"]`.
+
 #### Completeness gate
 
 - `draft` được lưu/export để review dù thiếu; export ghi `complete:false` + `missing[]`.
@@ -1078,6 +1123,8 @@ type PatternDraftFigure = {
   - figure mang nhiều tag phải đúng bar count cho **tất cả** tag;
   - cùng `meter`/`ensemble`/pattern;
   - key ≥1 bar;
+  - body sentence **derivable** từ key (auto hoặc existing);
+  - sentence dùng key cell có `slot.bars == figure.bars` và `tile >= figure.bars`;
   - không tràn bar;
   - không có tie/slur bắc qua biên door → body hoặc body → door.
 - UI hiển thị `3/3 role`, `5/5 tag`; tag nào thiếu đánh dấu tag đó.
@@ -1141,6 +1188,10 @@ def door(ctx, bar, role, *, steps, closing, index):
 - intro kết dẫn vào body; outro kết tonic;
 - seam body/door không tie treo;
 - tag validation: thiếu tag, trùng tag, multi-tag sai bar count;
+- `id != cellId` → `Slot.cell=cellId` resolve; `Slot.cell=id` reject;
+- key tag + no sentence → body auto; key 4 bar + sentence tile 2 → reject;
+- old draft `{sentences}` → `figures:[]`, `complete:false`;
+- `keyFigures` không dùng làm nguồn khi load;
 - figure 2 bar tag `intro.short` + `outro.short` → hợp lệ;
 - figure 4 bar tag `intro.short` → reject;
 - hai figure cùng tag `key` → reject (MVP một figure/tag);
@@ -1305,6 +1356,8 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 22. **Figure pool + tag là nguồn duy nhất**: user tag figure có sẵn; không tạo riêng intro/outro/key artifact. Multi-tag cho phép nếu bar count khớp.
 23. **`SentenceSpec._validate` cho phép `Slot.cell` ngoài `span.cycle`**; giữ rule cycle phải có cell; test tile 4 bar + galop cycle.
 24. **`PatternDraft.figures` là nguồn cell/tag**, `sentences` giữ SentenceSpec; `figures[].cellId` map 1:1 `TEXTURE_CELLS`.
+25. **`key` tag → body SentenceSpec**: promote auto-create nếu chưa có sentence dùng `Slot(cell=key.cellId)`; complete gate kiểm body derivable, không bắt sentence thủ công.
+26. **Migration**: draft cũ `{sentences}` → `figures:[]`, `complete:false`; `keyFigures` không đọc làm nguồn.
 
 ---
 
@@ -1459,6 +1512,8 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 20. Phase 4 `melody_eighth` phải rebind theo `bar_offset`; nếu không tile bar >0 sẽ đọc passage gốc.
 21. `SentenceSpec._validate` đang reject `Slot.cell` ngoài `span.cycle`; phải bỏ rule đó trước Phase 4.
 22. `PatternDraft` hiện chỉ có `sentences`; cần `figures[]` + `cellId` + tags, không tạo hai nguồn.
+23. `complete` chỉ dựa tag có thể pass dù body rỗng; phải kiểm key → SentenceSpec hoặc auto-create.
+24. Draft cũ `{sentences}` cần migration `figures:[]`, `complete:false`; `keyFigures` không đọc làm nguồn.
 
 ---
 
@@ -1482,4 +1537,5 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 6. **Phase 4**: figure pool + tag; `TextureSpec` cell + `TEXTURE_CELLS` + `render_texture_bar`; pitch relative; door 2/4 bar; promote explicit.
 7. **`SentenceSpec` cell**: cho phép `Slot.cell` trong tile; cycle vẫn bắt buộc cell; test tile 4 bar + galop.
 8. **`PatternDraft`**: `figures[]` (id/cellId/spec/bars/tags) là nguồn; `sentences[]` giữ SentenceSpec; `keyFigures` chỉ projection.
+9. **`key` tag → body**: auto-create SentenceSpec nếu thiếu; complete gate kiểm body derivable; migration cũ `figures:[]`, `complete:false`.
 7. **`movement_span`**: thêm vào `_Ctx`/render/audio để scope `(span,index)` phân biệt `1M/3M` với `1Y`.
