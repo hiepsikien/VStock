@@ -50,10 +50,11 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -66,7 +67,9 @@ from app.sonify.form import (
     Meter,
 )
 from app.studio import audio as studio_audio
+from app.studio import musicxml_sentence
 from app.studio import musicxml_source
+from app.studio import session as studio_session
 from app.studio.store import studio_root
 from app.studio.texture_spec import (
     AuthoredEvent,
@@ -91,6 +94,7 @@ _EXTENSIONS = frozenset({".musicxml", ".xml"})
 _IMPORT_ID_PREFIX = "mxi_"
 _PASSAGE_ID_PREFIX = "mxp_"
 _MAX_AUTHORED_VOICES = 4
+_DEFAULT_DRAFTS_PER_DAY = 50
 
 # MusicXML meter → runtime form meter. ``6/8`` is three quarter-note beats,
 # matching ``app.studio.audio._METER_BEATS``.
@@ -183,6 +187,35 @@ class PassageResponse(BaseModel):
     errors: list[ErrorOut] = Field(default_factory=list)
 
 
+class NewPatternRequest(BaseModel):
+    """The pattern metadata a ``new`` draft needs.
+
+    ``meter`` is optional: when omitted the passage meter is used. ``renderer``
+    is ``villa`` in the MVP; other families stay out of the draft surface.
+    """
+
+    id: str
+    label: str
+    composer: str
+    renderer: str = "villa"
+    meter: str | None = None
+    templateId: str | None = None
+
+
+class SentenceDraftRequest(BaseModel):
+    # Whole-bar draft range. Beat offsets are accepted for UI symmetry but the
+    # draft uses whole bars and returns a warning when they are partial.
+    barStart: int
+    beatStart: float = 0.0
+    barEnd: int
+    beatEnd: float | None = None
+    mode: str
+    pattern: str | None = None
+    templateId: str | None = None
+    newPattern: NewPatternRequest | None = None
+    voices: list[int] | None = None
+
+
 class ErrorResponse(BaseModel):
     ok: bool = False
     errors: list[ErrorOut] = Field(default_factory=list)
@@ -234,6 +267,15 @@ def passages_max() -> int:
     return _env_int("VSTOCK_STUDIO_MUSICXML_PASSAGES_MAX", _DEFAULT_PASSAGES_MAX)
 
 
+def drafts_per_day() -> int:
+    """Per-owner daily draft cap, read per request so tests can tune it."""
+    return _env_int(
+        "VSTOCK_STUDIO_MUSICXML_DRAFTS_PER_DAY",
+        _DEFAULT_DRAFTS_PER_DAY,
+        minimum=0,
+    )
+
+
 def imports_root() -> Path:
     path = studio_root() / "imports"
     path.mkdir(parents=True, exist_ok=True)
@@ -251,6 +293,7 @@ def import_path(import_id: str) -> Path:
 @dataclass
 class _ImportRecord:
     import_id: str
+    owner_id: str
     filename: str
     score: Any
     summary: ImportSummary
@@ -262,14 +305,69 @@ class _ImportRecord:
 @dataclass
 class _PassageRecord:
     passage_id: str
+    owner_id: str
     import_id: str
     payload: dict[str, Any]
     created_at: float
 
 
+@dataclass(frozen=True)
+class _DraftQuota:
+    allowed: bool
+    day: str
+    used: int
+    limit: int
+    retry_after_seconds: int
+
+
 _LOCK = threading.RLock()
 _IMPORTS: dict[str, _ImportRecord] = {}
 _PASSAGES: dict[str, _PassageRecord] = {}
+
+# Process-local draft counters. This is deliberately a small in-memory map:
+# draft render is cheap next to upload/analyze, and a restart dropping the count
+# is acceptable for the beta. It can be replaced by `app.studio.quota` (SQLite,
+# `consume_with_global`) once drafts need to survive a deploy or share workers.
+_DRAFT_LOCK = threading.Lock()
+_DRAFT_USAGE: dict[tuple[str, str], int] = {}
+
+
+def _utc_day(now: datetime | None = None) -> str:
+    moment = now if now is not None else datetime.now(timezone.utc)
+    return moment.astimezone(timezone.utc).date().isoformat()
+
+
+def _seconds_until_utc_midnight(now: datetime | None = None) -> int:
+    moment = now if now is not None else datetime.now(timezone.utc)
+    moment = moment.astimezone(timezone.utc)
+    tomorrow = (moment + timedelta(days=1)).date()
+    reset = datetime(
+        tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=timezone.utc
+    )
+    return max(1, int((reset - moment).total_seconds()))
+
+
+def consume_draft(owner_id: str, *, now: datetime | None = None) -> _DraftQuota:
+    """Spend one draft for ``owner_id`` today, or report the 429 data."""
+    day = _utc_day(now)
+    limit = drafts_per_day()
+    with _DRAFT_LOCK:
+        # Keep only today's rows; the map is tiny but should not grow forever.
+        for key in [key for key in _DRAFT_USAGE if key[1] != day]:
+            del _DRAFT_USAGE[key]
+        key = (owner_id, day)
+        used = _DRAFT_USAGE.get(key, 0)
+        allowed = used < limit
+        if allowed:
+            used += 1
+            _DRAFT_USAGE[key] = used
+    return _DraftQuota(
+        allowed=allowed,
+        day=day,
+        used=used,
+        limit=limit,
+        retry_after_seconds=_seconds_until_utc_midnight(now),
+    )
 
 
 def clear_store() -> None:
@@ -277,6 +375,8 @@ def clear_store() -> None:
     with _LOCK:
         _IMPORTS.clear()
         _PASSAGES.clear()
+    with _DRAFT_LOCK:
+        _DRAFT_USAGE.clear()
 
 
 def _prune_locked(now: float) -> None:
@@ -312,6 +412,25 @@ def _prune_locked(now: float) -> None:
             continue
         if modified < import_cutoff:
             path.unlink(missing_ok=True)
+
+
+def _import_for(import_id: str, owner_id: str) -> _ImportRecord | None:
+    """Owner-scoped import lookup: another namespace is indistinguishable from 404."""
+    with _LOCK:
+        _prune_locked(time.time())
+        record = _IMPORTS.get(import_id)
+    if record is None or record.owner_id != owner_id:
+        return None
+    return record
+
+
+def _passage_for(passage_id: str, owner_id: str) -> _PassageRecord | None:
+    with _LOCK:
+        _prune_locked(time.time())
+        record = _PASSAGES.get(passage_id)
+    if record is None or record.owner_id != owner_id:
+        return None
+    return record
 
 
 def _write_upload(import_id: str, raw: bytes) -> None:
@@ -464,7 +583,10 @@ def _import_payload(record: _ImportRecord) -> dict[str, Any]:
         415: {"model": ErrorResponse},
     },
 )
-async def upload_musicxml(file: UploadFile = File(...)) -> Any:
+async def upload_musicxml(
+    file: UploadFile = File(...),
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
+) -> Any:
     """Parse one ``.musicxml``/``.xml`` upload and keep it for passages."""
     filename = Path((file.filename or "").strip()).name[:255]
     suffix = Path(filename).suffix.lower() if filename else ""
@@ -512,11 +634,14 @@ async def upload_musicxml(file: UploadFile = File(...)) -> Any:
             f"the score has too many notes (max {max_score_notes()})",
         )
 
-    digest = hashlib.sha256(raw).hexdigest()
+    # The owner is part of the id so two sessions uploading identical bytes get
+    # separate records; within one session the id is still content-stable.
+    digest = hashlib.sha256(owner_id.encode("utf-8") + b"\0" + raw).hexdigest()
     import_id = f"{_IMPORT_ID_PREFIX}{digest[:16]}"
     summary = _summary(score, filename)
     record = _ImportRecord(
         import_id=import_id,
+        owner_id=owner_id,
         filename=filename,
         score=score,
         summary=summary,
@@ -537,11 +662,12 @@ async def upload_musicxml(file: UploadFile = File(...)) -> Any:
     response_model=ImportResponse,
     responses={404: {"model": ErrorResponse}},
 )
-def get_musicxml_import(import_id: str) -> Any:
-    """Return the stored summary/notes/warnings for one upload."""
-    with _LOCK:
-        _prune_locked(time.time())
-        record = _IMPORTS.get(import_id)
+def get_musicxml_import(
+    import_id: str,
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
+) -> Any:
+    """Return the stored summary/notes/warnings for one owned upload."""
+    record = _import_for(import_id, owner_id)
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -1164,6 +1290,7 @@ def _range_meter(
 def _passage_payload(
     *,
     import_id: str,
+    owner_id: str,
     bar_start: int,
     bar_end: int,
     voices: list[int],
@@ -1362,6 +1489,7 @@ def _passage_payload(
         now = time.time()
         _PASSAGES[passage_id] = _PassageRecord(
             passage_id=passage_id,
+            owner_id=owner_id,
             import_id=import_id,
             payload=payload,
             created_at=now,
@@ -1375,11 +1503,13 @@ def _passage_payload(
     response_model=PassageResponse,
     responses={404: {"model": ErrorResponse}},
 )
-def create_musicxml_passage(import_id: str, body: PassageRequest) -> Any:
+def create_musicxml_passage(
+    import_id: str,
+    body: PassageRequest,
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
+) -> Any:
     """Validate and preview one 1-based tick range (bars plus beat offsets)."""
-    with _LOCK:
-        _prune_locked(time.time())
-        record = _IMPORTS.get(import_id)
+    record = _import_for(import_id, owner_id)
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -1396,6 +1526,7 @@ def create_musicxml_passage(import_id: str, body: PassageRequest) -> Any:
     voices = sorted({int(voice) for voice in body.voices}) if body.voices else []
     return _passage_payload(
         import_id=import_id,
+        owner_id=owner_id,
         bar_start=body.barStart,
         bar_end=body.barEnd,
         voices=voices,
@@ -1410,14 +1541,122 @@ def create_musicxml_passage(import_id: str, body: PassageRequest) -> Any:
     response_model=PassageResponse,
     responses={404: {"model": ErrorResponse}},
 )
-def get_musicxml_passage(passage_id: str) -> Any:
-    """Return a passage built by ``POST .../passage`` until its TTL expires."""
-    with _LOCK:
-        _prune_locked(time.time())
-        record = _PASSAGES.get(passage_id)
+def get_musicxml_passage(
+    passage_id: str,
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
+) -> Any:
+    """Return an owned passage until its TTL expires."""
+    record = _passage_for(passage_id, owner_id)
     if record is None:
         raise HTTPException(
             status_code=404,
             detail={"code": "passage_not_found", "message": "No such passage"},
         )
     return record.payload
+
+
+# ---------------------------------------------------------------------------
+# Sentence draft
+
+
+def _draft_quota_response(decision: _DraftQuota) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "ok": False,
+            "errors": [
+                {
+                    "path": "quota",
+                    "message": (
+                        "daily MusicXML draft quota "
+                        f"({decision.limit}) is exhausted"
+                    ),
+                }
+            ],
+            "limit": decision.limit,
+            "day": decision.day,
+            "retryAfter": decision.retry_after_seconds,
+        },
+        headers={"Retry-After": str(decision.retry_after_seconds)},
+    )
+
+
+@router.post(
+    "/musicxml/{import_id}/sentence-draft",
+    responses={
+        404: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+    },
+)
+def create_sentence_draft(
+    import_id: str,
+    body: SentenceDraftRequest,
+    owner_id: str = Depends(studio_session.owner_or_anonymous),
+) -> Any:
+    """Build one sentence draft from a whole-bar passage.
+
+    The response follows the Studio validator convention: structural errors are
+    a 200 body ``{ok: false, errors: [...]}``. Missing/foreign records are 404;
+    an exhausted per-owner draft quota is a structured 429.
+    """
+    record = _import_for(import_id, owner_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "import_not_found", "message": "No such import"},
+        )
+
+    errors = _validate_range(
+        body.barStart, body.barEnd, record.summary.measureCount
+    )
+    errors.extend(_validate_voices(body.voices))
+    if errors:
+        return {"ok": False, "errors": [error.model_dump() for error in errors]}
+
+    # The draft is whole-bar, so its meter is the constant meter of the whole
+    # selected bar range. The beat window is still resolved to reject invalid
+    # offsets and empty ranges; its meter is intentionally not substituted for
+    # the whole-bar one when a partial range touches only some of the bars.
+    meter, meter_errors = _range_meter(
+        record.summary, body.barStart, body.barEnd
+    )
+    if meter_errors:
+        return {
+            "ok": False,
+            "errors": [error.model_dump() for error in meter_errors],
+        }
+
+    window, window_errors = _resolve_beat_window(
+        record.summary,
+        body.barStart,
+        body.barEnd,
+        body.beatStart,
+        body.beatEnd,
+    )
+    if window_errors or window is None:
+        return {
+            "ok": False,
+            "errors": [error.model_dump() for error in window_errors],
+        }
+
+    draft = musicxml_sentence.prepare_draft(
+        import_id=import_id,
+        meter=meter,
+        bar_start=body.barStart,
+        bar_end=body.barEnd,
+        mode=body.mode,
+        pattern=body.pattern,
+        template_id=body.templateId,
+        new_pattern=(
+            body.newPattern.model_dump() if body.newPattern is not None else None
+        ),
+        beat_start=window.beat_start,
+        beat_end=window.beat_end,
+    )
+    if not draft.ok:
+        return draft.as_error()
+
+    decision = consume_draft(owner_id)
+    if not decision.allowed:
+        return _draft_quota_response(decision)
+    return musicxml_sentence.render_draft(draft)

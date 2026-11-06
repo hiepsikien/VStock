@@ -41,6 +41,9 @@ class SpecErrorOut(BaseModel):
 class ExportRequest(BaseModel):
     spec: dict[str, Any]
     fixture: dict[str, Any] = Field(default_factory=dict)
+    # Draft-only family override (e.g. a new Villa pattern). Production clients
+    # omit it; the family then comes from `dispatch.family_for`.
+    family: str | None = None
 
 
 class ExportResponse(BaseModel):
@@ -59,10 +62,12 @@ def _parse_error(exc: Exception) -> SpecErrorOut:
 
 
 def _compile(
-    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+    spec: SentenceSpec,
+    fixture: Mapping[str, Any] | None = None,
+    family: str | None = None,
 ) -> ExportResponse:
     try:
-        bundle = compiler.compile_bundle(spec, fixture)
+        bundle = compiler.compile_bundle(spec, fixture, family=family)
     except compiler.CompileError as exc:
         return ExportResponse(
             ok=False,
@@ -86,7 +91,7 @@ def export_sentence(body: ExportRequest) -> ExportResponse:
         spec = parse_spec(body.spec)
     except _PARSE_ERRORS as exc:
         return ExportResponse(ok=False, errors=[_parse_error(exc)])
-    return _compile(spec, body.fixture)
+    return _compile(spec, body.fixture, body.family)
 
 
 @router.post(

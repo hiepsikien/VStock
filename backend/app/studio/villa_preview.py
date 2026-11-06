@@ -21,6 +21,7 @@ agnostic; the Torroba preview owns the file but not the shape of a `_Ctx`.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any, Mapping
 
 from app.sonify import sentence_specs
@@ -106,18 +107,42 @@ def _strip_id(message: str, spec: SentenceSpec) -> str:
     return message[len(prefix):] if message.startswith(prefix) else message
 
 
-def validate_villa_spec(spec: SentenceSpec) -> list[Error]:
-    """Schema, Villa-pattern, and figure-registry errors for one candidate."""
+def validate_villa_spec(
+    spec: SentenceSpec,
+    allowed_patterns: Collection[str] | None = None,
+    allow_draft_pattern: bool = False,
+) -> list[Error]:
+    """Schema, Villa-pattern, and figure-registry errors for one candidate.
+
+    `allowed_patterns` is the draft seam: a draft pattern created by the server
+    is added to the committed Villa set for this call only. `allow_draft_pattern`
+    accepts any non-empty pattern; callers that use it must have created or
+    validated that id themselves. Neither option mutates `VILLA_PATTERNS`.
+    """
     errors: list[Error] = []
     if not isinstance(spec.id, str) or not spec.id.strip():
         errors.append(Error("id", "id must be a non-empty string"))
 
-    if not isinstance(spec.pattern, str) or spec.pattern not in VILLA_PATTERNS:
+    patterns = set(VILLA_PATTERNS)
+    if allowed_patterns is not None:
+        patterns.update(
+            pattern
+            for pattern in allowed_patterns
+            if isinstance(pattern, str) and pattern
+        )
+    if (
+        allow_draft_pattern
+        and isinstance(spec.pattern, str)
+        and spec.pattern
+    ):
+        patterns.add(spec.pattern)
+
+    if not isinstance(spec.pattern, str) or spec.pattern not in patterns:
         errors.append(
             Error(
                 "pattern",
                 f"pattern {spec.pattern!r} is not a Villa pattern "
-                f"({', '.join(sorted(VILLA_PATTERNS))})",
+                f"({', '.join(sorted(patterns))})",
             )
         )
     if not isinstance(spec.meter, str) or (
@@ -280,6 +305,17 @@ def _resolve_fixture(
     }
 
 
+def resolve_fixture(
+    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Public alias for the bounded Villa fixture resolver.
+
+    The draft endpoint needs the same defaults the preview applies, but not the
+    leading underscore of the older internal helper.
+    """
+    return _resolve_fixture(spec, fixture)
+
+
 # ---------------------------------------------------------------------------
 # plan / render
 
@@ -359,10 +395,20 @@ def _villa_notes(
 
 
 def preview_villa_sentence(
-    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+    spec: SentenceSpec,
+    fixture: Mapping[str, Any] | None = None,
+    allowed_patterns: Collection[str] | None = None,
+    allow_draft_pattern: bool = False,
 ) -> PreviewResult:
-    """Validate one candidate Villa spec and render one bounded fixture."""
-    errors = validate_villa_spec(spec)
+    """Validate one candidate Villa spec and render one bounded fixture.
+
+    The keyword options are the draft seam; see `validate_villa_spec`.
+    """
+    errors = validate_villa_spec(
+        spec,
+        allowed_patterns=allowed_patterns,
+        allow_draft_pattern=allow_draft_pattern,
+    )
     if errors:
         return PreviewResult(ok=False, errors=tuple(errors))
 

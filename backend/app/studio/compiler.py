@@ -236,25 +236,30 @@ def _registration(spec: SentenceSpec, family: str) -> dict[str, Any]:
 
 
 def compile_sentence(
-    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+    spec: SentenceSpec,
+    fixture: Mapping[str, Any] | None = None,
+    family: str | None = None,
 ) -> dict[str, Any]:
     """Validate and preview one spec, returning its bundle.
 
     Raises `CompileError` (with the family's JSON-path errors) instead of
     returning a partial bundle. Reads the registry and the committed examples;
-    writes nothing and registers nothing.
+    writes nothing and registers nothing. `family` is the draft-only override
+    used for a new pattern; production callers omit it.
     """
-    family = dispatch.family_for(spec.pattern)
-    errors = dispatch.validate(spec)
-    if errors or family is None:
+    if family is not None and family not in dispatch.FAMILIES:
+        raise CompileError((Error("family", f"unknown family {family!r}"),))
+    owner = family if family is not None else dispatch.family_for(spec.pattern)
+    errors = dispatch.validate(spec, family=owner)
+    if errors or owner is None:
         raise CompileError(tuple(errors) or (Error("pattern", "unknown pattern"),))
 
-    result = dispatch.preview_sentence(spec, fixture)
+    result = dispatch.preview_sentence(spec, fixture, family=owner)
     if not result.ok:
         raise CompileError(result.errors or (Error("spec", "preview failed"),))
 
     try:
-        resolved = dispatch.resolve_fixture(spec, fixture)
+        resolved = dispatch.resolve_fixture(spec, fixture, family=owner)
     except (ValueError, TypeError) as exc:
         raise CompileError((Error("fixture", str(exc)),)) from None
 
@@ -269,19 +274,21 @@ def compile_sentence(
             "renderHash": result.render_hash,
             "matrix": list(result.matrix),
         },
-        "registration": _registration(spec, family),
+        "registration": _registration(spec, owner),
     }
 
 
 def compile_bundle(
-    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+    spec: SentenceSpec,
+    fixture: Mapping[str, Any] | None = None,
+    family: str | None = None,
 ) -> dict[str, Any]:
     """`compile_sentence` under its artifact name: the bundle, with no writes.
 
     Kept as the counterpart to `export_bundle` so callers can say "compile" vs
     "compile and write". It raises `CompileError` exactly like `compile_sentence`.
     """
-    return compile_sentence(spec, fixture)
+    return compile_sentence(spec, fixture, family=family)
 
 
 def _json(payload: Any) -> str:

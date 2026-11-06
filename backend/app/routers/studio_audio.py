@@ -32,6 +32,8 @@ class AudioRequest(BaseModel):
     spec: dict[str, Any] | None = None
     fixture: dict[str, Any] = Field(default_factory=dict)
     renderHash: str | None = None
+    # Draft-only family override. Production clients omit it.
+    family: str | None = None
 
 
 class AudioResponse(BaseModel):
@@ -66,7 +68,9 @@ def sentence_audio(body: AudioRequest) -> AudioResponse:
                 ok=False,
                 errors=[SpecErrorOut(path="spec", message=str(exc))],
             )
-        return _response(studio_audio.preview_audio(spec, body.fixture))
+        return _response(
+            studio_audio.preview_audio(spec, body.fixture, family=body.family)
+        )
     if body.renderHash is not None:
         return _response(studio_audio.audio_for_hash(body.renderHash))
     return AudioResponse(
