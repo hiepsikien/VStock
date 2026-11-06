@@ -8,6 +8,8 @@ import {
   Text,
   TextInput,
   View,
+  type PointerEvent as RNPointerEvent,
+  type ScrollViewInstance,
 } from 'react-native';
 import { getApiBaseUrl } from '../api/client';
 import { palette, TOUCH_TARGET } from '../musicalize/palette';
@@ -25,14 +27,22 @@ import {
   barLayouts,
   beatCountLabel,
   buildRoleLanes,
+  clampZoom,
   defaultPassageRange,
   keySignatureLabel,
   meterChangeLabel,
   musicXmlGrid,
   normalizeMusicXmlSummary,
+  passageBeatLabel,
+  passageEndBeatLabel,
   passageRangeLabel,
+  playheadTickAt,
+  rangeTicks,
+  selectionFromTicks,
+  snapTick,
   tempoLabel,
   validatePassageRange,
+  zoomLabel,
   type MusicXmlImport,
   type MusicXmlPassage,
   type MusicXmlRole,
@@ -53,11 +63,12 @@ import { byteSizeLabel, describeRequestFailure, valueLines } from './spec';
  * every gap is a faint explicit rest cell (empty cell = rest).
  */
 
-const TICK_WIDTH = 1.2;
+const BASE_TICK_WIDTH = 1.2;
 const ROW_HEIGHT = 30;
 const RULER_HEIGHT = 38;
 const LANE_LABEL_WIDTH = 62;
 const MIN_NOTE_WIDTH = 2;
+const PLAYHEAD_MARGIN = 48;
 
 const ROLE_COLORS: Record<MusicXmlRole, string> = {
   lead: palette.data,
@@ -91,6 +102,7 @@ type AudioState = {
   url: string;
   durationSec: number;
   playing: boolean;
+  bpm: number;
 };
 
 type ValidationState =
@@ -102,6 +114,32 @@ type ValidationState =
 function parseBarText(value: string): number {
   const trimmed = value.trim();
   return /^\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+}
+
+/** Start beat is 1-based; the API uses a 0-based offset. */
+function parseStartBeatText(value: string): number {
+  const trimmed = value.trim();
+  return /^\d+(?:\.\d+)?$/.test(trimmed) ? Number(trimmed) - 1 : Number.NaN;
+}
+
+/**
+ * End beat is 1-based **inclusive** in the UI, while the API's `beatEnd` is
+ * exclusive. `2` means "through beat 2"; the payload uses offset 2.
+ */
+function parseEndBeatText(value: string): number {
+  const trimmed = value.trim();
+  return /^\d+(?:\.\d+)?$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+}
+
+function startBeatFieldText(offset: number): string {
+  if (!Number.isFinite(offset)) return '';
+  const value = Math.round((offset + 1) * 1_000_000) / 1_000_000;
+  return String(value);
+}
+
+function endBeatFieldText(offset: number): string {
+  if (!Number.isFinite(offset) || offset <= 0) return '';
+  return String(Math.round(offset * 1_000_000) / 1_000_000);
 }
 
 function warningUnion(imported: MusicXmlImport | null): string[] {
@@ -131,8 +169,13 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const [upload, setUpload] = useState<UploadState>({ kind: 'idle' });
   const [imported, setImported] = useState<MusicXmlImport | null>(null);
   const [startText, setStartText] = useState('1');
+  const [startBeatText, setStartBeatText] = useState('1');
   const [endText, setEndText] = useState('1');
+  const [endBeatText, setEndBeatText] = useState('1');
   const [tapStart, setTapStart] = useState<number | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [dragging, setDragging] = useState(false);
+  const [playheadTick, setPlayheadTick] = useState<number | null>(null);
   const [voices, setVoices] = useState<number[]>([]);
   const [passage, setPassage] = useState<MusicXmlPassage | null>(null);
   const [passageBusy, setPassageBusy] = useState<'play' | 'use' | null>(null);
@@ -147,13 +190,33 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const passageController = useRef<AbortController | null>(null);
   const validateController = useRef<AbortController | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
+  const playheadFrame = useRef<number | null>(null);
+  const playheadSpan = useRef<{ startTick: number; endTick: number; bpm: number } | null>(
+    null,
+  );
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
+  const scrollOffset = useRef(0);
+  const viewportWidth = useRef(0);
+  const pendingScroll = useRef<number | null>(null);
+  const dragSurface = useRef<React.ComponentRef<typeof View> | null>(null);
+  const dragAnchor = useRef<{ tick: number } | null>(null);
+
+  const cancelPlayhead = useCallback(() => {
+    if (playheadFrame.current != null) {
+      cancelAnimationFrame(playheadFrame.current);
+      playheadFrame.current = null;
+    }
+    playheadSpan.current = null;
+    setPlayheadTick(null);
+  }, []);
 
   const stopPlayer = useCallback(() => {
     const current = player.current;
     player.current = null;
     if (current) current.pause();
+    cancelPlayhead();
     setAudio(null);
-  }, []);
+  }, [cancelPlayhead]);
 
   const resetPassage = useCallback(() => {
     passageController.current?.abort();
@@ -177,6 +240,10 @@ export function MusicXmlPanel({ compact = false }: Props) {
       const current = player.current;
       player.current = null;
       if (current) current.pause();
+      if (playheadFrame.current != null) {
+        cancelAnimationFrame(playheadFrame.current);
+        playheadFrame.current = null;
+      }
     },
     [],
   );
@@ -196,13 +263,11 @@ export function MusicXmlPanel({ compact = false }: Props) {
   );
   const range: PassageRange = {
     barStart: parseBarText(startText),
+    beatStart: parseStartBeatText(startBeatText),
     barEnd: parseBarText(endText),
+    beatEnd: parseEndBeatText(endBeatText),
   };
-  const rangeValidation = validatePassageRange(
-    bars,
-    range.barStart,
-    range.barEnd,
-  );
+  const rangeValidation = validatePassageRange(bars, range);
   const rangeLabel = passageRangeLabel(bars, range);
   const voicesInScore = useMemo(() => voiceOptions(imported), [imported]);
   const warnings = useMemo(() => warningUnion(imported), [imported]);
@@ -215,22 +280,130 @@ export function MusicXmlPanel({ compact = false }: Props) {
         : [],
     [passage, warnings],
   );
-  const matrixWidth = Math.max(1, grid.totalTicks * TICK_WIDTH);
+  const tickWidth = BASE_TICK_WIDTH * zoom;
+  const matrixWidth = Math.max(1, grid.totalTicks * tickWidth);
+  const laneBodyHeight = Math.max(1, lanes.length) * ROW_HEIGHT;
   const summary = imported?.summary ?? EMPTY_SUMMARY;
+  const tickWidthRef = useRef(tickWidth);
+  tickWidthRef.current = tickWidth;
+
+  const selectionTicks = useMemo(() => {
+    if (bars.length === 0) return null;
+    if (
+      !Number.isFinite(range.barStart) ||
+      !Number.isFinite(range.barEnd) ||
+      !Number.isFinite(range.beatStart) ||
+      !Number.isFinite(range.beatEnd)
+    ) {
+      return null;
+    }
+    if (
+      range.barStart < 1 ||
+      range.barEnd > bars.length ||
+      range.barStart > range.barEnd
+    ) {
+      return null;
+    }
+    const ticks = rangeTicks(grid, range);
+    return ticks.endTick > ticks.startTick ? ticks : null;
+  }, [
+    bars.length,
+    grid,
+    range.barStart,
+    range.beatEnd,
+    range.beatStart,
+    range.barEnd,
+  ]);
 
   const selectedBars = useMemo(() => {
     const selected = new Set<number>();
-    if (bars.length === 0 || !rangeValidation.ok) return selected;
-    const from = Math.min(range.barStart, range.barEnd);
-    const to = Math.max(range.barStart, range.barEnd);
-    for (let bar = from; bar <= to; bar += 1) selected.add(bar);
+    if (bars.length === 0) return selected;
+    if (
+      !Number.isInteger(range.barStart) ||
+      !Number.isInteger(range.barEnd) ||
+      range.barStart < 1 ||
+      range.barEnd > bars.length ||
+      range.barStart > range.barEnd
+    ) {
+      return selected;
+    }
+    for (let bar = range.barStart; bar <= range.barEnd; bar += 1) {
+      selected.add(bar);
+    }
     return selected;
-  }, [bars.length, range.barEnd, range.barStart, rangeValidation.ok]);
+  }, [bars.length, range.barEnd, range.barStart]);
 
   const applyRange = useCallback((next: PassageRange) => {
     setStartText(String(next.barStart));
+    setStartBeatText(startBeatFieldText(next.beatStart));
     setEndText(String(next.barEnd));
+    setEndBeatText(endBeatFieldText(next.beatEnd));
   }, []);
+
+  const changeZoom = useCallback(
+    (nextZoom: number) => {
+      const target = clampZoom(nextZoom);
+      if (target === zoom) return;
+      const ratio = target / zoom;
+      const width = viewportWidth.current;
+      pendingScroll.current = Math.max(
+        0,
+        (scrollOffset.current + width / 2) * ratio - width / 2,
+      );
+      setZoom(target);
+    },
+    [zoom],
+  );
+
+  useEffect(() => {
+    const pending = pendingScroll.current;
+    if (pending == null) return;
+    pendingScroll.current = null;
+    const frame = requestAnimationFrame(() => {
+      scrollOffset.current = pending;
+      scrollRef.current?.scrollTo({ x: pending, animated: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [zoom]);
+
+  const ensurePlayheadVisible = useCallback((tick: number) => {
+    const scroll = scrollRef.current;
+    const width = viewportWidth.current;
+    if (!scroll || width <= 0) return;
+    const x = tick * tickWidthRef.current;
+    const offset = scrollOffset.current;
+    const margin = Math.min(PLAYHEAD_MARGIN, width / 4);
+    if (x >= offset + margin && x <= offset + width - margin) return;
+    const next = Math.max(0, x - width / 2);
+    scrollOffset.current = next;
+    scroll.scrollTo({ x: next, animated: false });
+  }, []);
+
+  const startPlayhead = useCallback(
+    (
+      element: HTMLAudioElement,
+      span: { startTick: number; endTick: number; bpm: number },
+    ) => {
+      if (playheadFrame.current != null) {
+        cancelAnimationFrame(playheadFrame.current);
+      }
+      playheadSpan.current = span;
+      setPlayheadTick(span.startTick);
+      const step = () => {
+        const active = playheadSpan.current;
+        if (!active || player.current !== element) return;
+        const raw = playheadTickAt(element.currentTime, active.bpm, active.startTick);
+        const next = Math.min(active.endTick, Math.max(active.startTick, raw));
+        setPlayheadTick(next);
+        ensurePlayheadVisible(next);
+        if (!element.paused && !element.ended) {
+          playheadFrame.current = requestAnimationFrame(step);
+        }
+      };
+      playheadFrame.current = requestAnimationFrame(step);
+    },
+    [ensurePlayheadVisible],
+  );
 
   const onUpload = useCallback(async () => {
     if (!file) return;
@@ -287,7 +460,9 @@ export function MusicXmlPanel({ compact = false }: Props) {
           imported.importId,
           {
             barStart: range.barStart,
+            beatStart: range.beatStart,
             barEnd: range.barEnd,
+            beatEnd: range.beatEnd,
             ...(voices.length ? { voices } : {}),
           },
           controller.signal,
@@ -315,12 +490,23 @@ export function MusicXmlPanel({ compact = false }: Props) {
         }
       }
     },
-    [imported, passageBusy, range.barEnd, range.barStart, rangeValidation.ok, voices],
+    [
+      imported,
+      passageBusy,
+      range.barEnd,
+      range.barStart,
+      range.beatEnd,
+      range.beatStart,
+      rangeValidation.ok,
+      voices,
+    ],
   );
 
   const playPassage = useCallback(async () => {
     if (Platform.OS !== 'web') return;
     stopPlayer();
+    const span = selectionTicks;
+    if (!span) return;
     const data = await loadPassage('play');
     if (!data?.audioUrl) return;
     if (typeof Audio === 'undefined') {
@@ -338,19 +524,25 @@ export function MusicXmlPanel({ compact = false }: Props) {
       });
       return;
     }
+    const bpm = Number.isFinite(data.bpm) && data.bpm > 0 ? data.bpm : 96;
     const next = new Audio(url);
     player.current = next;
     next.onended = () => {
+      if (player.current !== next) return;
+      player.current = null;
+      cancelPlayhead();
       setAudio((current) =>
         current?.url === url ? { ...current, playing: false } : current,
       );
     };
     next.onerror = () => {
+      if (player.current !== next) return;
+      player.current = null;
+      cancelPlayhead();
       setPassageError({
         message: 'The browser could not play the passage WAV.',
         errors: [],
       });
-      if (player.current === next) player.current = null;
       setAudio(null);
     };
     try {
@@ -359,17 +551,20 @@ export function MusicXmlPanel({ compact = false }: Props) {
         url,
         durationSec: data.durationSec,
         playing: true,
+        bpm,
       });
+      startPlayhead(next, { ...span, bpm });
     } catch (error) {
       next.pause();
       if (player.current === next) player.current = null;
+      cancelPlayhead();
       setPassageError({
         message: describeRequestFailure(error),
         errors: [],
       });
       setAudio(null);
     }
-  }, [loadPassage, stopPlayer]);
+  }, [cancelPlayhead, loadPassage, selectionTicks, startPlayhead, stopPlayer]);
 
   const usePassage = useCallback(async () => {
     const data = await loadPassage('use');
@@ -414,18 +609,28 @@ export function MusicXmlPanel({ compact = false }: Props) {
 
   const tapBar = useCallback(
     (bar: number) => {
-      const next =
+      const barLayout = bars[bar - 1];
+      if (!barLayout) return;
+      const next: PassageRange =
         tapStart == null
-          ? { barStart: bar, barEnd: bar }
+          ? {
+              barStart: bar,
+              beatStart: 0,
+              barEnd: bar,
+              beatEnd: barLayout.quarterBeats,
+            }
           : {
               barStart: Math.min(tapStart, bar),
+              beatStart: 0,
               barEnd: Math.max(tapStart, bar),
+              beatEnd: (bars[Math.max(tapStart, bar) - 1] ?? barLayout)
+                .quarterBeats,
             };
       applyRange(next);
       setTapStart(tapStart == null ? bar : null);
       resetPassage();
     },
-    [applyRange, resetPassage, tapStart],
+    [applyRange, bars, resetPassage, tapStart],
   );
 
   const toggleVoice = useCallback(
@@ -445,11 +650,85 @@ export function MusicXmlPanel({ compact = false }: Props) {
     setTapStart(null);
     resetPassage();
   };
+  const onStartBeatChange = (value: string) => {
+    setStartBeatText(value);
+    setTapStart(null);
+    resetPassage();
+  };
   const onEndChange = (value: string) => {
     setEndText(value);
     setTapStart(null);
     resetPassage();
   };
+  const onEndBeatChange = (value: string) => {
+    setEndBeatText(value);
+    setTapStart(null);
+    resetPassage();
+  };
+
+  const tickFromClientX = useCallback(
+    (clientX: number): number | null => {
+      const node = dragSurface.current as unknown as HTMLElement | null;
+      const rect =
+        node && typeof node.getBoundingClientRect === 'function'
+          ? node.getBoundingClientRect()
+          : null;
+      if (!rect || rect.width <= 0) return null;
+      return snapTick((clientX - rect.left) / tickWidth);
+    },
+    [tickWidth],
+  );
+
+  const applyDragSelection = useCallback(
+    (anchor: number, current: number) => {
+      let start = Math.min(anchor, current);
+      let end = Math.max(anchor, current);
+      if (end - start < TICKS_PER_QUARTER) {
+        if (current < anchor) start = end - TICKS_PER_QUARTER;
+        else end = start + TICKS_PER_QUARTER;
+      }
+      applyRange(selectionFromTicks(grid, start, end));
+    },
+    [applyRange, grid],
+  );
+
+  const onPointerDown = useCallback(
+    (event: RNPointerEvent) => {
+      if (Platform.OS !== 'web') return;
+      const tick = tickFromClientX(event.nativeEvent.clientX);
+      if (tick == null) return;
+      event.preventDefault?.();
+      dragAnchor.current = { tick };
+      resetPassage();
+      applyRange(selectionFromTicks(grid, tick, tick + TICKS_PER_QUARTER));
+      setDragging(true);
+    },
+    [applyRange, grid, resetPassage, tickFromClientX],
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !dragging) return;
+    const onMove = (event: PointerEvent) => {
+      const anchor = dragAnchor.current;
+      if (!anchor) return;
+      const tick = tickFromClientX(event.clientX);
+      if (tick == null) return;
+      event.preventDefault();
+      applyDragSelection(anchor.tick, tick);
+    };
+    const onUp = () => {
+      dragAnchor.current = null;
+      setDragging(false);
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [applyDragSelection, dragging, tickFromClientX]);
 
   const canRequest =
     imported != null && rangeValidation.ok && passageBusy == null;
@@ -478,8 +757,10 @@ export function MusicXmlPanel({ compact = false }: Props) {
       <Text style={styles.hint}>
         Rhythm-first matrix. Lead is voice 1; Bass is the lowest non-lead note at
         each onset; Mid is everything left. Pitch stays hidden. Gaps are explicit
-        faint rest cells, never collapsed. Passage audio/spec is a preview only
-        and never touches the sentence editor.
+        faint rest cells, never collapsed. Drag the lane body to select
+        quarter-note beats, zoom the ruler without changing lane height, and Play
+        follows the preview audio with a vertical playhead. Passage audio/spec is
+        a preview only and never touches the sentence editor.
       </Text>
 
       {Platform.OS === 'web' ? (
@@ -601,7 +882,42 @@ export function MusicXmlPanel({ compact = false }: Props) {
 
           <View style={styles.matrixHeader}>
             <Text style={[type.section, styles.blockLabel]}>Passage matrix</Text>
-            <Text style={styles.legendHint}>empty cell = rest</Text>
+            <View style={styles.zoomRow}>
+              <Pressable
+                onPress={() => changeZoom(zoom - 0.25)}
+                accessibilityRole="button"
+                accessibilityLabel="Zoom out"
+                style={({ pressed }) => [
+                  styles.zoomButton,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <Text style={styles.zoomButtonText}>−</Text>
+              </Pressable>
+              <Text style={styles.zoomValue}>{zoomLabel(zoom)}</Text>
+              <Pressable
+                onPress={() => changeZoom(zoom + 0.25)}
+                accessibilityRole="button"
+                accessibilityLabel="Zoom in"
+                style={({ pressed }) => [
+                  styles.zoomButton,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <Text style={styles.zoomButtonText}>+</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => changeZoom(1)}
+                accessibilityRole="button"
+                accessibilityLabel="Reset zoom to 100%"
+                style={({ pressed }) => [
+                  styles.zoomReset,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <Text style={styles.zoomResetText}>100%</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.legendRow}>
@@ -618,7 +934,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
               <Text style={styles.legendText}>rest</Text>
             </View>
             <Text style={styles.legendHint}>
-              pitch hidden · tap a bar header to set start, then end
+              pitch hidden · drag the lanes for beats · tap a bar header for whole bars
             </Text>
           </View>
 
@@ -653,12 +969,24 @@ export function MusicXmlPanel({ compact = false }: Props) {
               horizontal
               showsHorizontalScrollIndicator
               style={styles.matrixScroll}
+              ref={scrollRef}
+              scrollEventThrottle={16}
+              onScroll={(event) => {
+                scrollOffset.current = event.nativeEvent.contentOffset.x;
+              }}
+              onLayout={(event) => {
+                viewportWidth.current = event.nativeEvent.layout.width;
+              }}
             >
-              <View style={{ width: matrixWidth }}>
+              <View style={{ width: matrixWidth, position: 'relative' }}>
                 <View style={[styles.ruler, { height: RULER_HEIGHT }]}>
                   {grid.bars.map((bar) => {
-                    const width = Math.max(2, bar.ticks * TICK_WIDTH);
+                    const width = Math.max(2, bar.ticks * tickWidth);
                     const selected = selectedBars.has(bar.bar);
+                    const showBarNumber =
+                      width >= 16 &&
+                      !(zoom < 1 && bar.bar % 2 === 0 && !bar.meterStart);
+                    const showMeter = bar.meterStart && width >= 24;
                     return (
                       <Pressable
                         key={`bar:${bar.bar}`}
@@ -671,7 +999,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
                         style={({ pressed }) => [
                           styles.rulerCell,
                           {
-                            left: bar.startTick * TICK_WIDTH,
+                            left: bar.startTick * tickWidth,
                             width,
                             height: RULER_HEIGHT,
                           },
@@ -680,8 +1008,10 @@ export function MusicXmlPanel({ compact = false }: Props) {
                           pressed ? styles.pressed : null,
                         ]}
                       >
-                        <Text style={styles.barNumber}>{bar.bar}</Text>
-                        {bar.meterStart ? (
+                        {showBarNumber ? (
+                          <Text style={styles.barNumber}>{bar.bar}</Text>
+                        ) : null}
+                        {showMeter ? (
                           <Text style={styles.meterText} numberOfLines={1}>
                             {bar.meter}
                           </Text>
@@ -692,7 +1022,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
                             pointerEvents="none"
                             style={[
                               styles.beatTick,
-                              { left: tick * TICK_WIDTH },
+                              { left: tick * tickWidth },
                             ]}
                           />
                         ))}
@@ -705,7 +1035,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
                   style={{
                     position: 'relative',
                     width: matrixWidth,
-                    height: Math.max(1, lanes.length) * ROW_HEIGHT,
+                    height: laneBodyHeight,
                   }}
                 >
                   {grid.bars.map((bar) => (
@@ -715,8 +1045,8 @@ export function MusicXmlPanel({ compact = false }: Props) {
                       style={[
                         styles.barGrid,
                         {
-                          left: bar.startTick * TICK_WIDTH,
-                          width: Math.max(2, bar.ticks * TICK_WIDTH),
+                          left: bar.startTick * tickWidth,
+                          width: Math.max(2, bar.ticks * tickWidth),
                         },
                         selectedBars.has(bar.bar) ? styles.barGridSelected : null,
                       ]}
@@ -726,7 +1056,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
                           key={`grid-beat:${bar.bar}:${tick}`}
                           style={[
                             styles.gridBeatTick,
-                            { left: tick * TICK_WIDTH },
+                            { left: tick * tickWidth },
                           ]}
                         />
                       ))}
@@ -751,11 +1081,64 @@ export function MusicXmlPanel({ compact = false }: Props) {
                           cell={cell}
                           role={lane.role}
                           offsetTicks={barStartTicks.get(cell.bar) ?? 0}
+                          tickWidth={tickWidth}
+                          zoom={zoom}
                         />
                       ))}
                     </View>
                   ))}
+
+                  {selectionTicks ? (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.selectionOverlay,
+                        {
+                          left: selectionTicks.startTick * tickWidth,
+                          width: Math.max(
+                            1,
+                            (selectionTicks.endTick - selectionTicks.startTick) *
+                              tickWidth,
+                          ),
+                          height: laneBodyHeight,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.selectionEdge, { left: 0 }]} />
+                      <View style={[styles.selectionEdge, { right: 0 }]} />
+                      <Text style={[styles.selectionTag, { left: 3 }]}>
+                        {passageBeatLabel(range.beatStart)}
+                      </Text>
+                      <Text style={[styles.selectionTag, styles.selectionTagEnd]}>
+                        {passageEndBeatLabel(range.beatEnd)}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {Platform.OS === 'web' ? (
+                    <View
+                      ref={dragSurface}
+                      onPointerDown={onPointerDown}
+                      style={[
+                        styles.dragSurface,
+                        { width: matrixWidth, height: laneBodyHeight },
+                      ]}
+                    />
+                  ) : null}
                 </View>
+
+                {playheadTick != null ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.playhead,
+                      {
+                        left: playheadTick * tickWidth - 1,
+                        height: RULER_HEIGHT + laneBodyHeight,
+                      },
+                    ]}
+                  />
+                ) : null}
               </View>
             </ScrollView>
           </View>
@@ -778,6 +1161,20 @@ export function MusicXmlPanel({ compact = false }: Props) {
                 />
               </View>
               <View style={styles.rangeField}>
+                <Text style={styles.inputLabel}>Start beat</Text>
+                <TextInput
+                  value={startBeatText}
+                  onChangeText={onStartBeatChange}
+                  keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  maxLength={6}
+                  style={styles.rangeInput}
+                  placeholder="1"
+                  placeholderTextColor={palette.textFaint}
+                  accessibilityLabel="Passage start beat"
+                />
+              </View>
+              <View style={styles.rangeField}>
                 <Text style={styles.inputLabel}>End bar</Text>
                 <TextInput
                   value={endText}
@@ -791,10 +1188,27 @@ export function MusicXmlPanel({ compact = false }: Props) {
                   accessibilityLabel="Passage end bar"
                 />
               </View>
+              <View style={styles.rangeField}>
+                <Text style={styles.inputLabel}>End beat</Text>
+                <TextInput
+                  value={endBeatText}
+                  onChangeText={onEndBeatChange}
+                  keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  maxLength={6}
+                  style={styles.rangeInput}
+                  placeholder="1"
+                  placeholderTextColor={palette.textFaint}
+                  accessibilityLabel="Passage end beat"
+                />
+              </View>
               <Text style={styles.rangeSummary} numberOfLines={2}>
                 {rangeLabel}
               </Text>
             </View>
+            <Text style={styles.legendHint}>
+              Beats are 1-based quarter notes; the end beat is exclusive.
+            </Text>
 
             <View style={styles.voiceRow}>
               <Text style={styles.inputLabel}>Voices</Text>
@@ -866,6 +1280,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
             {audio ? (
               <Text style={styles.audioLine}>
                 {audio.playing ? 'Playing' : 'Ready'} ·{' '}
+                {Math.round(audio.bpm)} BPM ·{' '}
                 {audio.durationSec > 0 ? `${audio.durationSec.toFixed(2)} s` : 'duration unknown'}
               </Text>
             ) : null}
@@ -895,9 +1310,8 @@ export function MusicXmlPanel({ compact = false }: Props) {
                 <Text style={styles.legendHint}>read-only preview</Text>
               </View>
               <Text style={styles.specHint}>
-                This spec is generated from bars {range.barStart}–{range.barEnd}. It
-                is not loaded into the SentenceSpec editor and nothing is
-                registered or published.
+                This spec is generated from {rangeLabel}. It is not loaded into
+                the SentenceSpec editor and nothing is registered or published.
               </Text>
               <ScrollView style={styles.specScroll} nestedScrollEnabled>
                 <Text selectable style={styles.specText}>
@@ -971,16 +1385,22 @@ function RoleCellView({
   cell,
   role,
   offsetTicks,
+  tickWidth,
+  zoom,
 }: {
   cell: MusicXmlRoleCell;
   role: MusicXmlRole;
   /** Absolute start tick of the cell's bar in the score-wide matrix. */
   offsetTicks: number;
+  tickWidth: number;
+  zoom: number;
 }) {
-  const width = Math.max(MIN_NOTE_WIDTH, cell.ticks * TICK_WIDTH);
+  const width = Math.max(MIN_NOTE_WIDTH, cell.ticks * tickWidth);
   const height = ROW_HEIGHT - 8;
-  const showDuration = !cell.rest && width >= 17;
-  const showCount = !cell.rest && cell.count > 1 && width >= 33;
+  const durationWidth = zoom >= 2 ? 12 : 17;
+  const countWidth = zoom >= 2 ? 26 : 33;
+  const showDuration = !cell.rest && width >= durationWidth;
+  const showCount = !cell.rest && cell.count > 1 && width >= countWidth;
   const beat = Math.round((cell.startTick / TICKS_PER_QUARTER) * 1_000_000) / 1_000_000;
   const label = cell.rest
     ? `Bar ${cell.bar} · ${MUSIC_XML_ROLE_LABELS[role]} · rest · ${beatCountLabel(
@@ -1000,7 +1420,7 @@ function RoleCellView({
       style={[
         styles.cell,
         {
-          left: (offsetTicks + cell.startTick) * TICK_WIDTH,
+          left: (offsetTicks + cell.startTick) * tickWidth,
           width,
           height,
           top: 4,
@@ -1325,6 +1745,53 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 6,
   },
+  zoomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  zoomButton: {
+    minWidth: 28,
+    minHeight: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  zoomButtonText: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  zoomValue: {
+    minWidth: 42,
+    textAlign: 'center',
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+  },
+  zoomReset: {
+    minHeight: 26,
+    justifyContent: 'center',
+    paddingHorizontal: 7,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  zoomResetText: {
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+  },
   blockLabel: {
     color: palette.textFaint,
   },
@@ -1486,6 +1953,48 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 1,
     backgroundColor: 'rgba(244, 241, 234, 0.035)',
+  },
+  selectionOverlay: {
+    position: 'absolute',
+    top: 0,
+    backgroundColor: 'rgba(62, 224, 224, 0.12)',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(62, 224, 224, 0.5)',
+    overflow: 'hidden',
+  },
+  selectionEdge: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: palette.data,
+  },
+  selectionTag: {
+    position: 'absolute',
+    top: 1,
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '700',
+  },
+  selectionTagEnd: {
+    right: 3,
+    textAlign: 'right',
+  },
+  dragSurface: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    cursor: 'pointer',
+  },
+  playhead: {
+    position: 'absolute',
+    top: 0,
+    width: 2,
+    backgroundColor: palette.playhead,
+    opacity: 0.9,
   },
   rowLine: {
     position: 'absolute',

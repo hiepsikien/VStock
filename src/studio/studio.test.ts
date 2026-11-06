@@ -149,7 +149,9 @@ import {
 } from './velocity';
 import {
   barLayouts,
+  buildMusicXmlPassageBody,
   buildRoleLanes,
+  clampZoom,
   defaultPassageRange,
   isSupportedMeter,
   keySignatureLabel,
@@ -162,7 +164,12 @@ import {
   normalizeMusicXmlImport,
   normalizeMusicXmlPassage,
   passageRangeLabel,
+  playheadTickAt,
+  rangeTicks,
+  selectionFromTicks,
+  snapTick,
   validatePassageRange,
+  zoomLabel,
   type MusicXmlImport,
   type MusicXmlRoleLane,
 } from './musicxml';
@@ -2979,7 +2986,7 @@ equal(sixEightGrid.bars[0]?.meterStart, true);
 equal(sixEightGrid.totalTicks, 72);
 
 // Scottish pickup: bar 1 is 1/4, the body is 2/4; the default skips the
-// one-bar opening run and caps at four bars.
+// one-bar opening run, caps at four bars, and selects whole bars (beats).
 const scottishImport = musicXmlImport(
   {
     meter: '1/4',
@@ -2989,9 +2996,22 @@ const scottishImport = musicXmlImport(
   [],
 );
 const scottishBars = barLayouts(scottishImport.summary);
-deepEqual(defaultPassageRange(scottishBars), { barStart: 2, barEnd: 5 });
+deepEqual(defaultPassageRange(scottishBars), {
+  barStart: 2,
+  beatStart: 0,
+  barEnd: 5,
+  beatEnd: 2,
+});
 equal(meterChangeLabel(scottishBars), '1/4 → 2/4 at bar 2');
-equal(passageRangeLabel(scottishBars, { barStart: 2, barEnd: 5 }), 'bars 2–5 · 2/4');
+equal(
+  passageRangeLabel(scottishBars, {
+    barStart: 2,
+    beatStart: 0,
+    barEnd: 4,
+    beatEnd: 1,
+  }),
+  'bar 2 · beat 1.0 → bar 4 · beat 1.0',
+);
 
 const mixedBars = barLayouts({
   meter: '1/4',
@@ -2999,16 +3019,227 @@ const mixedBars = barLayouts({
   measureMeters: ['1/4', '2/4'],
   meterChanges: [],
 });
-const mixedRange = validatePassageRange(mixedBars, 1, 2);
+const mixedRange = validatePassageRange(mixedBars, {
+  barStart: 1,
+  beatStart: 0,
+  barEnd: 2,
+  beatEnd: 2,
+});
 equal(mixedRange.ok, false);
 equal(mixedRange.mixedMeter, true);
 if (mixedRange.errors.length === 0) throw new Error('mixed range needs an error');
-equal(passageRangeLabel(mixedBars, { barStart: 1, barEnd: 2 }), 'bars 1–2 · 1/4 → 2/4');
-equal(validatePassageRange(mixedBars, 2, 2).ok, true);
-equal(validatePassageRange(mixedBars, 2, 1).ok, false);
-equal(validatePassageRange(mixedBars, 0, 1).ok, false);
-equal(validatePassageRange(mixedBars, 1, 3).ok, false);
-deepEqual(defaultPassageRange(mixedBars), { barStart: 1, barEnd: 1 });
+equal(
+  passageRangeLabel(mixedBars, {
+    barStart: 1,
+    beatStart: 0,
+    barEnd: 2,
+    beatEnd: 2,
+  }),
+  'bar 1 · beat 1.0 → bar 2 · beat 2.0',
+);
+equal(
+  validatePassageRange(mixedBars, {
+    barStart: 2,
+    beatStart: 0,
+    barEnd: 2,
+    beatEnd: 2,
+  }).ok,
+  true,
+);
+equal(
+  validatePassageRange(mixedBars, {
+    barStart: 2,
+    beatStart: 0,
+    barEnd: 1,
+    beatEnd: 1,
+  }).ok,
+  false,
+);
+equal(
+  validatePassageRange(mixedBars, {
+    barStart: 0,
+    beatStart: 0,
+    barEnd: 1,
+    beatEnd: 1,
+  }).ok,
+  false,
+);
+equal(
+  validatePassageRange(mixedBars, {
+    barStart: 1,
+    beatStart: 0,
+    barEnd: 3,
+    beatEnd: 1,
+  }).ok,
+  false,
+);
+deepEqual(defaultPassageRange(mixedBars), {
+  barStart: 1,
+  beatStart: 0,
+  barEnd: 1,
+  beatEnd: 1,
+});
+
+/* Beat-aware selection: snap, absolute ticks, round-trip, end-exclusive. */
+equal(snapTick(-5), 0);
+equal(snapTick(0), 0);
+equal(snapTick(11.9), 0);
+equal(snapTick(12), 24);
+equal(snapTick(13), 24);
+equal(snapTick(35.9), 24);
+equal(snapTick(36), 48);
+
+const fourFourBars = barLayouts({
+  meter: '4/4',
+  measureCount: 2,
+  measureMeters: ['4/4', '4/4'],
+});
+const fourFourGrid = musicXmlGrid(fourFourBars);
+deepEqual(
+  rangeTicks(fourFourGrid, {
+    barStart: 1,
+    beatStart: 1,
+    barEnd: 2,
+    beatEnd: 2,
+  }),
+  { startTick: 24, endTick: 144 },
+);
+deepEqual(
+  selectionFromTicks(fourFourGrid, 24, 144),
+  { barStart: 1, beatStart: 1, barEnd: 2, beatEnd: 2 },
+);
+deepEqual(
+  rangeTicks(
+    fourFourGrid,
+    selectionFromTicks(fourFourGrid, 24, 144),
+  ),
+  { startTick: 24, endTick: 144 },
+);
+// End-exclusive: a window ending on the barline belongs to the previous bar.
+deepEqual(
+  selectionFromTicks(fourFourGrid, 0, 96),
+  { barStart: 1, beatStart: 0, barEnd: 1, beatEnd: 4 },
+);
+deepEqual(
+  selectionFromTicks(fourFourGrid, 96, 120),
+  { barStart: 2, beatStart: 0, barEnd: 2, beatEnd: 1 },
+);
+deepEqual(
+  selectionFromTicks(fourFourGrid, 0, 0),
+  { barStart: 1, beatStart: 0, barEnd: 1, beatEnd: 1 },
+);
+
+const oneFourGrid = musicXmlGrid(
+  barLayouts({ meter: '1/4', measureCount: 3, measureMeters: null }),
+);
+deepEqual(
+  rangeTicks(oneFourGrid, {
+    barStart: 1,
+    beatStart: 0,
+    barEnd: 2,
+    beatEnd: 1,
+  }),
+  { startTick: 0, endTick: 48 },
+);
+deepEqual(
+  selectionFromTicks(oneFourGrid, 24, 48),
+  { barStart: 2, beatStart: 0, barEnd: 2, beatEnd: 1 },
+);
+const twoFourGrid = musicXmlGrid(
+  barLayouts({ meter: '2/4', measureCount: 2, measureMeters: ['2/4', '2/4'] }),
+);
+deepEqual(
+  selectionFromTicks(twoFourGrid, 0, 48),
+  { barStart: 1, beatStart: 0, barEnd: 1, beatEnd: 2 },
+);
+deepEqual(
+  selectionFromTicks(twoFourGrid, 48, 96),
+  { barStart: 2, beatStart: 0, barEnd: 2, beatEnd: 2 },
+);
+
+const beatStartNegative = validatePassageRange(fourFourBars, {
+  barStart: 1,
+  beatStart: -1,
+  barEnd: 1,
+  beatEnd: 2,
+});
+equal(beatStartNegative.ok, false);
+const beatPastBar = validatePassageRange(fourFourBars, {
+  barStart: 1,
+  beatStart: 0,
+  barEnd: 1,
+  beatEnd: 5,
+});
+equal(beatPastBar.ok, false);
+const emptyBeatRange = validatePassageRange(fourFourBars, {
+  barStart: 1,
+  beatStart: 2,
+  barEnd: 1,
+  beatEnd: 2,
+});
+equal(emptyBeatRange.ok, false);
+const reversedBeatRange = validatePassageRange(fourFourBars, {
+  barStart: 1,
+  beatStart: 3,
+  barEnd: 1,
+  beatEnd: 2,
+});
+equal(reversedBeatRange.ok, false);
+equal(
+  validatePassageRange(fourFourBars, {
+    barStart: 1,
+    beatStart: 0,
+    barEnd: 1,
+    beatEnd: 4,
+  }).ok,
+  true,
+);
+
+/* Playhead + zoom helpers. */
+equal(playheadTickAt(1, 96, 0), 38.4);
+equal(playheadTickAt(0.5, 96, 24), 43.2);
+equal(playheadTickAt(1, 0, 0), 38.4);
+equal(playheadTickAt(-1, 96, 24), 24);
+const playheadRaw = playheadTickAt(10, 96, 24);
+equal(Math.min(96, Math.max(24, playheadRaw)), 96);
+equal(clampZoom(0.1), 0.5);
+equal(clampZoom(5), 3);
+equal(clampZoom(1.13), 1.25);
+equal(clampZoom(Number.NaN), 1);
+equal(zoomLabel(0.5), '50%');
+equal(zoomLabel(1), '100%');
+equal(zoomLabel(3), '300%');
+
+/* Passage request body keeps legacy callers and sends finite beats. */
+deepEqual(buildMusicXmlPassageBody({ barStart: 1, barEnd: 2 }), {
+  barStart: 1,
+  barEnd: 2,
+});
+deepEqual(
+  buildMusicXmlPassageBody({
+    barStart: 2,
+    beatStart: 1,
+    barEnd: 4,
+    beatEnd: 2,
+    voices: [2, 1, 2],
+  }),
+  {
+    barStart: 2,
+    barEnd: 4,
+    beatStart: 1,
+    beatEnd: 2,
+    voices: [1, 2],
+  },
+);
+deepEqual(
+  buildMusicXmlPassageBody({
+    barStart: 1,
+    beatStart: Number.NaN,
+    barEnd: 1,
+    beatEnd: Number.POSITIVE_INFINITY,
+  }),
+  { barStart: 1, barEnd: 1 },
+);
 
 const missingMeters = musicXmlImport(
   {
@@ -3081,6 +3312,7 @@ equal(
 );
 equal(relativePassage.meter, '');
 equal(relativePassage.beatsPerBar, 0);
+equal(relativePassage.bpm, 96);
 equal(relativePassage.notes.length, 1);
 equal(relativePassage.durationSec, 1.25);
 
@@ -3088,11 +3320,17 @@ const sixEightPassage = normalizeMusicXmlPassage({
   ok: true,
   passageId: 'mxp_68',
   meter: '6/8',
+  bpm: 120,
   audioUrl: 'https://cdn.test/audio/absolute.wav',
   notes: [],
 });
 equal(sixEightPassage.beatsPerBar, 3);
+equal(sixEightPassage.bpm, 120);
 equal(sixEightPassage.audioUrl, 'https://cdn.test/audio/absolute.wav');
+
+equal(normalizeMusicXmlPassage({ bpm: 0 }).bpm, 96);
+equal(normalizeMusicXmlPassage({ bpm: 'fast' }).bpm, 96);
+equal(normalizeMusicXmlPassage({ bpm: 84.5 }).bpm, 84.5);
 
 const failedPassage = normalizeMusicXmlPassage({
   ok: false,
