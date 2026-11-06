@@ -553,3 +553,119 @@ Khi variants có:
 - Chọn variant không đổi composer runtime.
 - Flag off byte-identical.
 - Phrase cuối luôn close/cadence; B không bị cắt.
+
+---
+
+## 14. Hai variant đầu tiên (đã chốt để review)
+
+Mục tiêu: có 2 lựa chọn rõ ràng trong Studio, cùng dùng passage đã chọn, có logic chọn/đổi variant. Đây là **preview/export-only**, chưa phải production composer.
+
+### 14.1. Variant `source`
+
+- Giữ đúng rhythm, duration, bar, reference pitch của passage.
+- Là variant mặc định.
+- Audio lấy từ passage payload hiện tại.
+- Phù hợp để nghe/đối chiếu bản gốc.
+
+### 14.2. Variant `aaba`
+
+- A = bar đầu tiên của selection.
+- B = bar thứ ba; nếu selection <3 bar thì fallback bar 2, rồi bar 1.
+- Mapping theo tile 4:
+
+```text
+[A, A, B, A]
+```
+
+- Nếu selection dài hơn 4 bar: lặp `AABA`, bar cuối truncate.
+- Nếu selection ngắn hơn 4 bar: vẫn chạy với B fallback; UI ghi rõ.
+- Giữ nguyên pitch reference/duration/voice/tie của các bar nguồn.
+- Đây là **key-figure loop preview**, không phải transcription và không phải production sentence.
+- `spec` là `TextureSpec` clone với id mới; không mutate passage đã lưu.
+- Audio synthesize từ chính event AABA, không reuse audio `source`.
+
+### 14.3. Hợp đồng API
+
+`POST /v1/studio/import/musicxml/{importId}/sentence-draft`
+
+```json
+{
+  "mode": "new",
+  "variant": "source" | "aaba",
+  "barStart": 1, "beatStart": 1,
+  "barEnd": 5, "beatEnd": 1,
+  "newPattern": { "...": "..." }
+}
+```
+
+Response thêm:
+
+```json
+{
+  "variant": "source" | "aaba",
+  "rhythmTemplate": true,
+  "productionReady": false,
+  "spec": { "...TextureSpec..." },
+  "preview": { "audioUrl": "...", "notes": 47 }
+}
+```
+
+- `variant` mặc định `source`.
+- `existing` mode không cần variant; giữ contract cũ.
+- Một draft chỉ tiêu 1 quota unit.
+- `source` và `aaba` có spec id/audio hash khác nhau.
+
+### 14.4. UI switching
+
+New pattern mode:
+
+```text
+Variant:
+(•) Source rhythm
+( ) AABA key loop
+```
+
+- Đổi variant → invalidate preview hiện tại, không tự xoá `PatternDraft`.
+- `Preview sentence` dùng variant đang chọn.
+- `Play sentence` phát audio của variant vừa preview.
+- `Add sentence` lưu `variant` trong sentence để pattern draft/export biết nguồn.
+- Result label:
+  - `source rhythm`
+  - `AABA key loop`
+- Template picker vẫn ẩn ở new mode.
+- Existing mode không hiện variant này.
+
+### 14.5. PatternDraft/export
+
+Sentence trong pattern draft:
+
+```json
+{
+  "variant": "aaba",
+  "spec": { "...TextureSpec..." },
+  "fixture": { "meter": "2/4", "bars": 5 }
+}
+```
+
+- Export bundle giữ `variant` để phân biệt hai bản preview.
+- Không trộn hai variant trong cùng một sentence.
+- Có thể có nhiều sentence AABA/source trong cùng pattern draft nếu user muốn so sánh; duplicate id vẫn bị chặn.
+
+### 14.6. Giới hạn
+
+- Cả hai variant đều **preview/export-only**.
+- Không đăng ký `SENTENCE_SPECS`, không đổi composer runtime.
+- Chưa phải phrase-level AABA/cadence; đó là Phase 2.
+- Chưa phải native 2/4 production; đó là Phase 3.
+- Chưa có quota 70/30; đó là Phase 5.
+- AABA variant không tự tạo B contrast mới; B là bar nguồn thứ ba.
+
+### 14.7. Acceptance
+
+- `source` events khớp passage.
+- `aaba` events khớp mapping `[A,A,B,A]`; không tràn bar.
+- Hai variant có spec id/audio khác nhau.
+- Switch variant → preview đổi đúng; Play đúng audio.
+- Add sentence lưu đúng variant; export giữ variant.
+- Existing mode và các variant khác không đổi.
+- Flag/registry/composer không bị mutate.
