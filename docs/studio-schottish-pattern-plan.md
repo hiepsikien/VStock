@@ -384,7 +384,9 @@ VILLA_CADENCE = 5
 
 def _nearest_chord_root(ctx, chord, start, low, high):
     """Chord root pc nearest the previous melody note, inside [low, high]."""
-    previous = ctx.melody[max(0, start - 1)]
+    if not ctx.melody:
+        return None
+    previous = ctx.melody[min(max(0, start - 1), len(ctx.melody) - 1)]
     root_pc = chord.pitches[0] % 12
     candidates = [note for note in range(low, high + 1) if note % 12 == root_pc]
     return min(candidates, key=lambda note: abs(note - previous))
@@ -392,11 +394,13 @@ def _nearest_chord_root(ctx, chord, start, low, high):
 def _cadence_bar(ctx, bar, phrase):
     start = bar * ctx.epb
     chord = ctx.chord(bar)
+    lead = _nearest_chord_root(ctx, chord, start, ctx.treble_floor, ctx.treble_top)
+    if lead is None:
+        return [], [], []
     # _stored_bass(chord, 0, ...) is chord.pitches[0], clamped to the bass window.
     bass = _choose_bass(
         chord, 0, None, ctx.bass_low, ctx.bass_high, ctx.semitones
     )
-    lead = _nearest_chord_root(ctx, chord, start, ctx.treble_floor, ctx.treble_top)
     support = _choose_inner(
         chord, lead, bass, ctx.mid_low, ctx.mid_high, ctx.semitones,
         color=False, index=0,
@@ -409,6 +413,7 @@ def _cadence_bar(ctx, bar, phrase):
     return high, mid, low
 ```
 
+- Guard `ctx.melody` rỗng/`start=0`/bar cuối; test cả ba.
 - `_nearest_chord_root` là helper mới, chưa tồn tại; phải thêm + test riêng.
 - `_choose_bass(..., lead=None)` trả `chord.pitches[0]` qua `_stored_bass`, nên bass là root.
 - `_choose_inner` signature hiện tại đã khớp (xem `guitar_patterns.py`); không đoán.
@@ -644,31 +649,46 @@ def _suite_meter_override(
 ##### Pattern selection scope
 
 Meter override một mình không đủ: `SuiteGate.eligible` hiện chỉ kiểm ensemble/meter/bars/no pedal,
-nên bản 4/4 có thể được chọn ở movement I/II/IV. Cần scope tường minh.
+nên bản 4/4 có thể được chọn ở movement I/II/IV hoặc `1Y` month index 2. Cần scope theo
+**cặp (span, index)**, không chỉ index.
 
-- Thêm `SuiteGate.movement_indices: frozenset[int] | None = None`.
+- Thêm `_Ctx.movement_span: str | None` (`"1W"`, `"1M"`, `"3M"`, `"1Y"`).
+- Prop `audio.py` → `render` → `_compose` → `guitar` → `render_patterned_voices` → `_Ctx`.
+- Thêm `SuiteGate.movement_scopes: frozenset[tuple[str, int]] | None = None`.
 - `eligible`:
   ```python
-  if gate.movement_indices is not None:
-      if ctx.movement_index is None:
+  if gate.movement_scopes is not None:
+      span = getattr(ctx, "movement_span", None)
+      index = ctx.movement_index
+      if span is None or index is None:
           return False
-      if ctx.movement_index not in gate.movement_indices:
+      if (span, index) not in gate.movement_scopes:
           return False
   ```
-- Hai gate cho cùng pattern:
-  - `GATE_44`: meter `4/4`, scope `{2}` ở Phase 3; Phase 1 có thể `None` để audition.
-  - `GATE_24`: meter `2/4`, scope `{0, 2}` (1W index 0; 1M/3M movement III index 2).
+- Scope dùng chung cho cả hai gate:
+  ```python
+  SCHOTTISH_SCOPES = frozenset({("1W", 0), ("1M", 2), ("3M", 2)})
+  ```
+- `GATE_44` và `GATE_24` cùng `movement_scopes=SCHOTTISH_SCOPES`.
+- Vì meter khác nhau, chỉ một gate eligible tại một movement.
+- `1Y` **không** nằm trong scope: Schottish không được chọn trong year programme ở phase này.
+- 4/4 gate vẫn cover `1W` để có fallback/rollback nếu 2/4 không render được.
+- Test direct render phải set `movement_span` + `movement_index`; thiếu một trong hai → gate false,
+  không silent fallback.
+- `guitar_suite_schottish` expose `GATES = (GATE_44, GATE_24)`; `eligible`/`selectable`/`render_sentence` lặp cả hai.
 - `SUITE_MOVEMENTS` thêm **cả hai** entry:
   ```python
   (pattern, module, GATE_44)
   (pattern, module, GATE_24)
   ```
-- `guitar_suite_schottish` expose `GATES = (GATE_44, GATE_24)`; `eligible`/`selectable`/`render_sentence` lặp cả hai.
-- `selectable_pattern`/`render_sentence` lặp cả hai; chỉ gate khớp meter/scope mới eligible.
+- `use_suite_schottish_abab(enabled)` phải bọc **cả hai**:
+  ```python
+  with use_gate(GATE_44, enabled):
+      with use_gate(GATE_24, enabled):
+          yield
+  ```
+  `ensure_registered`/`unregister` chạy cho từng key `(pattern,meter)`; không dùng một gate.
 - 4/4 chỉ còn fallback/rollback/regression; 2/4 là production final.
-- Nếu mục tiêu đổi thành “mọi movement Villa đều có thể là Schottish”, bỏ scope; plan hiện chốt
-  **chỉ movement III** cho 1M/3M, `1W` là movement duy nhất.
-- Studio render không có `movement_index` không đi qua gate production; preview dùng passage path.
 
 #### 3.3.2. Figure/wave/frame
 
@@ -702,16 +722,176 @@ nên bản 4/4 có thể được chọn ở movement I/II/IV. Cần scope tư�
 
 ### 3.4. Phase 4 — key figure tùy ý
 
-1. Chọn 1 bar passage **sau pickup**.
-2. Trích rhythm/role.
-3. Tạo `TextureSpec` chỉ với kind hiện có:
-   - Lead: `melody_eighth` (offset nếu cần);
-   - Mid: `chord_degree`;
-   - Bass: `chord_root`;
-   - fallback: `scale_step`/`literal_midi` chỉ khi có lý do và test.
-4. Nếu cần `melody_at_beat`/`bass_root`: thêm kind + validation/resolve/test ngay tại Phase 4.
-5. Renderer generic loop key figure; sentence slots override.
-6. Promote qua registry/flag; preview/export trước.
+Mục tiêu: user chọn passage MusicXML, tạo **key figure** (body) + intro/outro, preview/export,
+rồi promote thành pattern production. Không tạo schema song song; dùng `TextureSpec`/`PitchRef`
+hiện có, thêm runtime cell resolver.
+
+#### 3.4.1. Input
+
+- Passage sau pickup, 1–4 bar (key), 2 bar (door short), 4 bar (door long).
+- Cùng meter/ensemble với pattern đích.
+- Mỗi note có: `bar`, `beat`, `duration_beats`, `voice`, `pitch`, `tie`, `slur`, `accent`.
+- Voice map:
+  - `1` → lead;
+  - `2` → support/mid;
+  - `3` → low/bass.
+
+#### 3.4.2. Pitch policy
+
+Không dùng absolute MusicXML MIDI trong production.
+
+| Lane | Kind chính | Fallback |
+|---|---|---|
+| Lead | `scale_step` (relative key) | `melody_eighth` chỉ cho source/one-shot; `literal_midi` preview-only |
+| Mid | `chord_degree` | `literal_midi` preview-only |
+| Bass | `chord_root` | `literal_midi` preview-only |
+
+- `scale_step`/`chord_degree`/`chord_root` resolve tại **target bar** khi tile.
+- `melody_eighth` là absolute trong `ctx.melody`; nếu dùng cho tile phải rebind (xem 3.4.4).
+- `literal_midi` chỉ được promote khi có explicit `allow_literal` test flag; production reject.
+- Nếu cần `melody_at_beat`/`bass_root`: thêm kind + validation/resolve/test **trong Phase 4**,
+  không tạo `KeyFigureSpec`.
+
+#### 3.4.3. Tạo `TextureSpec`
+
+```json
+{
+  "meter_variants": [{ "meter": { "id": "2/4", "...": "..." } }],
+  "authored": {
+    "events": [
+      {
+        "bar": 0, "beat": 0, "duration_beats": 1,
+        "voice": 1,
+        "pitch": { "kind": "scale_step", "steps": 0 },
+        "tie": "none", "slur": "none", "accent": false
+      }
+    ]
+  },
+  "source": { "patternId": "suite_schottish", "bars": 4, "passageBars": [1, 4] }
+}
+```
+
+- `bar` trong `authored.events` là **relative 0-based** trong key figure.
+- `meter_variants` đúng một variant; nhiều variant → reject.
+- Chạy:
+  - `check_texture_spec`;
+  - `assert_authored_playable` / `check_authored_playable`;
+  - `authored_to_events` cho preview.
+
+#### 3.4.4. Runtime cell resolver
+
+Thêm module `texture_figure.py`:
+
+```python
+def bind_texture(texture, *, bar_offset: int, epb: int) -> TextureSpec:
+    # bar += bar_offset
+    # melody_eighth.eighth += bar_offset * epb
+    # chord/scale kinds giữ nguyên; resolve tại target bar
+
+def render_texture_bar(texture, ctx, bar) -> tuple[list, list, list]:
+    # bind_texture(bar_offset=bar)
+    # authored_to_events(...)
+    # split voice 1/2/3 -> lead/support/low
+    # clip/tie/slur tại biên bar
+```
+
+- `bind_texture` là bước bắt buộc để tile key figure ở bar > 0; không để `melody_eighth`
+  trỏ về passage gốc.
+- `render_texture_bar` không đọc `SENTENCE_SPECS`, không mutate global.
+- Cell id ổn định: `texture_<pattern>_<hash>_<bars>`.
+- `Slot.cell=cell_id`; `SuiteGate` cần `render_cell`:
+  ```python
+  figure = render_figure(ctx, bar, phrase, slot.figure)
+  cell = render_cell(ctx, bar, phrase, slot.cell)
+  ```
+  `PlannedSlot` đã có `cell`; chỉ thêm dispatch.
+- **`bar_plan` phải tính cell là coverage**: hiện chỉ loop `slot.figure` và bỏ qua `cell`.
+  - thêm `bar_cell_plan(planned, bars)` hoặc mở rộng `bar_plan` trả thêm `cells`;
+  - coverage check phải đếm `figure` **hoặc** `cell`;
+  - nếu không, sentence dùng cell sẽ fallback toàn movement.
+- `SuiteGate._plan` build `cell_at: dict[int,str]`; `render_sentence` truyền `cell_at[bar]`.
+- Registry cell theo pattern:
+  ```python
+  TEXTURE_CELLS: dict[tuple[str, str], dict[str, TextureSpec]]
+  ```
+  Không mutate `VILLA_FIGURES`; `valid_figures` giữ nguyên.
+- `valid_cells` optional trong `SuiteGate`/registry; validate `cell` tồn tại.
+
+#### 3.4.5. Key figure vs sentence
+
+- **Key figure** = một `TextureSpec` cell đại diện body.
+- **Sentence** = `SentenceSpec` tile cell qua `Slot(cell=...)`.
+- Một pattern có thể có nhiều sentence/cell:
+  - A dùng `key_a`;
+  - B dùng `key_b` (contrast);
+  - close dùng `key_close`;
+- Key figure không thay danh sách sentence; nó là vật liệu để sentence tile.
+- Variants:
+  - `schottish_arpeggio_key`, `schottish_rhythm_key` là **cell id** khác nhau;
+  - không tạo schema variant mới.
+
+#### 3.4.6. Intro/outro từ TextureSpec
+
+- Door artifact là `TextureSpec` 2 bar (short) hoặc 4 bar (long).
+- Compile thành callable cho `DOORS[(ensemble, pattern)]`:
+  ```python
+  def door(ctx, bar, role, *, steps, closing, index):
+      texture = outro_short if closing and steps == 2 else ...
+      source_bar = frame_role_bar(role, steps, length)
+      return render_texture_bar(texture, ctx, bar, source_bar=source_bar)
+  ```
+- `frame_role_bar`:
+  - length 1: `_compressed` half role 0 + half role 1;
+  - length 2: role 0/1;
+  - length 3: role 0/2/3;
+  - length 4: role 0/1/2/3.
+- 1-bar compressed cần crop note tại nửa bar; test tie/note boundary.
+- Intro kết dẫn vào body; outro kết tonic/chord root; không tie treo.
+
+#### 3.4.7. Studio flow
+
+1. User chọn passage cho **Key**; preview `source`/`aaba` (Track B) để nghe rhythm.
+2. Bấm **Create key figure** → `TextureSpec` + cell.
+3. User chọn passage 2 bar → **Intro short**, 4 bar → **Intro long**;
+   tương tự Outro short/long.
+4. `Preview with doors` ghép intro + key + outro; `Preview key only` chỉ key.
+5. `Add to pattern` lưu `keyFigures.key`/intro/outro; **không** auto-apply SentenceSpec editor.
+6. Export JSON gồm 5 artifact + `complete`.
+7. Promote chỉ khi đủ 5 artifact và validation pass.
+
+#### 3.4.8. Promote
+
+- Compile `TextureSpec` → `TEXTURE_CELLS`/`DOORS` trong module pattern mới.
+- `SentenceSpec` body dùng `Slot(cell=...)`.
+- `ensure_registered`/`valid_cells`; flag default off.
+- Promote là code/flag explicit; Studio chỉ export/publish draft trước.
+- Không mutate `SENTENCE_SPECS`/`DOORS` từ request thường.
+
+#### 3.4.9. Tests
+
+- Passage → `TextureSpec` round-trip 1/2/4 bar, 2/4 và 4/4.
+- `resolve_pitch` từng kind; `literal_midi` reject khi promote.
+- `bind_texture` tile tại bar 0/5/13; `melody_eighth` không trỏ passage gốc.
+- `render_texture_bar` voice split, duration/tie/slur/accent, no overflow.
+- Cell dispatch qua `PlannedSlot.cell`; `valid_cells` reject unknown; `bar_plan` coverage đếm cell.
+- Door short/long/3-bar/1-bar; `frame_role_bar` mapping.
+- Seam intro→key→outro: no tie treo, no overlap.
+- Preview/export/promote cùng notes; flag off byte-identical.
+- `complete` gate 5/5.
+
+#### 3.4.10. Acceptance
+
+- User tạo được key figure + intro/outro từ passage.
+- Preview/audio/export nghe đúng; không dùng absolute MIDI trong production.
+- Promote tạo pattern production chạy composer thật.
+- Không auto-apply vào SentenceSpec editor; không auto-publish.
+- Mọi note nằm trong bar/voice; cadence/close vẫn đúng.
+
+#### 3.4.11. Out of scope
+
+- Per-bar meter/pickup production (Phase 3 đã chốt không).
+- PlanVariant external UI (Track B future).
+- Quota 70/30 enforcement (Phase 5).
 
 ### 3.5. Pattern door contract (Studio)
 
@@ -850,6 +1030,10 @@ Khi thêm pattern/meter variant:
   - `_HOST`.
 - `guitar_villa_figures.py`
   - `VILLA_CADENCE`/`VILLA_FIGURES`/`VILLA_FIGURE_NAMES` nếu Phase 2 thêm cadence.
+- `texture_figure.py` (Phase 4)
+  - `TEXTURE_CELLS`/`bind_texture`/`render_texture_bar`;
+  - dispatch `PlannedSlot.cell`; `valid_cells`;
+  - không thêm vào `VILLA_FIGURES`.
 - `program.py`
   - `_PATTERN_TITLE`.
 - `pattern_registry.py`
@@ -947,7 +1131,7 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 4. **Phase 3 = native 2/4.** `FormSpec`/`span` + meter-aware wave/frame + `_chord_grid` fix + test composer thật. Gán 2/4 cho `1W` toàn movement và `1M`/`3M` movement **III**; pickup không vào production.
 5. **Quota = policy 70% ±10%, chưa enforce MVP.** Semantics chốt Phase 5.
 6. **Preset trước, user-authorable sau.** Phase 1–2 preset; Phase 3–4 mở Studio.
-7. **Key figure:** bar 2/3 sau pickup; ưu tiên rhythm fidelity; chỉ dùng `PitchRef` kind hiện có.
+7. **Key figure:** bar 2/3 sau pickup; ưu tiên rhythm fidelity; chỉ dùng `PitchRef` kind hiện có. Phase 4 dùng `TextureSpec` cell, không tạo `KeyFigureSpec`.
 8. **Multi-spec opt-in.** `SuiteGate` single-spec path byte-identical cho 3 movement còn lại.
 9. **Pattern Studio phải có 3 role / 5 artifact.** Intro short(2)+long(4), Key, Outro short(2)+long(4); thiếu thì không promote.
 10. **Door dùng `frame_roles`/`DOORS` hiện có.** `suite_schottish` đã có row `_villa_pattern_door`; `short` = steps 2, `long` = steps 4.
@@ -957,7 +1141,11 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 14. **Plan selection tách khỏi renderer.** `sentence_plan.py` chứa `PlanPolicy`/`CompositePolicy`/`build_plan`; `render_plan` chỉ nhận `PlannedSlot[]`. External plan dùng JSON `explicit`, không mutate registry.
 15. **AABA/trio/ABAB là policy data**, không phải nhánh `if` trong `SuiteGate`.
 16. **Schottish chỉ ở movement III** (1M/3M) và movement duy nhất (1W); `1W` dùng 2/4, `1M/3M` movement III dùng 2/4. 4/4 chỉ fallback/rollback.
-17. **Hai gate/entry** cho `(suite_schottish, 4/4)` và `(suite_schottish, 2/4)` trong `SUITE_MOVEMENTS`; scope bằng `movement_indices`.
+17. **Hai gate/entry** cho `(suite_schottish, 4/4)` và `(suite_schottish, 2/4)` trong `SUITE_MOVEMENTS`; scope bằng `movement_scopes={(span,index)}` gồm `("1W",0),("1M",2),("3M",2)`, loại `1Y`.
+18. **Phase 4 key figure = `TextureSpec` cell** trong `TEXTURE_CELLS`; `Slot.cell` dispatch qua `render_texture_bar`, không thêm vào `VILLA_FIGURES`.
+19. **Pitch production là relative** (`scale_step`/`chord_degree`/`chord_root`); `literal_midi` preview-only, `melody_eighth` phải rebind khi tile.
+20. **Door Phase 4 compile từ TextureSpec** 2/4 bar; `frame_role_bar` map 1/2/3/4 bar; 1-bar compressed crop.
+21. **Promote Phase 4 là explicit**; Studio chỉ preview/export, không auto-apply SentenceSpec/registry.
 
 ---
 
@@ -1067,12 +1255,12 @@ Phase 5 phải chọn một và test:
 2. Phase 1: **4/4 fold ABAB** — foundation, không final.
 3. Phase 2: **phrase-level + cadence artifact**.
 4. Phase 3: **native 2/4**, meter-aware wave/frame; `1W` toàn movement, `1M`/`3M` movement III.
-5. Phase 4: key figure dùng `TextureSpec`/`PitchRef` hiện có.
+5. Phase 4: key figure = `TextureSpec` cell + `TEXTURE_CELLS`; pitch relative; door compile 2/4 bar; promote explicit.
 6. Phase 5: quota 70% ±10% là **target policy only**; chưa enforce đến Phase 5, semantics TBD.
 7. Pickup 1/4: không tính là bar 1; A/B/key figure lấy full bar sau pickup; production 2/4 không giữ pickup bar.
 8. Multi-spec/partial path opt-in; 3 movement còn lại byte-identical.
 9. Track B: chỉ warning khi thiếu door, không tự sinh default door; pickup lấy từ `summary.pickupBars`.
-10. Schottish chỉ chọn ở movement III (1M/3M) hoặc movement duy nhất (1W); hai gate 4/4 + 2/4, scope `movement_indices`.
+10. Schottish chỉ chọn ở `("1W",0)`, `("1M",2)`, `("3M",2)`; hai gate 4/4 + 2/4, scope `movement_scopes`; `1Y` không dùng.
 
 ---
 
@@ -1106,8 +1294,10 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 14. 4 phrase không bridge phải vẫn có B ở `min(2, len(body)-2)`; rise không thêm B.
 15. Phase 3 cần `_suite_meter_override` ở `plan_*`, không đổi `_guitar_meter` toàn cục.
 16. `SuiteGate._plan` hiện hardcode `n=0`; plan seam phải tách `sentence_plan.py`, không nhét thêm vào gate.
-17. `SuiteGate.eligible` không có movement scope; 4/4 Schottish có thể chọn ở I/II/IV → thêm `movement_indices`.
-18. Cần hai gate/entry cho cùng pattern `(4/4, 2/4)` trong `SUITE_MOVEMENTS`; nếu không 2/4 không bao giờ được chọn.
+17. `SuiteGate.eligible` không có movement scope; 4/4 Schottish có thể chọn ở I/II/IV hoặc 1Y index 2 → thêm `movement_scopes` + `_Ctx.movement_span`.
+18. Cần hai gate/entry cho cùng pattern `(4/4, 2/4)` trong `SUITE_MOVEMENTS`; `use_suite_schottish` phải đăng ký/unregister cả hai.
+19. Phase 4 cần `TEXTURE_CELLS` + `render_cell` dispatch + `bar_plan` coverage cho `Slot.cell`; hiện `bar_plan` chỉ đếm `figure`, sentence cell sẽ fallback toàn movement.
+20. Phase 4 `melody_eighth` phải rebind theo `bar_offset`; nếu không tile bar >0 sẽ đọc passage gốc.
 
 ---
 
@@ -1128,3 +1318,5 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 3. **Không còn câu hỏi mở** cho Phase 0; các thay đổi code bắt đầu từ Phase 0 theo §3.0.
 4. **Plan seam tách bạch**: AABA/trio/ABAB/external plan nằm trong `sentence_plan.py`; renderer không biết policy. External JSON qua `explicit`, có validate và reject rõ.
 5. **Selection scope**: movement III cho `1M/3M`, movement duy nhất cho `1W`; hai gate 4/4 + 2/4; 4/4 chỉ fallback/rollback.
+6. **Phase 4 key figure**: `TextureSpec` cell + `TEXTURE_CELLS` + `render_texture_bar`; pitch relative; door 2/4 bar; promote explicit.
+7. **`movement_span`**: thêm vào `_Ctx`/render/audio để scope `(span,index)` phân biệt `1M/3M` với `1Y`.
