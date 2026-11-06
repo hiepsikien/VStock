@@ -155,10 +155,20 @@ def _compound_fixture() -> bytes:
     ).encode("utf-8")
 
 
-def _upload(client: TestClient, data: bytes | None = None, filename: str = "study.musicxml"):
+def _upload(
+    client: TestClient,
+    data: bytes | None = None,
+    filename: str = "study.musicxml",
+):
     return client.post(
         "/v1/studio/import/musicxml",
-        files={"file": (filename, _fixture() if data is None else data, "application/xml")},
+        files={
+            "file": (
+                filename,
+                _fixture() if data is None else data,
+                "application/xml",
+            )
+        },
     )
 
 
@@ -185,7 +195,6 @@ def _long_fixture(bars: int = 40) -> bytes:
     ).encode("utf-8")
 
 
-
 def _passage(client: TestClient, import_id: str, **body):
     return client.post(f"/v1/studio/import/musicxml/{import_id}/passage", json=body)
 
@@ -200,12 +209,11 @@ def test_parser_seam_exposes_the_contract() -> None:
     assert score.measure_count == 4
     assert score.meter == "4/4"
     assert score.title == "Study in E minor"
-    assert summary["noteCount"] == len(score.notes) == 8
-    sliced = musicxml_source.slice_score(score, bar_start=0, bar_end=2)
-    assert len(sliced.notes) < len(score.notes)
-    assert musicxml_source.PARSER_MODULE.endswith("musicxml_import") or (
-        musicxml_source.PARSER_MODULE.endswith("musicxml_import_fallback")
-    )
+    assert summary["noteCount"] == 8
+    assert len(score.notes) == 10  # 8 pitched + 2 explicit rests
+    sliced = musicxml_source.slice_score(score, bar_start=1, bar_end=2)
+    assert len(sliced) < len(score.notes)
+    assert all(0 <= note["bar"] <= 1 for note in sliced)
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +239,7 @@ def test_upload_returns_summary_notes_and_warnings() -> None:
     assert isinstance(body["warnings"], list)
 
     notes = body["notes"]
-    assert len(notes) == 8
+    assert len(notes) == 10  # explicit rests stay in the event stream
     first = notes[0]
     assert first["bar"] == 0
     assert first["beat"] == 0.0
@@ -265,7 +273,8 @@ def test_get_import_returns_the_stored_score() -> None:
 
 def test_get_unknown_import_is_404() -> None:
     client = _client()
-    assert client.get("/v1/studio/import/musicxml/mxi_0000000000000000").status_code == 404
+    response = client.get("/v1/studio/import/musicxml/mxi_0000000000000000")
+    assert response.status_code == 404
 
 
 def test_upload_rejects_a_non_musicxml_extension() -> None:
@@ -379,6 +388,20 @@ def test_passage_builds_a_round_trippable_spec_and_audio() -> None:
     assert audio.status_code == 200
     assert audio.content[:4] == b"RIFF"
     assert audio.headers["content-type"].startswith("audio/wav")
+
+
+def test_passage_keeps_rests_out_of_the_authored_events() -> None:
+    """An empty cell is a rest: it stays in notes, never in the spec."""
+    client = _client()
+    import_id = _upload(client).json()["importId"]
+    body = _passage(client, import_id, barStart=1, barEnd=2).json()
+
+    assert body["ok"] is True, body["errors"]
+    assert not any("without a MIDI pitch" in item for item in body["warnings"])
+    rest_events = [note for note in body["notes"] if note.get("rest")]
+    assert rest_events == []
+    authored = body["spec"]["authored"]["events"]
+    assert all(event["duration_beats"] > 0 for event in authored)
 
 
 def test_passage_is_deterministic() -> None:

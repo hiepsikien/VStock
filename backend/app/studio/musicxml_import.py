@@ -78,6 +78,11 @@ class ImportedNote:
     slur_stop: bool = False
     chord: bool = False
     rest: bool = False
+    accent: bool = False
+    tenuto: bool = False
+    staccato: bool = False
+    string: int | None = None
+    fret: int | None = None
     source_measure: str = ""
 
 
@@ -731,6 +736,29 @@ class _Parser:
 
         tie_start, tie_stop = _tie_flags(note)
         slur_start, slur_stop = _slur_flags(note)
+        notations = note.find("notations")
+        accent = (
+            notations is not None
+            and notations.find("articulations/accent") is not None
+        )
+        tenuto = (
+            notations is not None
+            and notations.find("articulations/tenuto") is not None
+        )
+        staccato = (
+            notations is not None
+            and notations.find("articulations/staccato") is not None
+        )
+        string = _optional_int(
+            _child_text(notations, "technical/string")
+            if notations is not None
+            else None
+        )
+        fret = _optional_int(
+            _child_text(notations, "technical/fret")
+            if notations is not None
+            else None
+        )
         voice_text = _child_text(note, "voice")
         voice = self.voice_map.get(voice_text or "", 1)
         staff = _staff(note, self._measure(), self.warn)
@@ -750,6 +778,11 @@ class _Parser:
                 slur_stop=slur_stop,
                 chord=is_chord,
                 rest=is_rest,
+                accent=accent,
+                tenuto=tenuto,
+                staccato=staccato,
+                string=string,
+                fret=fret,
                 source_measure=self.source_measure,
             )
         )
@@ -818,6 +851,15 @@ def _child_text(
     return text or default
 
 
+def _optional_int(text: str | None) -> int | None:
+    if text is None:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
 def _int_text(text: str) -> int | None:
     try:
         return int(text)
@@ -841,6 +883,10 @@ def _check_int(value: Any, name: str) -> None:
 def _score_title(
     root: ET.Element, part: ET.Element, filename: str | None
 ) -> str:
+    for path in ("work/work-title", "movement-title"):
+        title = _child_text(root, path)
+        if title:
+            return title
     part_id = part.get("id")
     part_list = root.find("part-list")
     score_part = None

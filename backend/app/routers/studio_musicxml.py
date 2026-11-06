@@ -310,13 +310,13 @@ def _summary(score: Any, filename: str) -> ImportSummary:
     if isinstance(candidate, Mapping):
         raw = candidate
 
-    notes = tuple(getattr(score, "notes", ()) or ())
+    notes = musicxml_source.score_notes(score)
     meter = raw.get("meter", getattr(score, "meter", None))
     voices = sorted(
         {
             int(note["voice"])
             for note in notes
-            if isinstance(note, Mapping) and isinstance(note.get("voice"), int)
+            if not note.get("rest") and isinstance(note.get("voice"), int)
         }
     )
     try:
@@ -336,11 +336,19 @@ def _summary(score: Any, filename: str) -> ImportSummary:
         tempo=raw.get("tempo", getattr(score, "tempo", None)),
         noteCount=int(raw.get("noteCount", len(notes)) or 0),
         voices=list(raw.get("voices", voices) or []),
-        sourceHash=str(
-            raw.get("sourceHash", getattr(score, "source_hash", "")) or ""
+        sourceHash=_source_hash(
+            raw.get("sourceHash", getattr(score, "source_hash", ""))
         ),
         meterSupported=_normalize_meter(meter) is not None,
     )
+
+
+def _source_hash(value: Any) -> str:
+    """Use the same ``sha256:<hex>`` spelling as every other Studio hash."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text if text.startswith("sha256:") else f"sha256:{text}"
 
 
 def _warnings(score: Any) -> list[str]:
@@ -408,7 +416,12 @@ async def upload_musicxml(file: UploadFile = File(...)) -> Any:
     except _PARSER_ERRORS as exc:
         return _json_error(400, "file", str(exc) or "invalid MusicXML")
 
-    parsed_notes = tuple(getattr(score, "notes", ()) or ())
+    parsed_notes = musicxml_source.score_notes(score)
+    if not any(
+        not note.get("rest") and note.get("midi") is not None
+        for note in parsed_notes
+    ):
+        return _json_error(400, "file", "the score has no pitched notes")
     if len(parsed_notes) > max_score_notes():
         return _json_error(
             413,
@@ -424,7 +437,7 @@ async def upload_musicxml(file: UploadFile = File(...)) -> Any:
         filename=filename,
         score=score,
         summary=summary,
-        notes=tuple(dict(note) for note in parsed_notes),
+        notes=parsed_notes,
         warnings=tuple(_warnings(score)),
         created_at=time.time(),
     )
@@ -448,7 +461,8 @@ def get_musicxml_import(import_id: str) -> Any:
         record = _IMPORTS.get(import_id)
     if record is None:
         raise HTTPException(
-            status_code=404, detail={"code": "import_not_found", "message": "No such import"}
+            status_code=404,
+            detail={"code": "import_not_found", "message": "No such import"},
         )
     return _import_payload(record)
 
@@ -702,7 +716,7 @@ def _passage_payload(
     try:
         sliced = musicxml_source.slice_score(
             score,
-            bar_start=start0,
+            bar_start=bar_start,
             bar_end=bar_end,
             voices=voices or None,
         )
@@ -712,11 +726,7 @@ def _passage_payload(
             errors=[_error("passage", f"slice failed: {exc}")],
         ).model_dump()
 
-    raw_notes = [
-        dict(note)
-        for note in (getattr(sliced, "notes", ()) or ())
-        if isinstance(note, Mapping)
-    ]
+    raw_notes = [dict(note) for note in sliced]
     warnings = list(
         dict.fromkeys(
             [str(item) for item in record.warnings]
@@ -762,6 +772,10 @@ def _passage_payload(
 
     events: list[AuthoredEvent] = []
     for note in notes:
+        # A rest is a matrix cell with no authored event. The UI draws the gap
+        # as a rest; it is never a texture event and never a warning.
+        if note.get("rest"):
+            continue
         midi = note.get("midi")
         duration = note.get("duration")
         beat = note.get("beat")
@@ -793,8 +807,16 @@ def _passage_payload(
                 accent=bool(note.get("accent")),
                 tenuto=bool(note.get("tenuto")),
                 staccato=bool(note.get("staccato")),
-                string=note.get("string") if isinstance(note.get("string"), int) else None,
-                fret=note.get("fret") if isinstance(note.get("fret"), int) else None,
+                string=(
+                    note.get("string")
+                    if isinstance(note.get("string"), int)
+                    else None
+                ),
+                fret=(
+                    note.get("fret")
+                    if isinstance(note.get("fret"), int)
+                    else None
+                ),
                 written_pitch=(
                     note.get("written_pitch")
                     if isinstance(note.get("written_pitch"), str)
@@ -822,7 +844,9 @@ def _passage_payload(
     spec_mapping = texture_spec_to_mapping(spec)
     errors = [
         _error(error.path, error.message)
-        for error in check_texture_spec(spec_mapping, meter=spec.meter_variants[0].meter)
+        for error in check_texture_spec(
+            spec_mapping, meter=spec.meter_variants[0].meter
+        )
     ]
 
     synth_notes = [
