@@ -974,3 +974,138 @@ def test_one_four_beat_range_still_works() -> None:
     assert _AUDIO_URL.match(body["audioUrl"] or "")
     assert _note_map(body) == {(0, 0.0, 52): 0.5}
     assert body["durationSec"] > 0.0
+
+
+def _unsupported_meter_outside_fixture() -> bytes:
+    """Bars 1-2 are 4/4; bar 3 changes to 5/4 (unsupported by the preview)."""
+    return b"""<score-partwise version="4.0">
+      <part-list>
+        <score-part id="P1"><part-name>Guitar</part-name></score-part>
+      </part-list>
+      <part id="P1">
+        <measure number="1"><attributes>
+          <divisions>1</divisions>
+          <time><beats>4</beats><beat-type>4</beat-type></time>
+        </attributes>
+          <note><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>4</duration><voice>1</voice></note>
+        </measure>
+        <measure number="2">
+          <note><pitch><step>G</step><octave>4</octave></pitch>
+            <duration>4</duration><voice>1</voice></note>
+        </measure>
+        <measure number="3"><attributes>
+          <time><beats>5</beats><beat-type>4</beat-type></time>
+        </attributes>
+          <note><pitch><step>A</step><octave>4</octave></pitch>
+            <duration>5</duration><voice>1</voice></note>
+        </measure>
+      </part>
+    </score-partwise>"""
+
+
+def test_beat_range_ignores_unsupported_meter_outside_the_range() -> None:
+    client = _client()
+    uploaded = _upload(
+        client,
+        _unsupported_meter_outside_fixture(),
+        filename="mixed-unsupported.musicxml",
+    ).json()
+    assert uploaded["summary"]["measureMeters"] == ["4/4", "4/4", "5/4"]
+    assert uploaded["summary"]["meterSupported"] is False
+
+    body = _passage(
+        client,
+        uploaded["importId"],
+        barStart=1,
+        beatStart=0,
+        barEnd=2,
+        beatEnd=1,
+    ).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "4/4"
+    assert body["audioUrl"] is not None
+
+
+def test_beat_range_touching_unsupported_meter_is_a_meter_error() -> None:
+    client = _client()
+    uploaded = _upload(
+        client,
+        _unsupported_meter_outside_fixture(),
+        filename="mixed-unsupported.musicxml",
+    ).json()
+
+    body = _passage(
+        client,
+        uploaded["importId"],
+        barStart=1,
+        beatStart=0,
+        barEnd=3,
+        beatEnd=1,
+    ).json()
+    assert body["ok"] is False
+    assert [error["path"] for error in body["errors"]] == ["meter"]
+    assert body["notes"] == []
+    assert body["audioUrl"] is None
+
+
+def test_unsupported_meter_everywhere_is_a_meter_error_not_500() -> None:
+    client = _client()
+    uploaded = _upload(client, _fixture("5/4")).json()
+
+    body = _passage(
+        client,
+        uploaded["importId"],
+        barStart=1,
+        beatStart=0,
+        barEnd=1,
+        beatEnd=1,
+    ).json()
+    assert body["ok"] is False
+    assert [error["path"] for error in body["errors"]] == ["meter"]
+    assert body["notes"] == []
+
+
+def test_extreme_note_values_do_not_500_the_upload() -> None:
+    client = _client()
+    extreme = b"""<score-partwise version="4.0">
+      <part-list>
+        <score-part id="P1"><part-name>Guitar</part-name></score-part>
+      </part-list>
+      <part id="P1">
+        <measure number="1">
+          <attributes>
+            <divisions>1</divisions>
+            <time><beats>4</beats><beat-type>4</beat-type></time>
+          </attributes>
+          <note><pitch><step>C</step><octave>4</octave></pitch>
+            <duration>999999999999999999999999999999999999</duration>
+            <voice>1</voice></note>
+          <note><pitch><step>C</step><alter>1e400</alter><octave>4</octave></pitch>
+            <duration>1</duration><voice>1</voice></note>
+          <note><pitch><step>D</step><octave>999999</octave></pitch>
+            <duration>1</duration><voice>1</voice></note>
+          <note><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>1</duration><voice>1</voice></note>
+        </measure>
+      </part>
+    </score-partwise>"""
+    response = _upload(client, extreme, filename="extreme.musicxml")
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert len(body["notes"]) == 1
+    assert body["notes"][0]["written_pitch"] == "E4"
+
+    only_extreme = b"""<score-partwise version="4.0">
+      <part-list>
+        <score-part id="P1"><part-name>Guitar</part-name></score-part>
+      </part-list>
+      <part id="P1"><measure number="1">
+        <attributes><divisions>1</divisions></attributes>
+        <note><pitch><step>C</step><alter>1e400</alter><octave>4</octave></pitch>
+          <duration>1</duration><voice>1</voice></note>
+      </measure></part>
+    </score-partwise>"""
+    rejected = _upload(client, only_extreme, filename="no-pitch.musicxml")
+    assert rejected.status_code == 400
+    assert rejected.json()["ok"] is False

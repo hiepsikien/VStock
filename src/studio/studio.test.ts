@@ -3013,6 +3013,26 @@ equal(
   'bar 2 · beat 1.0 → bar 4 · beat 1.0',
 );
 
+const shortRunBars = barLayouts({
+  meter: '3/4',
+  measureCount: 4,
+  measureMeters: ['3/4', '3/4', '4/4', '4/4'],
+  meterChanges: [
+    { bar: 3, meter: '4/4' },
+  ],
+});
+// A two-bar run must not drag the next meter into the default window.
+deepEqual(defaultPassageRange(shortRunBars), {
+  barStart: 1,
+  beatStart: 0,
+  barEnd: 2,
+  beatEnd: 3,
+});
+equal(
+  validatePassageRange(shortRunBars, defaultPassageRange(shortRunBars)).ok,
+  true,
+);
+
 const mixedBars = barLayouts({
   meter: '1/4',
   measureCount: 2,

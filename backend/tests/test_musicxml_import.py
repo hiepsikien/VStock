@@ -481,3 +481,51 @@ def test_forward_staff_and_slur() -> None:
     assert score.notes[0].staff == 2
     assert score.notes[0].slur_start and not score.notes[0].slur_stop
     assert score.notes[1].slur_stop and not score.notes[1].slur_start
+
+
+def _extreme_document(notes: str) -> bytes:
+    return f"""<score-partwise version="4.0">
+      <part-list>
+        <score-part id="P1"><part-name>Guitar</part-name></score-part>
+      </part-list>
+      <part id="P1">
+        <measure number="1">
+          <attributes>
+            <divisions>1</divisions>
+            <time><beats>4</beats><beat-type>4</beat-type></time>
+          </attributes>
+          {notes}
+        </measure>
+      </part>
+    </score-partwise>""".encode("utf-8")
+
+
+def test_extreme_duration_is_skipped_without_overflow() -> None:
+    notes = (
+        "<note><pitch><step>C</step><octave>4</octave></pitch>"
+        f"<duration>{10**100}</duration><voice>1</voice></note>"
+        "<note><pitch><step>E</step><octave>4</octave></pitch>"
+        "<duration>1</duration><voice>1</voice></note>"
+    )
+    score = parse_musicxml(_extreme_document(notes))
+
+    assert len(score.notes) == 1
+    assert score.notes[0].midi == 52
+    assert any("duration" in item and "too large" in item for item in score.warnings)
+
+
+def test_extreme_alter_and_octave_are_skipped() -> None:
+    notes = (
+        "<note><pitch><step>C</step><alter>1e400</alter><octave>4</octave>"
+        "</pitch><duration>1</duration><voice>1</voice></note>"
+        "<note><pitch><step>D</step><octave>999999</octave></pitch>"
+        "<duration>1</duration><voice>1</voice></note>"
+        "<note><pitch><step>E</step><octave>4</octave></pitch>"
+        "<duration>1</duration><voice>1</voice></note>"
+    )
+    score = parse_musicxml(_extreme_document(notes))
+
+    assert len(score.notes) == 1
+    assert score.notes[0].midi == 52
+    assert any("alter" in item for item in score.warnings)
+    assert any("octave" in item for item in score.warnings)

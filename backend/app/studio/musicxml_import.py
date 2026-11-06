@@ -108,6 +108,11 @@ class ImportedScore:
     measure_meters: tuple[str, ...] = ()
 
 
+# A bar is a handful of quarter notes; a duration far beyond this is malformed
+# data, not music. Bound the integer before Fraction/float conversion so a
+# hostile <duration> cannot raise OverflowError out of the parser.
+_MAX_DURATION_UNITS = 10**9
+
 _STEP_PC = {
     "C": 0,
     "D": 2,
@@ -681,6 +686,12 @@ class _Parser:
                 "ignored"
             )
             return None
+        if value > _MAX_DURATION_UNITS:
+            self.warn(
+                f"{self._measure()}: {what} duration {value} is too large; "
+                "ignored"
+            )
+            return None
         return value
 
     def _note(self, note: ET.Element) -> None:
@@ -837,10 +848,10 @@ class _Parser:
             )
             return None
         octave = _int_text(octave_text)
-        if octave is None:
+        if octave is None or not -1 <= octave <= 9:
             self.warn(
-                f"{self._measure()}: invalid pitch octave {octave_text!r} "
-                "skipped"
+                f"{self._measure()}: pitch octave {octave_text!r} is outside "
+                "-1..9; note skipped"
             )
             return None
 
@@ -855,6 +866,12 @@ class _Parser:
                     "treated as 0"
                 )
             else:
+                if not math.isfinite(raw_alter) or abs(raw_alter) > 127:
+                    self.warn(
+                        f"{self._measure()}: pitch alter {alter_text!r} is "
+                        "outside +/-127; note skipped"
+                    )
+                    return None
                 if not raw_alter.is_integer():
                     self.warn(
                         f"{self._measure()}: microtonal alter rounded to the "

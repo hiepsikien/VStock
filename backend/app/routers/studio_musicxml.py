@@ -102,7 +102,14 @@ _SUPPORTED_METERS: dict[str, tuple[Meter, int]] = {
     "6/8": (METER_68, 3),
 }
 
-_PARSER_ERRORS = (ValueError, TypeError, KeyError, IndexError, ET.ParseError)
+_PARSER_ERRORS = (
+    ValueError,
+    TypeError,
+    KeyError,
+    IndexError,
+    OverflowError,
+    ET.ParseError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -608,13 +615,32 @@ class _BeatWindow:
     starts: tuple[float, ...]
 
 
-def _quarter_lengths(measure_meters: list[str]) -> list[float | None]:
-    """One bar length in quarter notes per measure, or ``None`` if unsupported."""
-    lengths: list[float | None] = []
-    for raw in measure_meters:
-        meter = _normalize_meter(raw)
-        lengths.append(None if meter is None else float(_SUPPORTED_METERS[meter][1]))
-    return lengths
+def _meter_quarter_beats(raw: Any) -> float | None:
+    """Quarter-note length of any ``n/d`` meter, supported or not."""
+    if not isinstance(raw, str) or "/" not in raw:
+        return None
+    numerator, _, denominator = raw.partition("/")
+    try:
+        beats = int(numerator)
+        beat_type = int(denominator)
+    except ValueError:
+        return None
+    if beats <= 0 or beat_type <= 0:
+        return None
+    return beats * 4 / beat_type
+
+
+def _quarter_lengths(measure_meters: list[str]) -> list[float]:
+    """One bar length in quarter notes per measure.
+
+    Unsupported meters still have a length; they are rejected only when the
+    selected range touches them. That keeps absolute bar starts correct for a
+    score whose later bars use a meter the preview cannot render.
+    """
+    return [
+        length if length is not None else 4.0
+        for length in (_meter_quarter_beats(raw) for raw in measure_meters)
+    ]
 
 
 def _resolve_beat_window(
@@ -635,11 +661,12 @@ def _resolve_beat_window(
     if len(lengths) < bar_end:
         return None, [_error("meter", "the selected bars have no meter")]
 
-    # Lengths are needed to validate the offsets, so an unsupported meter
-    # anywhere in the requested bar span is reported before the tick range.
+    # Only bars that can be touched by this range need a supported meter.
+    # Unsupported meters elsewhere still contribute their real bar length to
+    # the absolute starts below.
     for index in range(start0, bar_end):
         raw = summary.measureMeters[index]
-        if lengths[index] is None:
+        if _normalize_meter(raw) is None:
             return None, [
                 _error(
                     "meter",
@@ -648,8 +675,8 @@ def _resolve_beat_window(
                 )
             ]
 
-    start_length = float(lengths[start0])
-    end_length = float(lengths[end0])
+    start_length = lengths[start0]
+    end_length = lengths[end0]
     if beat_start is None:
         beat_start = 0.0
     if beat_end is None:
@@ -683,7 +710,7 @@ def _resolve_beat_window(
     cursor = 0.0
     for length in lengths:
         starts.append(cursor)
-        cursor += float(length)
+        cursor += length
 
     range_start = starts[start0] + beat_start
     range_end = starts[end0] + beat_end
@@ -700,7 +727,7 @@ def _resolve_beat_window(
         index
         for index in range(start0, bar_end)
         if starts[index] < range_end - _QUARTER_EPS
-        and starts[index] + float(lengths[index]) > range_start + _QUARTER_EPS
+        and starts[index] + lengths[index] > range_start + _QUARTER_EPS
     ]
     if not bars:
         return None, [_error("beatEnd", "the selected range has no bars")]
@@ -725,7 +752,7 @@ def _resolve_beat_window(
     return (
         _BeatWindow(
             meter=meter,
-            bar_length=float(lengths[first_bar]),
+            bar_length=lengths[first_bar],
             beat_start=beat_start,
             beat_end=beat_end,
             first_bar=first_bar,

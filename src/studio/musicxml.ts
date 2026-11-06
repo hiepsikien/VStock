@@ -757,7 +757,9 @@ export function defaultPassageRange(
     ) {
       runEnd += 1;
     }
-    const barEnd = Math.min(index + 4, bars.length);
+    // Never let the default window run past the end of this meter run into a
+    // different meter; that range would be rejected by validation.
+    const barEnd = Math.min(index + 4, runEnd + 1, bars.length);
     const range = {
       barStart: index + 1,
       beatStart: 0,
