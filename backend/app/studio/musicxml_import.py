@@ -102,6 +102,10 @@ class ImportedScore:
     part_count: int
     notes: tuple[ImportedNote, ...]
     warnings: tuple[str, ...]
+    # One meter per measure, 0-based. A measure without a <time> element
+    # inherits the preceding meter; a document with no time signature at all
+    # assumes "4/4" everywhere.
+    measure_meters: tuple[str, ...] = ()
 
 
 _STEP_PC = {
@@ -226,6 +230,7 @@ def parse_musicxml(
         part_count=len(parts),
         notes=notes,
         warnings=parser.warnings.as_tuple(),
+        measure_meters=_resolved_measure_meters(parser.measure_meters),
     )
 
 
@@ -292,6 +297,7 @@ def score_summary(score: ImportedScore) -> dict[str, Any]:
         "filename": score.filename,
         "title": score.title,
         "meter": score.meter,
+        "measureMeters": _summary_measure_meters(score),
         "keyFifths": score.key_fifths,
         "keyMode": score.key_mode,
         "tempo": None if score.tempo is None else round(score.tempo, 6),
@@ -309,6 +315,29 @@ def score_summary(score: ImportedScore) -> dict[str, Any]:
         "slurStops": sum(1 for note in score.notes if note.slur_stop),
         "warnings": list(score.warnings),
     }
+
+
+def _summary_measure_meters(score: ImportedScore) -> list[str]:
+    """One meter per measure, falling back for older/synthetic values."""
+    meters = tuple(score.measure_meters)
+    if len(meters) == score.measure_count:
+        return list(meters)
+    return [score.meter] * score.measure_count
+
+
+def _resolved_measure_meters(values: Iterable[str | None]) -> tuple[str, ...]:
+    """Fill inherited/leading gaps, assuming 4/4 when nothing is declared."""
+    resolved = list(values)
+    first = next((value for value in resolved if value), None)
+    if first is None:
+        return tuple("4/4" for _ in resolved)
+    carry = first
+    for index, value in enumerate(resolved):
+        if value is None:
+            resolved[index] = carry
+        else:
+            carry = value
+    return tuple(item for item in resolved if item is not None)
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +374,7 @@ class _Parser:
 
         self.meter: str | None = None
         self.current_meter: str | None = None
+        self.measure_meters: list[str | None] = []
         self.key_fifths = 0
         self.key_mode = "major"
         self.key_seen = False
@@ -388,6 +418,9 @@ class _Parser:
         self.cursor = Fraction(0)
         self.last_onset = None
         self.last_duration_units = None
+        # Inherit the preceding meter by default; a <time> in this measure
+        # replaces the entry below.
+        self.measure_meters.append(self.current_meter)
 
         for child in measure:
             if not isinstance(child.tag, str):
@@ -535,6 +568,8 @@ class _Parser:
                 f"to {meter}; the summary keeps {self.meter}"
             )
         self.current_meter = meter
+        if self.bar < len(self.measure_meters):
+            self.measure_meters[self.bar] = meter
 
     def _clef(self, clef: ET.Element) -> None:
         sign = _child_text(clef, "sign")

@@ -41,7 +41,13 @@ from pathlib import Path
 from typing import Any
 
 from app.sonify.audio import write_wav
-from app.sonify.form import METER_34, METER_44, METER_68
+from app.sonify.form import (
+    METER_14,
+    METER_24,
+    METER_34,
+    METER_44,
+    METER_68,
+)
 from app.sonify.sentence_specs import METER_ANY, SentenceSpec
 
 # Bump when the instrument or the mixing changes; old files stop being served.
@@ -63,10 +69,13 @@ MAX_CONCURRENCY = max(1, int(os.environ.get("VSTOCK_STUDIO_AUDIO_SLOTS", "2")))
 _SLOTS = threading.BoundedSemaphore(MAX_CONCURRENCY)
 
 _METER_BEATS = {
+    "1/4": int(METER_14.quarter_beats),
+    "2/4": int(METER_24.quarter_beats),
     "3/4": int(METER_34.quarter_beats),
     "4/4": int(METER_44.quarter_beats),
     "6/8": int(METER_68.quarter_beats),
 }
+_SUPPORTED_BEATS_PER_BAR = frozenset(_METER_BEATS.values())
 _RENDER_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _AUDIO_NAME = re.compile(r"^[0-9a-f]{64}\.wav$")
 _URL = "/v1/studio/sentence/audio/{name}"
@@ -334,8 +343,8 @@ def ensure_audio(
     """Return the cached WAV for these notes, synthesizing it once if needed."""
     if not _RENDER_HASH.match(render_hash):
         raise AudioUnavailable("renderHash must be sha256:<64 lowercase hex>")
-    if beats_per_bar not in {3, 4}:
-        raise AudioUnavailable("beats per bar must be 3 or 4")
+    if beats_per_bar not in _SUPPORTED_BEATS_PER_BAR:
+        raise AudioUnavailable("beats per bar must be 1, 2, 3, or 4")
     root = audio_root()
     key = cache_key(render_hash, beats_per_bar)
     with _lock_for(key):

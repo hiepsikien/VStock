@@ -248,6 +248,7 @@ def test_score_summary_counts() -> None:
     assert summary["sourceHash"] == score.source_hash
     assert summary["title"] == "Nylon Guitar"
     assert summary["meter"] == "3/4"
+    assert summary["measureMeters"] == ["3/4", "3/4", "3/4"]
     assert summary["measureCount"] == 3
     assert summary["partCount"] == 1
     assert summary["eventCount"] == 20
@@ -349,10 +350,66 @@ def test_meter_change_is_kept_as_a_warning() -> None:
 
     assert score.meter == "3/4"
     assert score.measure_count == 2
+    assert score.measure_meters == ("3/4", "4/4")
+    assert score_summary(score)["measureMeters"] == ["3/4", "4/4"]
     assert any(
         "meter changes from 3/4 to 4/4" in warning
         for warning in score.warnings
     )
+
+
+def _meter_change_score() -> bytes:
+    """Bar 1 is 1/4, bar 2 changes to 2/4, bar 3 inherits 2/4."""
+
+    def note(step: str, duration: int, note_type: str) -> str:
+        return (
+            "<note><pitch><step>"
+            f"{step}"
+            "</step><octave>5</octave></pitch>"
+            f"<duration>{duration}</duration><voice>1</voice>"
+            f"<type>{note_type}</type></note>"
+        )
+
+    return (
+        '<score-partwise version="4.0"><part-list>'
+        '<score-part id="P1"><part-name>Guitar</part-name></score-part>'
+        "</part-list><part id=\"P1\">"
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>1</beats><beat-type>4</beat-type></time>"
+        "</attributes>"
+        + note("E", 1, "quarter")
+        + '</measure><measure number="2">'
+        "<attributes><time><beats>2</beats><beat-type>4</beat-type></time>"
+        "</attributes>"
+        + note("F", 2, "half")
+        + '</measure><measure number="3">'
+        + note("G", 2, "half")
+        + "</measure></part></score-partwise>"
+    ).encode("utf-8")
+
+
+def test_measure_meters_change_and_inherit() -> None:
+    score = parse_musicxml(_meter_change_score())
+
+    assert score.meter == "1/4"
+    assert score.measure_meters == ("1/4", "2/4", "2/4")
+    assert score_summary(score)["measureMeters"] == ["1/4", "2/4", "2/4"]
+    assert any(
+        "meter changes from 1/4 to 2/4" in warning for warning in score.warnings
+    )
+
+
+def test_missing_time_fills_every_measure_with_assumed_meter() -> None:
+    second = (
+        '<measure number="2"><note><rest/><duration>24</duration>'
+        "<voice>1</voice></note></measure>"
+    )
+    score = parse_musicxml(
+        _single_bar(time_signature=None, extra_measure=second)
+    )
+
+    assert score.measure_meters == ("4/4", "4/4")
+    assert score_summary(score)["measureMeters"] == ["4/4", "4/4"]
 
 
 def test_missing_time_and_key_get_deterministic_defaults() -> None:

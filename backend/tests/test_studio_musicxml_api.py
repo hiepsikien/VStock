@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.routers import studio_audio as studio_audio_router
 from app.routers import studio_musicxml
+from app.studio import audio as studio_audio
 from app.studio import musicxml_source
 from app.studio.texture_spec import (
     parse_texture_spec,
@@ -155,6 +156,61 @@ def _compound_fixture() -> bytes:
     ).encode("utf-8")
 
 
+def _meter_change_fixture() -> bytes:
+    """Bar 1 is 1/4; bars 2..5 change to 2/4 (bars 3..5 inherit it)."""
+    meters = ("1/4", "2/4", "2/4", "2/4", "2/4")
+    measures = []
+    for index, meter in enumerate(meters):
+        beats, beat_type = meter.split("/")
+        time = (
+            f"<time><beats>{beats}</beats><beat-type>{beat_type}</beat-type>"
+            "</time>"
+            if index in (0, 1)
+            else ""
+        )
+        measure_meter = (
+            f"<attributes><divisions>1</divisions>{time}</attributes>"
+            if time
+            else ""
+        )
+        measures.append(
+            f"""<measure number="{index + 1}">{measure_meter}
+              <note><pitch><step>E</step><octave>4</octave></pitch>
+                <duration>{beats}</duration><voice>1</voice></note>
+            </measure>"""
+        )
+    return (
+        '<score-partwise version="4.0"><part-list>'
+        '<score-part id="P1"><part-name>Guitar</part-name></score-part>'
+        f'</part-list><part id="P1">{"".join(measures)}</part></score-partwise>'
+    ).encode("utf-8")
+
+
+def _waltz_fixture() -> bytes:
+    """Three clean 3/4 bars: one dotted-half note per bar (3 quarter beats)."""
+    measures = []
+    for index in range(3):
+        attributes = (
+            "<attributes><divisions>2</divisions>"
+            "<time><beats>3</beats><beat-type>4</beat-type></time>"
+            "</attributes>"
+            if index == 0
+            else ""
+        )
+        measures.append(
+            f"""<measure number="{index + 1}">{attributes}
+              <note><pitch><step>E</step><octave>4</octave></pitch>
+                <duration>6</duration><voice>1</voice><type>half</type>
+                <dot/></note>
+            </measure>"""
+        )
+    return (
+        '<score-partwise version="4.0"><part-list>'
+        '<score-part id="P1"><part-name>Guitar</part-name></score-part>'
+        f'</part-list><part id="P1">{"".join(measures)}</part></score-partwise>'
+    ).encode("utf-8")
+
+
 def _upload(
     client: TestClient,
     data: bytes | None = None,
@@ -235,6 +291,8 @@ def test_upload_returns_summary_notes_and_warnings() -> None:
     assert body["summary"]["keyMode"] == "minor"
     assert body["summary"]["tempo"] == 96.0
     assert body["summary"]["meterSupported"] is True
+    assert body["summary"]["measureMeters"] == ["4/4"] * 4
+    assert body["summary"]["meterChanges"] == []
     assert body["summary"]["sourceHash"].startswith("sha256:")
     assert isinstance(body["warnings"], list)
 
@@ -520,6 +578,123 @@ def test_six_eight_uses_three_quarter_beats_for_audio() -> None:
     assert body["audioUrl"] is not None
     # Two bars × 3 quarter beats at 96 BPM ≈ 3.75 s, plus the 0.5 s tail.
     assert body["durationSec"] == pytest.approx(4.25, abs=0.05)
+
+
+def test_summary_reports_per_measure_meters_and_one_based_changes() -> None:
+    client = _client()
+    uploaded = _upload(client, _meter_change_fixture()).json()
+    summary = uploaded["summary"]
+
+    assert summary["meter"] == "1/4"
+    assert summary["measureCount"] == 5
+    assert summary["measureMeters"] == ["1/4", "2/4", "2/4", "2/4", "2/4"]
+    assert summary["meterChanges"] == [{"bar": 2, "meter": "2/4"}]
+    assert summary["meterSupported"] is True
+
+
+def test_two_four_passage_builds_spec_and_audio() -> None:
+    client = _client()
+    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+
+    body = _passage(client, import_id, barStart=2, barEnd=5).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "2/4"
+    assert body["beatsPerBar"] == 2
+    assert _AUDIO_URL.match(body["audioUrl"] or "")
+    # Four 2/4 bars at 96 BPM (2 quarter beats each) plus the 0.5 s tail.
+    assert body["durationSec"] == pytest.approx(5.5, abs=0.05)
+
+    variant = body["spec"]["meter_variants"][0]
+    assert variant["meter"]["id"] == "2/4"
+    assert variant["meter"]["beats"] == 2
+    assert variant["meter"]["eighths_per_bar"] == 4
+    assert {event["bar"] for event in body["spec"]["authored"]["events"]} == {
+        0,
+        1,
+        2,
+        3,
+    }
+    assert len(body["notes"]) == 4
+
+
+def test_one_four_pickup_passage_builds_spec_and_audio() -> None:
+    client = _client()
+    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+
+    body = _passage(client, import_id, barStart=1, barEnd=1).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "1/4"
+    assert body["beatsPerBar"] == 1
+    assert _AUDIO_URL.match(body["audioUrl"] or "")
+    # One 1/4 bar at 96 BPM plus the 0.5 s tail.
+    assert body["durationSec"] == pytest.approx(1.125, abs=0.05)
+
+    variant = body["spec"]["meter_variants"][0]
+    assert variant["meter"]["id"] == "1/4"
+    assert variant["meter"]["beats"] == 1
+    assert variant["meter"]["eighths_per_bar"] == 2
+    assert {event["bar"] for event in body["spec"]["authored"]["events"]} == {0}
+
+
+def test_mixed_meter_range_is_rejected_honestly() -> None:
+    client = _client()
+    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+
+    response = _passage(client, import_id, barStart=1, barEnd=2)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body["spec"] is None
+    assert body["audioUrl"] is None
+    assert body["notes"] == []
+    assert body["meter"] is None
+    assert body["beatsPerBar"] is None
+    assert [error["path"] for error in body["errors"]] == ["meter"]
+    message = body["errors"][0]["message"]
+    assert "1/4" in message and "2/4" in message
+    assert "constant meter" in message
+
+
+def test_three_four_waltz_passage_still_works() -> None:
+    client = _client()
+    uploaded = _upload(client, _waltz_fixture()).json()
+    assert uploaded["summary"]["meter"] == "3/4"
+    assert uploaded["summary"]["measureMeters"] == ["3/4"] * 3
+    assert uploaded["summary"]["meterChanges"] == []
+
+    body = _passage(client, uploaded["importId"], barStart=1, barEnd=3).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "3/4"
+    assert body["beatsPerBar"] == 3
+    assert body["spec"]["meter_variants"][0]["meter"]["id"] == "3/4"
+    assert _AUDIO_URL.match(body["audioUrl"] or "")
+    # Three 3/4 bars at 96 BPM (3 quarter beats each) plus the 0.5 s tail.
+    assert body["durationSec"] == pytest.approx(6.125, abs=0.05)
+
+
+def test_ensure_audio_accepts_one_and_two_beat_bars() -> None:
+    def note(duration: float) -> list[dict]:
+        return [
+            {
+                "bar": 0,
+                "beat": 0.0,
+                "duration": duration,
+                "midi": 64,
+                "voice": 1,
+                "velocity": 64,
+            }
+        ]
+
+    one = studio_audio.ensure_audio("sha256:" + "a" * 64, note(1.0), 1)
+    two = studio_audio.ensure_audio("sha256:" + "b" * 64, note(2.0), 2)
+    assert _AUDIO_URL.match(one.audio_url)
+    assert _AUDIO_URL.match(two.audio_url)
+    assert one.audio_url != two.audio_url
+    assert one.duration_sec == pytest.approx(0.625 + 0.5, abs=0.01)
+    assert two.duration_sec == pytest.approx(1.25 + 0.5, abs=0.01)
+
+    with pytest.raises(studio_audio.AudioUnavailable, match="1, 2, 3, or 4"):
+        studio_audio.ensure_audio("sha256:" + "c" * 64, note(1.0), 5)
 
 
 def test_passage_keeps_the_spec_when_the_synth_cap_rejects_audio() -> None:

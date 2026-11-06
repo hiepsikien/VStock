@@ -26,6 +26,12 @@ synth's fixed 96 BPM; ``6/8`` counts three quarter-note beats per bar, exactly
 as ``app.studio.audio._METER_BEATS`` does. A passage that the synth rejects
 (too long, unsupported meter, no notes) keeps its spec and notes and reports an
 ``audio`` error; only the URL is missing.
+
+Meters are per measure. The parser records one meter per bar (a bar without a
+``<time>`` inherits the previous one), and a passage may only select a range
+with a single constant meter: ``1/4``, ``2/4``, ``3/4``, ``4/4``, or ``6/8``.
+A mixed-meter range is rejected with a ``meter`` error instead of stretching a
+bar to a foreign bar length.
 """
 
 from __future__ import annotations
@@ -44,7 +50,14 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.sonify.form import METER_34, METER_44, METER_68, Meter
+from app.sonify.form import (
+    METER_14,
+    METER_24,
+    METER_34,
+    METER_44,
+    METER_68,
+    Meter,
+)
 from app.studio import audio as studio_audio
 from app.studio import musicxml_source
 from app.studio.store import studio_root
@@ -75,6 +88,8 @@ _MAX_AUTHORED_VOICES = 4
 # MusicXML meter → runtime form meter. ``6/8`` is three quarter-note beats,
 # matching ``app.studio.audio._METER_BEATS``.
 _SUPPORTED_METERS: dict[str, tuple[Meter, int]] = {
+    "1/4": (METER_14, 1),
+    "2/4": (METER_24, 2),
     "3/4": (METER_34, 3),
     "4/4": (METER_44, 4),
     "6/8": (METER_68, 3),
@@ -92,9 +107,20 @@ class ErrorOut(BaseModel):
     message: str
 
 
+class MeterChange(BaseModel):
+    """One printed meter change; ``bar`` is 1-based."""
+
+    bar: int
+    meter: str
+
+
 class ImportSummary(BaseModel):
     title: str
     meter: str
+    # One meter per printed measure; index 0 is bar 1.
+    measureMeters: list[str] = Field(default_factory=list)
+    # Changes after bar 1 only (bar 1 is the baseline, not a change).
+    meterChanges: list[MeterChange] = Field(default_factory=list)
     measureCount: int
     keyFifths: int
     keyMode: str | None = None
@@ -124,6 +150,10 @@ class PassageRequest(BaseModel):
 class PassageResponse(BaseModel):
     ok: bool
     passageId: str | None = None
+    # The selected range's single meter, so the UI can size a bar without
+    # re-reading the import summary. Null when the passage was rejected.
+    meter: str | None = None
+    beatsPerBar: int | None = None
     spec: dict[str, Any] | None = None
     notes: list[dict[str, Any]] = Field(default_factory=list)
     audioUrl: str | None = None
@@ -300,6 +330,32 @@ def _normalize_meter(meter: Any) -> str | None:
     return value if value in _SUPPORTED_METERS else None
 
 
+def _measure_meters(
+    raw: Any, fallback_meter: Any, measure_count: int
+) -> list[str]:
+    """One meter per measure, always exactly ``measure_count`` entries."""
+    values: list[str] = []
+    if isinstance(raw, (list, tuple)):
+        values = [item for item in raw if isinstance(item, str) and item.strip()]
+    if len(values) != measure_count:
+        fallback = str(fallback_meter or "")
+        values = [fallback] * measure_count
+    return values
+
+
+def _meter_changes(measure_meters: list[str]) -> list[MeterChange]:
+    """Meter changes after bar 1, with 1-based bars."""
+    changes: list[MeterChange] = []
+    if not measure_meters:
+        return changes
+    previous = measure_meters[0]
+    for index, meter in enumerate(measure_meters[1:], start=2):
+        if meter != previous:
+            changes.append(MeterChange(bar=index, meter=meter))
+        previous = meter
+    return changes
+
+
 def _summary(score: Any, filename: str) -> ImportSummary:
     """Build the stable API summary from the parser contract."""
     raw: Mapping[str, Any] = {}
@@ -325,11 +381,15 @@ def _summary(score: Any, filename: str) -> ImportSummary:
         )
     except (TypeError, ValueError):
         measure_count = 0
+    raw_meters = raw.get("measureMeters", getattr(score, "measure_meters", None))
+    measure_meters = _measure_meters(raw_meters, meter, measure_count)
     return ImportSummary(
         title=str(
             raw.get("title", getattr(score, "title", None)) or filename or "Untitled"
         ),
         meter=str(meter or ""),
+        measureMeters=measure_meters,
+        meterChanges=_meter_changes(measure_meters),
         measureCount=measure_count,
         keyFifths=int(raw.get("keyFifths", getattr(score, "key_fifths", 0)) or 0),
         keyMode=raw.get("keyMode", getattr(score, "key_mode", None)),
@@ -339,7 +399,9 @@ def _summary(score: Any, filename: str) -> ImportSummary:
         sourceHash=_source_hash(
             raw.get("sourceHash", getattr(score, "source_hash", ""))
         ),
-        meterSupported=_normalize_meter(meter) is not None,
+        meterSupported=all(
+            _normalize_meter(item) is not None for item in measure_meters
+        ),
     )
 
 
@@ -703,6 +765,37 @@ def _passage_id(
     return _PASSAGE_ID_PREFIX + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
 
 
+def _range_meter(
+    summary: ImportSummary, bar_start: int, bar_end: int
+) -> tuple[str | None, list[ErrorOut]]:
+    """Resolve one constant meter for the 1-based inclusive bar range."""
+    meters = summary.measureMeters
+    selected = meters[bar_start - 1:bar_end] if meters else []
+    if not selected:
+        return None, [_error("meter", "the selected bars have no meter")]
+    distinct = list(dict.fromkeys(selected))
+    if len(distinct) > 1:
+        return None, [
+            _error(
+                "meter",
+                f"bars {bar_start}-{bar_end} mix meters "
+                f"{', '.join(distinct)}; request a range with a single "
+                "constant meter",
+            )
+        ]
+    raw = distinct[0]
+    meter = _normalize_meter(raw)
+    if meter is None:
+        return None, [
+            _error(
+                "meter",
+                f"meter {raw!r} is not supported yet "
+                f"({', '.join(_SUPPORTED_METERS)})",
+            )
+        ]
+    return meter, []
+
+
 def _passage_payload(
     *,
     import_id: str,
@@ -713,6 +806,15 @@ def _passage_payload(
 ) -> dict[str, Any]:
     score = record.score
     start0 = bar_start - 1
+    meter, meter_errors = _range_meter(record.summary, bar_start, bar_end)
+    if meter_errors:
+        return PassageResponse(
+            ok=False,
+            warnings=list(record.warnings),
+            errors=meter_errors,
+        ).model_dump()
+    form_meter, beats_per_bar = _SUPPORTED_METERS[meter]
+
     try:
         sliced = musicxml_source.slice_score(
             score,
@@ -754,21 +856,6 @@ def _passage_payload(
             "no notes for requested voice(s): "
             + ", ".join(str(voice) for voice in missing_voices)
         )
-
-    meter = _normalize_meter(record.summary.meter)
-    if meter is None:
-        return PassageResponse(
-            ok=False,
-            warnings=warnings,
-            errors=[
-                _error(
-                    "meter",
-                    f"meter {record.summary.meter!r} is not supported yet "
-                    "(3/4, 4/4, 6/8)",
-                )
-            ],
-        ).model_dump()
-    form_meter, beats_per_bar = _SUPPORTED_METERS[meter]
 
     events: list[AuthoredEvent] = []
     for note in notes:
@@ -882,6 +969,8 @@ def _passage_payload(
     response = PassageResponse(
         ok=not errors,
         passageId=passage_id,
+        meter=meter,
+        beatsPerBar=beats_per_bar,
         spec=spec_mapping,
         notes=synth_notes,
         audioUrl=audio_url,
