@@ -237,6 +237,27 @@ Preview mode:
 - Không trộn hai mode trong một sentence.
 - Có thể có nhiều sentence source/aaba trong pattern draft để so sánh; duplicate id vẫn chặn.
 
+### 7.1. Pattern draft completeness: Intro / Key / Outro
+
+Track B chỉ tạo **Key** sentence. Một pattern Studio chỉ `complete` khi có đủ
+**3 role / 5 artifact** (xem Track A §3.5):
+
+```json
+{
+  "keyFigures": {
+    "intro": { "short": { "bars": 2 }, "long": { "bars": 4 } },
+    "key":   { "bars": 4, "previewMode": "aaba" },
+    "outro": { "short": { "bars": 2 }, "long": { "bars": 4 } }
+  }
+}
+```
+
+- `previewMode` chỉ thuộc `key`/sentence; không áp dụng cho intro/outro.
+- `aaba` không bao giờ trộn intro/outro vào loop.
+- Export draft được phép khi thiếu; ghi `complete:false` + `missing[]`.
+- Promote/publish bị chặn nếu thiếu bất kỳ artifact nào.
+- UI hiển thị `3/3 role`, `5/5 artifact`; door có preview `2 bars` / `4 bars`.
+
 ---
 
 ## 8. Files cần sửa
@@ -267,8 +288,9 @@ Preview mode:
   - `MusicXmlSentenceDraftRequest`;
   - `SentenceDraftResponse`;
   - `PatternDraftSentence`;
+  - `PatternDraft.keyFigures` (`intro.short/long`, `key`, `outro.short/long`);
   - `sentenceDraftKey`;
-  - `buildPatternDraftExport`;
+  - `buildPatternDraftExport` (gồm `complete`/`missing`);
   - `sentenceDraftSourceLabel`.
 - `src/studio/SentenceDraftPanel.tsx`
   - variant chips/switch;
@@ -293,6 +315,8 @@ Preview mode:
 - Switching invalidates preview but keeps draft.
 - Export round-trip `previewMode`.
 - Quota one unit per request.
+- Pattern draft `complete:false` khi thiếu door artifact; `missing[]` đúng.
+- `previewMode` chỉ thuộc key, không áp dụng intro/outro.
 
 ---
 

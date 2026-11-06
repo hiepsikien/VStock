@@ -161,6 +161,26 @@ Không có `melody_at_beat`/`bass_root`.
 Không tồn tại như thuật toán. `guitar_scale_passages` có 30% body budget cho scale passage,
 không phải sentence.
 
+### 2.11. Door hiện có
+
+Pattern cũ đã có **3 role**: `intro`, `key` (body), `outro`. Trong đó intro/outro có
+**2 script length**:
+
+- `short`: 2 bar / 2 step;
+- `long`: 4 bar / 4 step.
+
+Code hiện tại:
+
+- `guitar_frame.frame_roles(length)` chọn `steps=2` khi frame ≤2 bar, `steps=4` khi >2 bar;
+- frame 1 bar dùng `_compressed` (nửa đầu intro, nửa sau cadence);
+- frame 3 bar dùng long script co lại theo role `[0, 2, 3]`;
+- `DOORS[(ensemble, pattern)]` nhận `(ctx, bar, role, steps, closing, index)`;
+- Torroba/Bach/Sor/Barrios/Villa/Brouwer đều có cặp `_intro_short`/`_intro_long` và
+  `_outro_short`/`_outro_long`.
+
+Vì vậy yêu cầu “3 key figure” là **chuẩn hóa điều pattern cũ đã làm**, không phải schema mới
+cho production. Nhưng Studio hiện chưa capture đủ 5 artifact này.
+
 ---
 
 ## 3. Phase chi tiết
@@ -379,6 +399,92 @@ A2 variation (MVP):
 5. Renderer generic loop key figure; sentence slots override.
 6. Promote qua registry/flag; preview/export trước.
 
+### 3.5. Pattern door contract (Studio)
+
+**Đã chốt:** mỗi pattern Studio phải có **3 role** và **5 artifact**:
+
+| Role | Artifact | Bars | Dùng khi |
+|---|---|---|---|
+| Intro | `short` | 2 | frame ≤2 bar, `steps=2` |
+| Intro | `long` | 4 | frame >2 bar, `steps=4` |
+| Key | `key` | body | sentence/key figure |
+| Outro | `short` | 2 | frame ≤2 bar, `steps=2` |
+| Outro | `long` | 4 | frame >2 bar, `steps=4` |
+
+- 3 role: `intro`, `key`, `outro`.
+- `key` là **key figure đại diện cho body**, không thay danh sách sentence; pattern vẫn có thể chứa nhiều `SentenceSpec`.
+- `short`/`long` là hai script của cùng role, không phải hai pattern.
+- Frame 1 bar: `_compressed` dùng short script cho cả vào và kết.
+- Frame 3 bar: long script co theo `frame_roles` → role 0, 2, 3.
+- Frame 4 bar: đủ long script 0, 1, 2, 3.
+
+#### Draft shape
+
+```json
+{
+  "keyFigures": {
+    "intro": {
+      "short": { "bars": 2, "spec": { "...TextureSpec..." } },
+      "long":  { "bars": 4, "spec": { "...TextureSpec..." } }
+    },
+    "key": { "bars": 4, "spec": { "...TextureSpec..." } },
+    "outro": {
+      "short": { "bars": 2, "spec": { "...TextureSpec..." } },
+      "long":  { "bars": 4, "spec": { "...TextureSpec..." } }
+    }
+  }
+}
+```
+
+#### Completeness gate
+
+- `draft` được lưu/export để review dù thiếu; export ghi `complete:false` + `missing[]`.
+- `promote`/registry chỉ chấp nhận khi:
+  - đủ 5 artifact;
+  - cùng `meter`/`ensemble`/pattern;
+  - đúng bar count (2/4/2/4);
+  - key ≥1 bar;
+  - không tràn bar;
+  - không có tie/slur bắc qua biên door → body hoặc body → door.
+- UI hiển thị `3/3 role`, `5/5 artifact`; thiếu role nào đánh dấu role đó.
+
+#### Studio UX
+
+- Pattern draft có 3 section: **Intro**, **Key**, **Outro**.
+- Intro/Outro có tab **2 bars** / **4 bars**; preview riêng từng tab.
+- `Add sentence` chỉ điền **Key**; door có `Add intro` / `Add outro`.
+- `source`/`aaba` preview chỉ áp dụng cho **Key**, không áp dụng cho door.
+- Door preview không tự ghép vào body; muốn nghe seam thì có `Preview with doors`.
+
+#### Production mapping
+
+- Compile 4 door artifact thành một callable cho `DOORS[(ensemble, pattern)]`:
+
+```python
+def door(ctx, bar, role, *, steps, closing, index):
+    if closing:
+        specs = outro_short if steps == 2 else outro_long
+    else:
+        specs = intro_short if steps == 2 else intro_long
+    return specs[role](ctx, bar)
+```
+
+- `frame_roles`/`_dispatch` giữ nguyên; không thêm selection path mới.
+- Nếu pattern chưa có door riêng: `_dispatch` tiếp tục fallback composer door.
+- Phase 2 `suite_schottish`: thêm row `("villa", "suite_schottish")` tái dùng
+  `_villa_intro_short/long` + `_villa_outro_short/long` để pattern có identity,
+  trước khi Studio cho author door riêng.
+
+#### Tests
+
+- `frame_roles(1/2/3/4)` trả role đúng;
+- short/long đúng bar count và không tràn;
+- intro kết dẫn vào body; outro kết tonic;
+- seam body/door không tie treo;
+- `complete` gate chặn promote khi thiếu 1/5 artifact;
+- export round-trip 5 artifact;
+- 2/4 door không copy 4/4 accent.
+
 ---
 
 ## 4. Wiring checklist đầy đủ
@@ -432,6 +538,9 @@ Khi thêm pattern/meter variant:
 - `villa_preview.VILLA_PATTERNS`;
 - `dispatch.family_for` / family override;
 - `/sentence/preview`, `/sentence/audio`, `/sentence/export`;
+- `PatternDraft.keyFigures` (`intro.short/long`, `key`, `outro.short/long`);
+- completeness gate `3 role / 5 artifact` trước promote;
+- door preview `2 bars` / `4 bars` + `Preview with doors`;
 - examples/candidate JSON;
 - `sentenceDraft` template picker nếu authorable.
 
@@ -466,6 +575,8 @@ Một pattern chỉ được coi là “xong” khi:
 7. Flag off byte-identical; flag on deterministic digest.
 8. Studio preview/export và composer render cùng một nội dung.
 9. Form thật có intro/outro/frame vẫn chọn được pattern.
+10. Pattern Studio có đủ 3 role / 5 artifact: intro short+long, key, outro short+long.
+11. Seam intro→key và key→outro không tie treo, không tràn bar.
 
 ---
 
@@ -510,6 +621,8 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 6. **Preset trước, user-authorable sau.** Phase 1–2 preset; Phase 3–4 mở Studio.
 7. **Key figure:** bar 2/3 sau pickup; ưu tiên rhythm fidelity; chỉ dùng `PitchRef` kind hiện có.
 8. **Multi-spec opt-in.** `SuiteGate` single-spec path byte-identical cho 3 movement còn lại.
+9. **Pattern Studio phải có 3 role / 5 artifact.** Intro short(2)+long(4), Key, Outro short(2)+long(4); thiếu thì không promote.
+10. **Door dùng `frame_roles`/`DOORS` hiện có.** Không thêm selection path mới; `short` = steps 2, `long` = steps 4.
 
 ---
 
@@ -630,6 +743,8 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 7. `PitchRef` thiếu `melody_at_beat`/`bass_root` → Phase 4 chỉ dùng kind hiện có.
 8. Pickup 1/4 chưa có rule production → Phase 3, thống nhất với Track B.
 9. `SuiteGate` dùng chung 4 movement → multi-spec/partial opt-in, test byte-identical.
+10. Studio chưa capture đủ door: mỗi pattern cần 3 role / 5 artifact (intro short+long, key, outro short+long) → Phase 3/4.
+11. Pattern mới chưa có row `DOORS` riêng; `_dispatch` fallback composer door → Phase 2 thêm row `suite_schottish`.
 
 ---
 
@@ -638,3 +753,5 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 1. **Partial merge = cách A**: render base toàn movement, thay base events trên `covered` bar.
 2. **`SentenceVoices.covered = frozenset[int] | None`**, `None` = toàn movement.
 3. **Close dùng `VILLA_CADENCE = 5`** ở Phase 2; không dựa vào figure hiện có.
+4. **Pattern Studio = 3 role / 5 artifact**: intro short(2)+long(4), key, outro short(2)+long(4).
+5. **Door map vào `DOORS` + `frame_roles` hiện có**; `short` = steps 2, `long` = steps 4, 1-bar compressed, 3-bar long co còn role 0/2/3.
