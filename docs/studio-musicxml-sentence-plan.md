@@ -40,10 +40,15 @@ Composer / Suite
 
 | Việc | Dùng khi | Pattern mới? |
 |---|---|---|
-| **Add sentence to existing pattern** | rhythm khớp figure hiện có | Không |
+| **Add sentence to existing pattern** | pattern generic còn nhận thêm spec | Không |
 | **Create new pattern** | muốn pattern riêng, dùng renderer/figure family có sẵn | Có |
 
-MVP chỉ hỗ trợ pattern mới dùng renderer/figure family có sẵn.
+MVP hỗ trợ **cả hai mode**, nhưng:
+
+- `existing` **chỉ** dành cho pattern generic có registry tuple nhiều spec;
+- **không** cho add sentence vào `suite_*`, vì `SuiteGate.specs` chỉ một spec và `ensure_registered` sẽ raise;
+- `new` dùng renderer/figure family có sẵn, có thể chứa nhiều sentence.
+
 Chưa hỗ trợ viết figure/algorithm mới từ Studio.
 
 ---
@@ -102,6 +107,17 @@ Chưa hỗ trợ viết figure/algorithm mới từ Studio.
 
 Không cần DB pattern draft trong MVP.
 
+### Điều kiện trước khi mở endpoint
+
+- `sentence-draft` là render thật (spec, plan, WAV, hash) → không để endpoint mở.
+- Bắt buộc `X-Studio-Session` → `owner_id`.
+- Import/passage lưu owner; GET/passage kiểm tra owner.
+- Áp quota hiện có:
+  - draft tính vào `specsPerDay` (hoặc thêm `draftsPerDay`);
+  - render dùng preview concurrency/semaphore hiện có;
+  - vượt quota → `429`.
+- `importId`/`passage` hết TTL → `404` có cấu trúc; UI mời upload lại.
+
 ### API
 
 ```text
@@ -132,7 +148,7 @@ Response:
 {
   "ok": true,
   "spec": { "...SentenceSpec..." : true },
-  "fixture": { "length": 4, "n": 2, "closes": false, "rise": 1 },
+  "fixture": { "length": 4, "n": 0, "closes": false, "rise": 0 },
   "preview": {
     "renderHash": "sha256:...",
     "audioUrl": "/v1/studio/sentence/audio/....wav",
@@ -152,8 +168,25 @@ Response:
   }
   ```
 - `Add sentence` gọi lại endpoint với passage mới; UI append.
-- `Export bundle` tạo JSON gồm pattern + sentences + fixtures.
+- `Export bundle` dùng `POST /v1/studio/sentence/export` hiện có, gửi từng `{spec, fixture}`; không viết compiler mới.
 - Không lưu pattern draft server-side ở MVP.
+
+### Existing mode: chỉ pattern generic
+
+Backend phải chặn trước khi validate/render:
+
+```text
+existing pattern ∈ generic registry tuple
+existing pattern ∉ suite_*
+```
+
+- `suite_*` là gate một sentence; add sentence thứ hai sẽ không promote được.
+- Trả lỗi có cấu trúc:
+  ```json
+  {"path": "pattern", "message": "suite_mazurka is a single-sentence suite gate; create a new pattern instead"}
+  ```
+- UI không hiển thị `suite_*` trong dropdown `Existing pattern`.
+- Nếu user chọn `New pattern` với id trùng `suite_*`/pattern đã có → chặn.
 
 ### Cách tạo draft
 
@@ -170,16 +203,50 @@ Response:
 5. Preview bằng renderer family.
 6. UI có dropdown `Template` để đổi nếu draft đầu chưa đúng.
 
-### New pattern preview
+### New pattern preview: reuse hạ tầng có sẵn
 
-Cần seam nhỏ:
+Không viết renderer/compiler mới.
+
+- `app/studio/villa_preview.py` đã:
+  - validate figure qua `VILLA_FIGURES`;
+  - plan qua sandbox `registry={(pattern, meter): (spec,)}`;
+  - render bằng đúng bar writers;
+  - không mutate `SENTENCE_SPECS`.
+- `app/studio/preview.py` đã dùng `use_registry` sandbox cho Torroba/Sor.
+- `POST /v1/studio/sentence/audio` và `POST /v1/studio/sentence/export` đã có.
+
+Seam nhỏ nhất:
 
 ```text
-preview_draft_sentence(spec, renderer="villa")
+validate_villa_spec(spec, allow_draft_pattern=True)
 ```
 
-Nó dùng đúng figure/validator của family, nhưng cho phép `spec.pattern` là pattern draft chưa đăng ký trong `VILLA_PATTERNS`.
-Không đăng ký global.
+hoặc tham số `allowed_patterns` chỉ cho pattern draft.
+Chỉ nới whitelist validate; plan/render/audio/export giữ nguyên.
+
+### Fixture cho draft
+
+Không suy `n`/`closes`/`rise` từ MusicXML.
+
+- `n`: lấy từ `Select`/template; mặc định 0.
+- `closes`: `false` cho passage mở.
+- `rise`: `0`.
+- Villa preview dùng `_VILLA_MATRIX`: lengths 1–8, n 0/1, closes false, rise 0.
+- `length` = số bar passage, capped `MAX_PLAN_BARS`.
+- `bars` render capped `MAX_RENDER_BARS`.
+- Passage dài hơn cap → UI warning/error, không trả “preview ok” giả.
+
+### Namespace id
+
+- Draft pattern id không được trùng:
+  - `PATTERN_META`/pattern registry;
+  - `PILOT_PATTERNS`;
+  - `suite_*`;
+  - `villa_pattern`, `castillo`, `galop`...
+- Draft sentence id dùng namespace riêng:
+  - `musicxml_<importId>_<barStart>_<barEnd>_<hash>`;
+  - kiểm tra trùng id đã publish trong SQLite.
+- Trùng id → lỗi trước preview, không warning UI.
 
 ---
 
@@ -234,10 +301,19 @@ Promote suite_* là **thay đổi code**, không chỉ thêm vào dict runtime.
 
 ## 6. Gemini
 
-- Flag `EXPO_PUBLIC_STUDIO_VISION` + `VSTOCK_STUDIO_VISION`, default off.
-- Ẩn hai card ảnh và không gọi API vision.
-- Giữ `studio_vision`, `vision.py`, Gemini client, tests backend.
-- Bật lại bằng flag khi cần.
+### Backend
+
+- `VSTOCK_STUDIO_VISION` default off.
+- Off: **không mount** `studio_vision` router; mọi route vision trả `404` có cấu trúc.
+- Không chỉ ẩn UI: nếu route vẫn sống, client có token vẫn đốt Gemini/quota.
+- On: mount router như hiện tại.
+- Giữ `studio_vision`, `vision.py`, Gemini client, tests.
+- Vision tests phải set env trước khi tạo app/test client; thêm test flag-off → `404`, không gọi Gemini.
+
+### Frontend
+
+- `EXPO_PUBLIC_STUDIO_VISION` default off; ẩn hai card ảnh.
+- Expo env được inline lúc build → bật lại cần **build mới**, không chỉ toggle runtime.
 
 ---
 
@@ -259,6 +335,10 @@ Nếu file Scottish thực tế là `1/4 → 2/4`:
 Tên file người dùng có thể là `choro-mazuka`, `valse-mazuka`, `scottish-mazuka`;
 trong docs/registry luôn dùng tên movement canonical:
 `Mazurka-Choro`, `Valsa-Choro`, `Schottish-Choro`.
+
+> Footnote: “Schottish-Choro” là tên movement dùng trong registry/audit hiện tại.
+> Cách viết nhạc học phổ biến là “Schottisch”; không tự đổi registry nếu chưa có
+> migration tên.
 
 ---
 
@@ -302,8 +382,8 @@ trong docs/registry luôn dùng tên movement canonical:
 - Tạo figure/algorithm mới từ UI.
 - DB-backed texture/pattern registry.
 - Auto-selection pattern trong composer.
-- Owner scoping MusicXML.
 - Pickup/implicit measure length thật.
+- DB-backed runtime registry.
 
 ---
 
@@ -311,8 +391,8 @@ trong docs/registry luôn dùng tên movement canonical:
 
 | Sprint | Việc | Kết quả |
 |---|---|---|
-| A | Ẩn Gemini sau flag | Studio sạch |
-| B | Draft endpoint + new-pattern preview seam | 1 draft + preview |
+| A | Ẩn Gemini sau flag; gate router thật | Studio sạch, vision 404 |
+| B | Draft endpoint + access/quota + reuse preview sandbox + whitelist seam | 1 draft + preview |
 | C | UI 4 bước + multi-sentence pattern draft + export | Người dùng tạo pattern nhiều câu |
 | D | Promote docs/code path | Đưa vào composer có kiểm soát |
 
@@ -329,8 +409,15 @@ MVP dừng ở **A + B + C**.
 - 2/4 không có figure → báo “chưa hỗ trợ”.
 - Gemini flag off → không request vision.
 - Draft không overwrite editor.
-- Export bundle đúng pattern + nhiều sentence + fixtures.
+- Export bundle đúng pattern + nhiều sentence + fixtures; parse lại và preview round-trip.
 - Composer vẫn byte-identical khi flag mới off.
+- `importId`/`passage` hết TTL → lỗi rõ.
+- Hai request cùng import_id không hỏng store.
+- Draft pattern id trùng pattern đã có → chặn trước validate.
+- Existing mode với `suite_*` → lỗi UI/backend, không draft chết.
+- Vision flag off → `POST /analyze` trả 404, không đốt Gemini.
+- Vượt quota draft/preview → `429`.
+- Passage dài hơn `MAX_RENDER_BARS`/`MAX_PLAN_BARS` → warning/error rõ.
 
 ---
 
@@ -339,9 +426,11 @@ MVP dừng ở **A + B + C**.
 1. Một draft gợi ý, không top 3.
 2. Pattern mới dùng renderer/figure family có sẵn.
 3. Pattern có thể có nhiều sentence.
-4. JSON chỉ trong `Advanced`.
-5. Studio draft không tự vào composer.
-6. Gemini ẩn, không xoá.
+4. `existing` chỉ pattern generic; `suite_*` phải tạo pattern mới.
+5. JSON chỉ trong `Advanced`.
+6. Studio draft không tự vào composer.
+7. Gemini ẩn nhưng backend phải gate thật, không chỉ ẩn UI.
+8. Draft/preview phải qua access/quota/owner.
 
 ---
 
