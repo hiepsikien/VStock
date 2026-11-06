@@ -135,7 +135,7 @@ Không tồn tại.
 
 Chọn một trong hai:
 
-#### Option A — 16-bar sentence
+#### 16-bar sentence (chỉ fallback khi movement đúng 16 bar)
 
 ```text
 A1 4 bar  key figure
@@ -149,7 +149,7 @@ tile = 16
 - `select.length_min=16`.
 - Movement 30 bar: 16 + 14 truncate; cần thêm spec 8/16 hoặc fallback cadence.
 
-#### Option B — phrase-level sentence plan (khuyến nghị)
+#### Phrase-level sentence plan (đã chọn)
 
 - `SuiteGate` mở rộng `specs` thành tuple.
 - `plan_slots` theo từng phrase:
@@ -289,7 +289,7 @@ Một pattern chỉ được coi là “xong” khi:
 - key figure là accompaniment hay lead;
 - sentence 70% có được phép chiếm lead 100% không.
 
-Đề xuất: để 70/30 ra khỏi MVP; làm sau khi có key figure tùy ý và phrase-level sentences.
+Quyết định: dùng **70% ±10%** làm quota mềm; chưa enforce trong MVP, nhưng plan/phrase selection phải giữ cadence và B. Không dùng 70/30 cứng.
 
 ---
 
@@ -307,14 +307,14 @@ MVP không nên nhảy thẳng Phase 3 khi Phase 1/2 chưa có form/cadence.
 
 ---
 
-## 8. Câu cần chốt
+## 8. Quyết định đã chốt
 
-1. Phase 1 dùng **4/4 fold** làm foundation — đồng ý?
-2. Phase 2 chọn **16-bar sentence** hay **phrase-level plan**?
-3. Native 2/4 có bắt buộc cho final hay fold chấp nhận được?
-4. 70/30 có bắt buộc không?
-5. Pattern mới là **preset production** hay **user-authorable trong Studio**?
-6. Key figure lấy bar nào của Scottish, và ưu tiên rhythm fidelity hay Villa texture?
+1. **Phase 1 = 4/4 fold.** Dùng `suite_schottish` hiện có làm production foundation; không tạo pattern id mới, không tuyên bố là bản final.
+2. **Phase 2 = phrase-level plan.** Không dùng 16-bar sentence làm mặc định. Chia movement theo phrase; chọn A/B/close theo `n`/`closes`/`rise`; B ở bridge/trio; phrase cuối có cadence.
+3. **Phase 3 = native 2/4.** Đây là bản final. Phải có `FormSpec`/`span.py` path tạo `ctx.kind == "2/4"` và test qua composer thật. Sửa `_chord_grid` 2/4 + test no-overflow trước khi bật.
+4. **Quota mềm 70% ±10%.** Không cần đúng 70/30; quota theo bar body, ưu tiên close/cadence và B; key figure lấp phần còn lại và có thể chạy dưới sentence lead.
+5. **Preset trước, user-authorable sau.** Phase 1–2 là preset production; Phase 3–4 mở Studio authoring + promote. Không trộn hai mục tiêu trong một PR.
+6. **Key figure:** chọn bar 2 hoặc 3 của Scottish; ưu tiên rhythm fidelity. Dùng `TextureSpec`/`PitchRef` hiện có, không tạo schema `KeyFigureSpec` song song.
 
 ---
 
