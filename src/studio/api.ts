@@ -48,6 +48,7 @@ import {
 } from './protocol';
 import { studioSessionHeaders } from './sessionStorage';
 import {
+  buildMusicXmlPassageBody,
   normalizeMusicXmlImport,
   normalizeMusicXmlPassage,
   type MusicXmlImport,
@@ -401,31 +402,27 @@ export async function fetchMusicXmlImport(
 export type MusicXmlPassageRequest = {
   /** 1-based, inclusive. */
   barStart: number;
+  /** Quarter-note offset inside `barStart`; omitted keeps the legacy bar-only request. */
+  beatStart?: number;
   /** 1-based, inclusive. */
   barEnd: number;
+  /** Quarter-note offset inside `barEnd`, exclusive; omitted means the bar end. */
+  beatEnd?: number;
   /** Omit/empty means every voice. */
   voices?: number[];
 };
 
 /**
  * `POST /v1/studio/import/musicxml/{id}/passage`. The response carries the
- * preview-only TextureSpec plus synth notes and (when the render succeeded) a
- * relative audio URL resolved against the API base.
+ * preview-only TextureSpec plus synth notes, the preview BPM and (when the
+ * render succeeded) a relative audio URL resolved against the API base.
  */
 export async function requestMusicXmlPassage(
   id: string,
   range: MusicXmlPassageRequest,
   signal?: AbortSignal,
 ): Promise<MusicXmlPassage> {
-  const body: Record<string, unknown> = {
-    barStart: Math.trunc(range.barStart),
-    barEnd: Math.trunc(range.barEnd),
-  };
-  if (range.voices && range.voices.length) {
-    body.voices = [...new Set(range.voices.map((voice) => Math.trunc(voice)))].sort(
-      (left, right) => left - right,
-    );
-  }
+  const body = buildMusicXmlPassageBody(range);
   return normalizeMusicXmlPassage(
     await postStudioUrl(studioMusicXmlPassageUrl(id), body, signal),
     getApiBaseUrl(),

@@ -24,12 +24,15 @@
  *   POST /v1/studio/import/musicxml              multipart `file`
  *     -> 201 { ok, importId, filename, summary, notes, warnings }
  *   GET  /v1/studio/import/musicxml/{importId}   -> same
- *   POST /v1/studio/import/musicxml/{id}/passage body { barStart, barEnd, voices? }
- *     -> { ok, passageId, meter, beatsPerBar, spec, notes,
+ *   POST /v1/studio/import/musicxml/{id}/passage
+ *     body { barStart, beatStart, barEnd, beatEnd, voices? }
+ *     -> { ok, passageId, meter, beatsPerBar, bpm, spec, notes,
  *          audioUrl, durationSec, warnings, errors }
  *
  * Importer notes are 0-based bars; passage notes are 0-based relative to
- * `barStart`. Bars in a passage *request* are 1-based and inclusive.
+ * `barStart`. Bars in a passage *request* are 1-based and inclusive. Beats are
+ * quarter-note offsets inside their bar; `beatEnd` is exclusive and an omitted
+ * `beatEnd` means the end of `barEnd`.
  */
 
 import {
@@ -241,6 +244,8 @@ export type MusicXmlPassage = {
   passageId: string;
   meter: string;
   beatsPerBar: number;
+  /** Preview synth tempo; 96 when the backend does not send one. */
+  bpm: number;
   spec: Record<string, unknown> | null;
   notes: MusicXmlSynthNote[];
   /** Resolved against the API base when one was supplied to the normalizer. */
@@ -474,6 +479,7 @@ export function normalizeMusicXmlPassage(
   }
   const meter = normalizeMeterText(value.meter ?? value.passageMeter) ?? '';
   const beats = finite(value.beatsPerBar ?? value.beats_per_bar);
+  const bpmValue = finite(value.bpm ?? value.tempo);
   const audio = text(value.audioUrl ?? value.audio_url);
   const notes = Array.isArray(value.notes)
     ? value.notes
@@ -498,6 +504,7 @@ export function normalizeMusicXmlPassage(
         : meter
           ? meterQuarterBeats(meter)
           : 0,
+    bpm: bpmValue != null && bpmValue > 0 ? bpmValue : 96,
     spec: isRecord(value.spec) ? value.spec : null,
     notes,
     audioUrl,
@@ -683,7 +690,12 @@ export function keySignatureLabel(summary: MusicXmlImportSummary): string {
 export type PassageRange = {
   /** 1-based and inclusive, matching the API request. */
   barStart: number;
+  /** Quarter-note offset inside `barStart`; 0 is the first beat. */
+  beatStart: number;
+  /** 1-based and inclusive, matching the API request. */
   barEnd: number;
+  /** Quarter-note offset inside `barEnd`; exclusive. */
+  beatEnd: number;
 };
 
 export type PassageRangeValidation = {
@@ -693,15 +705,49 @@ export type PassageRangeValidation = {
   meters: string[];
 };
 
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function roundTick(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+/** Round to the nearest quarter note (24 ticks), never below zero. */
+export function snapTick(tick: number): number {
+  if (!Number.isFinite(tick) || tick <= 0) return 0;
+  return Math.round(tick / TICKS_PER_QUARTER) * TICKS_PER_QUARTER;
+}
+
+/** Display a beat offset as a 1-based musical beat (`0` -> `1.0`). */
+export function passageBeatLabel(beat: number): string {
+  if (!Number.isFinite(beat)) return '—';
+  const value = Math.round((beat + 1) * 1_000_000) / 1_000_000;
+  const text = String(value);
+  return text.includes('.') ? text : `${text}.0`;
+}
+
+/**
+ * Display an exclusive end offset as the last included 1-based beat.
+ * `2` (the end of a 2/4 bar) -> `2.0`, not `3.0`.
+ */
+export function passageEndBeatLabel(beatEnd: number): string {
+  if (!Number.isFinite(beatEnd) || beatEnd <= 0) return '—';
+  return passageBeatLabel(beatEnd - 1);
+}
+
 /**
  * First run of at least two bars in one meter, capped at four bars. A one-bar
  * opening run (e.g. a pickup 1/4 before the 2/4 body) is skipped so the
- * default lands on the stable body: Scottish -> bars 2..5.
+ * default lands on the stable body: Scottish -> bars 2..5, whole bars.
  */
 export function defaultPassageRange(
   bars: readonly MusicXmlBarLayout[],
 ): PassageRange {
-  if (bars.length === 0) return { barStart: 1, barEnd: 1 };
+  if (bars.length === 0) {
+    return { barStart: 1, beatStart: 0, barEnd: 1, beatEnd: 0 };
+  }
   for (let index = 0; index < bars.length; index += 1) {
     if (index > 0 && bars[index].meter === bars[index - 1].meter) continue;
     let runEnd = index;
@@ -711,21 +757,99 @@ export function defaultPassageRange(
     ) {
       runEnd += 1;
     }
+    const barEnd = Math.min(index + 4, bars.length);
     const range = {
       barStart: index + 1,
-      barEnd: Math.min(index + 4, bars.length),
+      beatStart: 0,
+      barEnd,
+      beatEnd: bars[barEnd - 1].quarterBeats,
     };
     if (runEnd - index + 1 >= 2) return range;
   }
-  return { barStart: 1, barEnd: 1 };
+  return {
+    barStart: 1,
+    beatStart: 0,
+    barEnd: 1,
+    beatEnd: bars[0].quarterBeats,
+  };
 }
 
-/** Reversed/out-of-range/mixed-meter/unsupported-meter checks for the panel. */
+/**
+ * Absolute tick span for a range. Beats are clamped to their bar so a
+ * half-typed number cannot paint outside the score.
+ */
+export function rangeTicks(
+  grid: MusicXmlGrid,
+  range: PassageRange,
+): { startTick: number; endTick: number } {
+  const bars = grid.bars;
+  if (bars.length === 0) return { startTick: 0, endTick: 0 };
+  const startIndex = clamp(Math.trunc(range.barStart) - 1, 0, bars.length - 1);
+  const endIndex = clamp(Math.trunc(range.barEnd) - 1, 0, bars.length - 1);
+  const startBar = bars[startIndex];
+  const endBar = bars[endIndex];
+  const startBeat = clamp(range.beatStart, 0, startBar.quarterBeats);
+  const endBeat = clamp(range.beatEnd, 0, endBar.quarterBeats);
+  return {
+    startTick: roundTick(startBar.startTick + startBeat * TICKS_PER_QUARTER),
+    endTick: roundTick(endBar.startTick + endBeat * TICKS_PER_QUARTER),
+  };
+}
+
+function barContainingTick(
+  grid: MusicXmlGrid,
+  tick: number,
+): MusicXmlGridBar {
+  const bars = grid.bars;
+  for (const bar of bars) {
+    if (tick < bar.startTick + bar.ticks) return bar;
+  }
+  return bars[bars.length - 1];
+}
+
+/**
+ * Normalize an absolute tick window into a bar/beat range. The window is
+ * snapped to quarter notes and is always at least one quarter long, so the
+ * inverse (`rangeTicks`) round-trips. `endTick` is exclusive: a window that
+ * ends exactly at a barline is reported as the end of the previous bar.
+ */
+export function selectionFromTicks(
+  grid: MusicXmlGrid,
+  startTick: number,
+  endTick: number,
+): PassageRange {
+  const bars = grid.bars;
+  if (bars.length === 0) {
+    return { barStart: 1, beatStart: 0, barEnd: 1, beatEnd: 0 };
+  }
+  const totalTicks = Math.max(TICKS_PER_QUARTER, grid.totalTicks);
+  let start = clamp(snapTick(startTick), 0, totalTicks - TICKS_PER_QUARTER);
+  let end = clamp(snapTick(endTick), start + TICKS_PER_QUARTER, totalTicks);
+  if (start >= totalTicks) {
+    start = Math.max(0, totalTicks - TICKS_PER_QUARTER);
+    end = totalTicks;
+  }
+  start = Math.round(start);
+  end = Math.round(end);
+  const startBar = barContainingTick(grid, start);
+  const endBar = barContainingTick(grid, Math.max(start, end - 1));
+  return {
+    barStart: startBar.bar,
+    beatStart: roundTick((start - startBar.startTick) / TICKS_PER_QUARTER),
+    barEnd: endBar.bar,
+    beatEnd: roundTick((end - endBar.startTick) / TICKS_PER_QUARTER),
+  };
+}
+
+/**
+ * Reversed/out-of-range/mixed-meter/unsupported-meter and beat-bound checks
+ * for the panel. Beats are quarter-note offsets; `beatEnd` is exclusive.
+ */
 export function validatePassageRange(
   bars: readonly MusicXmlBarLayout[],
-  barStart: number,
-  barEnd: number,
+  range: PassageRange,
 ): PassageRangeValidation {
+  const { barStart, beatStart, barEnd, beatEnd } = range;
   const errors: string[] = [];
   if (bars.length === 0) {
     return {
@@ -745,6 +869,43 @@ export function validatePassageRange(
   } else if (barEnd < 1 || barEnd > bars.length) {
     errors.push(`End bar must be between 1 and ${bars.length}.`);
   }
+
+  const startBar =
+    Number.isInteger(barStart) && barStart >= 1 && barStart <= bars.length
+      ? bars[barStart - 1]
+      : null;
+  const endBar =
+    Number.isInteger(barEnd) && barEnd >= 1 && barEnd <= bars.length
+      ? bars[barEnd - 1]
+      : null;
+
+  if (!Number.isFinite(beatStart)) {
+    errors.push('Start beat must be a number.');
+  } else if (startBar) {
+    if (beatStart < 0) {
+      errors.push('Start beat cannot be negative.');
+    } else if (beatStart >= startBar.quarterBeats) {
+      errors.push(
+        `Start beat must be inside bar ${startBar.bar} (before ${passageBeatLabel(
+          startBar.quarterBeats,
+        )}).`,
+      );
+    }
+  }
+  if (!Number.isFinite(beatEnd)) {
+    errors.push('End beat must be a number.');
+  } else if (endBar) {
+    if (beatEnd <= 0) {
+      errors.push('End beat must be after the start of the bar.');
+    } else if (beatEnd > endBar.quarterBeats) {
+      errors.push(
+        `End beat must be inside bar ${endBar.bar} (at or before ${passageEndBeatLabel(
+          endBar.quarterBeats,
+        )}).`,
+      );
+    }
+  }
+
   if (
     Number.isInteger(barStart) &&
     Number.isInteger(barEnd) &&
@@ -753,6 +914,25 @@ export function validatePassageRange(
     barEnd < barStart
   ) {
     errors.push('End bar must be at or after the start bar.');
+  } else if (
+    startBar &&
+    endBar &&
+    startBar.bar === endBar.bar &&
+    Number.isFinite(beatStart) &&
+    Number.isFinite(beatEnd) &&
+    beatEnd <= beatStart
+  ) {
+    errors.push('End beat must be after the start beat.');
+  } else if (
+    startBar &&
+    endBar &&
+    startBar.bar < endBar.bar &&
+    Number.isFinite(beatStart) &&
+    Number.isFinite(beatEnd) &&
+    beatStart >= startBar.quarterBeats &&
+    beatEnd <= 0
+  ) {
+    errors.push('The passage range is empty.');
   }
 
   const meters: string[] = [];
@@ -787,24 +967,103 @@ export function validatePassageRange(
   };
 }
 
-/** `bar 3 · 2/4` / `bars 2–5 · 2/4`; no locale formatting. */
+/** `bar 2 · beat 1.0 → bar 4 · beat 2.0`; no locale formatting. */
 export function passageRangeLabel(
   bars: readonly MusicXmlBarLayout[],
   range: PassageRange,
 ): string {
-  const { barStart, barEnd } = range;
-  if (!Number.isFinite(barStart) || !Number.isFinite(barEnd)) return 'no range';
-  const head =
-    barStart === barEnd ? `bar ${barStart}` : `bars ${barStart}–${barEnd}`;
-  const from = Math.max(1, Math.min(barStart, barEnd));
-  const to = Math.min(bars.length, Math.max(barStart, barEnd));
-  if (bars.length === 0 || to < from) return head;
-  const meters: string[] = [];
-  for (let bar = from; bar <= to; bar += 1) {
-    const meter = bars[bar - 1]?.meter;
-    if (meter && !meters.includes(meter)) meters.push(meter);
+  const { barStart, beatStart, barEnd, beatEnd } = range;
+  if (
+    !Number.isFinite(barStart) ||
+    !Number.isFinite(barEnd) ||
+    !Number.isFinite(beatStart) ||
+    !Number.isFinite(beatEnd)
+  ) {
+    return 'no range';
   }
-  return meters.length ? `${head} · ${meters.join(' → ')}` : head;
+  if (bars.length === 0) {
+    return `bar ${barStart} · beat ${passageBeatLabel(beatStart)} → bar ${barEnd} · beat ${passageEndBeatLabel(beatEnd)}`;
+  }
+  return `bar ${barStart} · beat ${passageBeatLabel(beatStart)} → bar ${barEnd} · beat ${passageEndBeatLabel(beatEnd)}`;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Playhead + zoom
+ * ------------------------------------------------------------------------- */
+
+export const MIN_ZOOM = 0.5;
+export const MAX_ZOOM = 3;
+export const ZOOM_STEP = 0.25;
+
+/** Clamp to 0.5–3.0 and round to the nearest 0.25 step. */
+export function clampZoom(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  const stepped = Math.round(value / ZOOM_STEP) * ZOOM_STEP;
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(stepped * 100) / 100));
+}
+
+/** `50%` / `100%` / `300%`; no locale formatting. */
+export function zoomLabel(value: number): string {
+  const zoom = clampZoom(value);
+  return `${Math.round(zoom * 100)}%`;
+}
+
+/**
+ * Playhead position in absolute score ticks. Seconds are wall-clock preview
+ * time; `bpm` is the preview synth tempo (fallback 96 in the panel). The panel
+ * clamps the result to the selection end.
+ */
+export function playheadTickAt(
+  seconds: number,
+  bpm: number,
+  selectionStartTick: number,
+): number {
+  const start = Number.isFinite(selectionStartTick)
+    ? Math.max(0, selectionStartTick)
+    : 0;
+  const tempo = Number.isFinite(bpm) && bpm > 0 ? bpm : 96;
+  const elapsed = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  return (
+    start + Math.round(elapsed * (tempo / 60) * TICKS_PER_QUARTER * 1_000_000) / 1_000_000
+  );
+}
+
+/* ------------------------------------------------------------------------- *
+ * Passage API body
+ * ------------------------------------------------------------------------- */
+
+export type MusicXmlPassageBodyInput = {
+  barStart: number;
+  beatStart?: number;
+  barEnd: number;
+  beatEnd?: number;
+  voices?: number[];
+};
+
+/**
+ * Pure request body builder. Beat fields are omitted unless finite so older
+ * callers keep sending `{ barStart, barEnd }`; an omitted `beatEnd` means the
+ * end of `barEnd` on the backend.
+ */
+export function buildMusicXmlPassageBody(
+  range: MusicXmlPassageBodyInput,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    barStart: Math.trunc(range.barStart),
+    barEnd: Math.trunc(range.barEnd),
+  };
+  if (typeof range.beatStart === 'number' && Number.isFinite(range.beatStart)) {
+    body.beatStart = range.beatStart;
+  }
+  if (typeof range.beatEnd === 'number' && Number.isFinite(range.beatEnd)) {
+    body.beatEnd = range.beatEnd;
+  }
+  if (range.voices && range.voices.length) {
+    body.voices = [...new Set(range.voices.map((voice) => Math.trunc(voice)))].sort(
+      (left, right) => left - right,
+    );
+  }
+  return body;
 }
 
 /* ------------------------------------------------------------------------- *
