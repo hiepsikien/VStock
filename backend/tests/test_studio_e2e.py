@@ -154,6 +154,8 @@ def client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
         patch.setenv("VSTOCK_STUDIO_DIR", str(root / "studio"))
         patch.setenv("VSTOCK_STUDIO_AUDIO_DIR", str(root / "audio"))
         patch.setenv("VSTOCK_STUDIO_SECRET", "studio-e2e-secret")
+        # Vision is hidden by default; this suite exercises its routes on purpose.
+        patch.setenv("VSTOCK_STUDIO_VISION", "1")
         # Configured path, but every actual call goes through the fake seam.
         patch.setenv("GEMINI_API_KEY", "studio-e2e-dummy-key")
         for name in (

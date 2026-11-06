@@ -13,10 +13,15 @@ Endpoints:
 * ``POST /analyze``               — Gemini vision draft, cached by content key
 
 Session is a namespace, not auth: ``X-Studio-Session`` hashes to ``owner_id``.
+
+Every route is gated by ``VSTOCK_STUDIO_VISION``. The flag defaults off and is
+read per request, so a deployment can hide the whole seam without removing the
+router or the handlers.
 """
 
 from __future__ import annotations
 
+import os
 import tempfile
 from datetime import datetime, timezone
 from typing import Any
@@ -33,7 +38,38 @@ from app.studio import store as studio_store
 from app.studio import vision
 from app.studio import session as studio_session
 
-router = APIRouter(prefix="/v1/musicalize/studio", tags=["studio-vision"])
+VISION_FLAG = "VSTOCK_STUDIO_VISION"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def vision_enabled() -> bool:
+    """Read the flag on every call so deploys/tests can flip it at runtime."""
+    raw = os.environ.get(VISION_FLAG, "").strip().lower()
+    return raw in _TRUTHY
+
+
+def require_vision_enabled() -> None:
+    """FastAPI dependency: hide every vision route while the flag is off."""
+    if not vision_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "ok": False,
+                "errors": [
+                    {
+                        "path": "vision",
+                        "message": "Studio vision is disabled",
+                    }
+                ],
+            },
+        )
+
+
+router = APIRouter(
+    prefix="/v1/musicalize/studio",
+    tags=["studio-vision"],
+    dependencies=[Depends(require_vision_enabled)],
+)
 
 _UPLOAD_CHUNK = 1024 * 1024
 # Multipart boundaries/headers are small; allow them before the byte cap so a
