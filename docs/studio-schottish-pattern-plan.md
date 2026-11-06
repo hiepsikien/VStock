@@ -784,19 +784,27 @@ Thêm module `texture_figure.py`:
 
 ```python
 def bind_texture(texture, *, bar_offset: int, epb: int) -> TextureSpec:
-    # bar += bar_offset
-    # melody_eighth.eighth += bar_offset * epb
-    # chord/scale kinds giữ nguyên; resolve tại target bar
+    # ONLY rebind melody_eighth.eighth += bar_offset * epb.
+    # Do NOT shift bar here; authored_to_events(bar_offset=bar) does that.
 
-def render_texture_bar(texture, ctx, bar) -> tuple[list, list, list]:
-    # bind_texture(bar_offset=bar)
-    # authored_to_events(...)
+def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
+    # select authored events with event.bar == cell_bar, reindex to 0
+    bound = bind_texture(texture, bar_offset=target_bar, epb=ctx.epb)
+    events = authored_to_events(bound, ctx, meter, bar_offset=target_bar)
     # split voice 1/2/3 -> lead/support/low
     # clip/tie/slur tại biên bar
 ```
 
+- `bind_texture` chỉ rebind `melody_eighth`; `bar_offset` của `authored_to_events` lo phần `bar`.
+  Nếu shift cả hai sẽ lệch bar.
 - `bind_texture` là bước bắt buộc để tile key figure ở bar > 0; không để `melody_eighth`
   trỏ về passage gốc.
+- `cell_bar` là offset trong cell (0..bars-1). `SuiteGate` build:
+  ```python
+  cell_at[bar] = (slot.cell, bar - slot.bars[0])
+  ```
+  `render_cell(ctx, bar, phrase, cell_id, cell_bar)` chọn đúng bar của cell.
+- Key figure 4 bar + sentence tile 4 bar: `cell_bar` 0..3; key figure 1 bar lặp: `cell_bar=0`.
 - `render_texture_bar` không đọc `SENTENCE_SPECS`, không mutate global.
 - Cell id ổn định: `texture_<pattern>_<hash>_<bars>`.
 - `Slot.cell=cell_id`; `SuiteGate` cần `render_cell`:
@@ -838,7 +846,7 @@ def render_texture_bar(texture, ctx, bar) -> tuple[list, list, list]:
   def door(ctx, bar, role, *, steps, closing, index):
       texture = outro_short if closing and steps == 2 else ...
       source_bar = frame_role_bar(role, steps, length)
-      return render_texture_bar(texture, ctx, bar, source_bar=source_bar)
+      return render_texture_bar(texture, ctx, bar, cell_bar=source_bar)
   ```
 - `frame_role_bar`:
   - length 1: `_compressed` half role 0 + half role 1;
