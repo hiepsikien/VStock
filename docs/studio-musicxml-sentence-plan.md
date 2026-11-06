@@ -152,6 +152,48 @@ Không giữ absolute pitch; pitch chỉ dùng để phân role.
 
 ### 6.2 Matcher
 
+#### Thuật ngữ: pattern vs SentenceSpec
+
+- **Pattern** (tên cũ) là **họ texture + selector identity**: `castillo`, `sonatina`, `galop`, `villa_pattern`… Pattern quyết định renderer/selector nào chạy trong composer.
+- **SentenceSpec** là **một câu cụ thể trong một pattern/meter**: `id`, `pattern`, `meter`, `select`, `span`, `slots` (figure/cell/procedure).
+- Một pattern có thể có **nhiều SentenceSpec**. Ví dụ `castillo` 3/4 có `castillo_34_walk` và `castillo_34_cadence`; 4/4 có nhiều biến thể theo độ dài phrase.
+- **46 example** là 46 `SentenceSpec` đã commit, không phải 46 pattern. Vì vậy matcher làm việc trên example/SentenceSpec, không match trực tiếp trên tên pattern.
+
+`SentenceSpec` **không tương đương** pattern:
+- `SentenceSpec.pattern` trỏ tới pattern;
+- pattern là runtime family/selector;
+- tạo pattern mới cần registration/selection/flag, không chỉ thêm một SentenceSpec.
+
+#### Lý do thứ tự match
+
+1. **Cùng meter**
+   - Registry key là `(pattern, meter)`.
+   - Figure/slot được viết cho meter cụ thể; sai meter thường làm figure overflow hoặc sai grouping.
+
+2. **Cùng số bar hoặc tile gần nhất**
+   - `Slot.start/bars` là bar offset; `Span.tile` quyết định lặp/clip.
+   - Passage 4 bar khớp template 4 bar tốt hơn template 9 bar bị cắt.
+
+3. **Density/onset/rest pattern**
+   - Đây là phần gần nhất với “rhythm” của passage.
+   - Không dùng absolute pitch; chỉ so số note/onset/rest/tie theo lane.
+   - Density quyết định figure nào có thể thay thế mà không nhồi quá nhiều/nốt quá thưa.
+
+4. **Top 3**
+   - Matcher là heuristic, không có exact match cho một passage mới.
+   - Trả nhiều candidate để user nghe/so sánh; không auto-publish.
+
+5. **Chỉ dùng figure/cell có trong registry**
+   - Production resolve figure/cell qua owner module.
+   - Figure không tồn tại → spec invalid hoặc publish fail.
+   - Không bịa figure id từ passage.
+
+#### Lưu ý: 46 example gồm cả candidate
+
+- 38 example production ổn định + 8 candidate (Villa/Suite/Barrios/Brouwer).
+- Draft mặc định chỉ nên **ưu tiên 38 production**.
+- Candidate gated phải trả thêm `productionReady: false` và `flag`/`reason`; user có thể preview nhưng không publish như production khi flag off.
+
 So signature với 46 example hiện có:
 
 - ưu tiên cùng meter;
