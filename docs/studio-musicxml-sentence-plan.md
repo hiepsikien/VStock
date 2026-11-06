@@ -67,7 +67,7 @@ Chưa hỗ trợ viết figure/algorithm mới từ Studio.
 ├──────────────────────────────────────────────┤
 │ 3. Create / add sentence                     │
 │    (•) Existing pattern                      │
-│        Pattern [suite_mazurka ▼]             │
+│        Pattern [castillo ▼]                  │
 │        Template [auto ▼]                     │
 │                                              │
 │    ( ) New pattern                           │
@@ -128,8 +128,8 @@ POST /v1/studio/import/musicxml/{importId}/sentence-draft
 
   "mode": "existing" | "new",
 
-  "pattern": "suite_mazurka",          // existing
-  "templateId": "suite_mazurka_arpeggio_aaba",
+  "pattern": "castillo",               // existing generic
+  "templateId": "castillo_34_walk",
 
   "newPattern": {                      // new
     "id": "villa_choro_mazurka",
@@ -151,7 +151,7 @@ Response:
   "fixture": { "length": 4, "n": 0, "closes": false, "rise": 0 },
   "preview": {
     "renderHash": "sha256:...",
-    "audioUrl": "/v1/studio/sentence/audio/....wav",
+    "audioUrl": "/v1/studio/sentence/audio/<64-hex>.wav",
     "notes": 24
   },
   "warnings": ["template tile 4 used; passage has 4 bars"],
@@ -188,6 +188,28 @@ existing pattern ∉ suite_*
 - UI không hiển thị `suite_*` trong dropdown `Existing pattern`.
 - Nếu user chọn `New pattern` với id trùng `suite_*`/pattern đã có → chặn.
 
+#### Danh sách existing hợp lệ
+
+Lấy động từ `PILOT_PATTERNS` (`castillo, sonatina, fandanguillo, danza, galop`),
+không hardcode UI. Trạng thái registry hiện tại:
+
+| Key | Số spec |
+|---|---:|
+| `castillo` 3/4 | 2 |
+| `castillo` 4/4 | 9 |
+| `danza` 3/4 | 2 |
+| `danza` 6/8 | 2 |
+| `fandanguillo` * | 4 |
+| `galop` * | 1 |
+| `sonatina` * | 18 |
+
+Lưu ý: các key này đều do module owner đăng ký bằng `register(...)`, và
+`register` **raise** nếu key đã có tuple khác. Vì vậy:
+
+- UI chỉ được dùng existing mode để **draft/export**;
+- thêm spec production vào bất kỳ key nào vẫn là **sửa code owner**
+  (`register` call/gate), không chỉ thêm vào dict runtime.
+
 ### Cách tạo draft
 
 1. Passage → rhythm summary (bar/beat/role/rest).
@@ -215,19 +237,53 @@ Không viết renderer/compiler mới.
 - `app/studio/preview.py` đã dùng `use_registry` sandbox cho Torroba/Sor.
 - `POST /v1/studio/sentence/audio` và `POST /v1/studio/sentence/export` đã có.
 
-Seam nhỏ nhất:
+Seam thực tế gồm **hai chốt**, không chỉ một:
+
+1. `villa_preview.validate_villa_spec(..., allowed_patterns=...)`
+   - nới whitelist cho pattern draft.
+2. `dispatch.family_for(pattern)`
+   - pattern draft không nằm trong 4 family hiện tại nên `family_for` trả `None`;
+   - `/sentence/preview`, `/sentence/audio` sẽ chết ở dispatch trước khi tới Villa.
+
+Cách gọn:
 
 ```text
-validate_villa_spec(spec, allow_draft_pattern=True)
+draft-only family override
+  - request-scoped ContextVar hoặc tham số `family` trên draft routes;
+  - chỉ nhận 4 family hiện có: torroba_sor | villa | barrios | brouwer;
+  - không sửa `family_for` cho production;
+  - pattern draft phải do server tạo, không nhận pattern lạ từ client.
 ```
 
-hoặc tham số `allowed_patterns` chỉ cho pattern draft.
-Chỉ nới whitelist validate; plan/render/audio/export giữ nguyên.
+Sau đó reuse:
+- `villa_preview` plan/render sandbox;
+- `preview_spec` + `use_registry` cho Torroba/Sor;
+- `/sentence/audio`;
+- `/sentence/export`.
+
+Vì `/sentence/audio` và `/sentence/export` cũng gọi `dispatch`, chúng cần nhận
+`family` optional cho draft (cùng allowlist). Không truyền `family` cho request
+production.
+
+MVP:
+
+- **Existing pattern**: publish/export bình thường (pattern đã biết).
+- **New pattern**: preview + export bundle; **không publish SQLite** trong MVP.
+  Publish draft pattern cần thêm family metadata/validation, để sprint sau.
 
 ### Fixture cho draft
 
-Không suy `n`/`closes`/`rise` từ MusicXML.
+Không suy `n`/`closes`/`rise` từ MusicXML. Fixture **theo family**, không dùng
+một schema chung:
 
+| Family | Fixture resolver |
+|---|---|
+| Torroba/Sor | `dispatch.resolve_fixture` / `preview._resolve_fixture` |
+| Villa | `villa_preview._resolve_fixture` |
+| Barrios | `barrios_preview._resolve_fixture` |
+| Brouwer | `brouwer_preview._resolve_fixture` |
+
+- Draft response luôn trả `fixture` đã resolve; UI không tự bịa.
 - `n`: lấy từ `Select`/template; mặc định 0.
 - `closes`: `false` cho passage mở.
 - `rise`: `0`.
@@ -235,6 +291,8 @@ Không suy `n`/`closes`/`rise` từ MusicXML.
 - `length` = số bar passage, capped `MAX_PLAN_BARS`.
 - `bars` render capped `MAX_RENDER_BARS`.
 - Passage dài hơn cap → UI warning/error, không trả “preview ok” giả.
+- MVP: existing mode chỉ Torroba/Sor; new pattern chỉ Villa. Nếu mở family khác,
+  dùng resolver của family đó.
 
 ### Namespace id
 
@@ -304,11 +362,14 @@ Promote suite_* là **thay đổi code**, không chỉ thêm vào dict runtime.
 ### Backend
 
 - `VSTOCK_STUDIO_VISION` default off.
-- Off: **không mount** `studio_vision` router; mọi route vision trả `404` có cấu trúc.
-- Không chỉ ẩn UI: nếu route vẫn sống, client có token vẫn đốt Gemini/quota.
-- On: mount router như hiện tại.
+- Router vẫn mount, nhưng mọi endpoint phụ thuộc `require_vision_enabled`:
+  - Off → `404` có cấu trúc `{"ok":false,"errors":[{"path":"vision","message":"disabled"}]}`.
+  - Không gọi Gemini, không đốt quota.
+  - On → chạy như hiện tại.
+- Gate đọc env **mỗi request** để test/monkeypatch dễ; không đọc một lần lúc import.
+- Không chỉ ẩn UI: nếu route vẫn sống mà không gate, client có token vẫn đốt Gemini/quota.
 - Giữ `studio_vision`, `vision.py`, Gemini client, tests.
-- Vision tests phải set env trước khi tạo app/test client; thêm test flag-off → `404`, không gọi Gemini.
+- Thêm test flag-off → 404 structured, không gọi Gemini; flag-on giữ test cũ.
 
 ### Frontend
 
@@ -346,32 +407,32 @@ trong docs/registry luôn dùng tên movement canonical:
 
 ```json
 {
-  "id": "suite_mazurka_musicxml_abc123",
-  "pattern": "suite_mazurka",
+  "id": "musicxml_mxi_abc123_2_5",
+  "pattern": "castillo",
   "meter": "3/4",
   "select": {
-    "length_min": 4,
+    "length_min": 2,
     "length_max": null,
-    "n_parity": "any",
+    "n_parity": "even",
     "n_mod": null,
     "closes": null,
     "rise_min": 0
   },
   "span": {
-    "tile": 4,
+    "tile": 9,
     "remainder": "same_figure",
     "truncate_to_length": true,
     "cycle": false,
     "exact": false
   },
   "slots": [
-    { "start": 0, "bars": 1, "figure": 1, "cell": null, "anchor": "start" },
-    { "start": 1, "bars": 1, "figure": 1, "cell": null, "anchor": "start" },
-    { "start": 2, "bars": 1, "figure": 2, "cell": null, "anchor": "start" },
-    { "start": 3, "bars": 1, "figure": 1, "cell": null, "anchor": "start" }
+    { "start": 0, "bars": 9, "figure": 13, "cell": null, "anchor": "start" }
   ]
 }
 ```
+
+Đây là geometry của `castillo_34_walk` (figure 13) để JSON hợp lệ với
+`valid_figures` hiện tại. Draft thật có thể có nhiều slot hơn.
 
 ---
 
@@ -383,7 +444,6 @@ trong docs/registry luôn dùng tên movement canonical:
 - DB-backed texture/pattern registry.
 - Auto-selection pattern trong composer.
 - Pickup/implicit measure length thật.
-- DB-backed runtime registry.
 
 ---
 
@@ -418,6 +478,13 @@ MVP dừng ở **A + B + C**.
 - Vision flag off → `POST /analyze` trả 404, không đốt Gemini.
 - Vượt quota draft/preview → `429`.
 - Passage dài hơn `MAX_RENDER_BARS`/`MAX_PLAN_BARS` → warning/error rõ.
+- Draft pattern đi qua `dispatch` với family override; pattern lạ bị chặn.
+- Existing mode chỉ thấy `PILOT_PATTERNS`; `suite_*` không xuất hiện.
+- Fixture resolve đúng family (Torroba/Sor vs Villa).
+- Vision flag off → 404 structured `{ok:false,errors:[...]}`, không gọi Gemini.
+- Flag off/on cho pattern draft: off không đổi render cũ; on deterministic.
+- Draft audio/export nhận đúng `family` override; production request không nhận.
+- New pattern publish bị chặn rõ (chỉ export bundle).
 
 ---
 
@@ -431,6 +498,7 @@ MVP dừng ở **A + B + C**.
 6. Studio draft không tự vào composer.
 7. Gemini ẩn nhưng backend phải gate thật, không chỉ ẩn UI.
 8. Draft/preview phải qua access/quota/owner.
+9. New pattern publish SQLite chưa hỗ trợ MVP; chỉ preview + export.
 
 ---
 
