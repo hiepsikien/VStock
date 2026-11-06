@@ -30,6 +30,7 @@ Track B (Studio preview `source`/`aaba`) tách riêng tại
 | 4 phrase không bridge có thể mất B | B bắt buộc ở `len(body)//2`; rise chỉ nâng cấp |
 | `keyFigures` scope quá rộng | Chỉ pattern mới/promote; pattern cũ grandfathered |
 | Phase 3 chưa có FormSpec path | Chốt movement III (1M/3M), 1W toàn bộ; pickup không vào production |
+| AABA/trio hardcode trong gate | Tách `sentence_plan.py`: `PlanPolicy` + `CompositePolicy` + `explicit` JSON; renderer chỉ nhận `PlannedSlot[]` |
 
 ---
 
@@ -431,13 +432,158 @@ A2 variation (MVP):
 - hoặc dùng `VILLA_CHORD_MELODY` cho A2 nếu A là arpeggio;
 - phải có test A ≠ A2 nhưng cùng tonal center.
 
-#### 3.2.4. Multi-spec gate
+#### 3.2.4. Plan seam tách bạch (AABA/trio/external)
+
+**Mục tiêu:** phần chọn kịch bản (AABA, ABAB, trio, explicit) là **module riêng**, không nằm
+trong `SuiteGate`/renderer; sau này nhận plan từ ngoài và ghép lại mà không sửa nhạc.
+
+##### Module mới: `sentence_plan.py`
+
+```python
+@dataclass(frozen=True)
+class PhraseView:
+    index: int          # 0-based trong body
+    count: int          # tổng body phrase
+    start_bar: int
+    bars: int
+    closes: bool
+    rise: int
+    kind: str           # "phrase" | "bridge" | "trio" | ...
+
+@dataclass(frozen=True)
+class PhraseRole:
+    role: str           # "A" | "B" | "close"
+    sentence_id: str | None
+    reason: str         # để debug/audit
+
+@dataclass(frozen=True)
+class PhrasePlan:
+    phrase: PhraseView
+    role: PhraseRole
+    slots: tuple[PlannedSlot, ...]
+
+@dataclass(frozen=True)
+class Plan:
+    policy_id: str
+    phrases: tuple[PhrasePlan, ...]
+    slots: tuple[PlannedSlot, ...]
+```
+
+##### Policy protocol
+
+```python
+class PlanPolicy(Protocol):
+    id: str
+    def roles(self, phrases: tuple[PhraseView, ...]) -> tuple[PhraseRole, ...]:
+        ...
+```
+
+Built-in policies:
+
+| id | role pattern |
+|---|---|
+| `auto_aaba` | A A B close; B = bridge/trio hoặc `len//2` |
+| `aaba_16` | A1 A2 B A3, chỉ movement đúng 16 bar |
+| `abab` | A B A B (B xen kẽ; close ở cuối nếu cần) |
+| `trio` | A B A; B đặt đúng trio/bridge |
+| `aab_close` | A A B close |
+| `through` | A ... A close |
+| `explicit` | roles/sentence ids lấy từ JSON ngoài |
+
+`trio`/`aaba` chỉ là **policy**, không phải nhánh if trong renderer.
+
+##### Composite policy
+
+Để ghép linh hoạt:
+
+```python
+CompositePolicy([
+    BridgeRule(),      # phrase kind == bridge/trio -> B
+    CadenceRule(),     # phrase cuối -> close
+    AABARule(),        # mặc định A A B close
+])
+```
+
+- Rule trả `PhraseRole | None`; rule đầu tiên khớp thắng.
+- Thêm policy mới = thêm rule, không sửa renderer/registry.
+- Có thể load rule order từ config/JSON sau này.
+
+##### Assembler
+
+```python
+def build_plan(
+    pattern: str,
+    meter: str,
+    phrases: tuple[PhraseView, ...],
+    *,
+    policy: PlanPolicy,
+    registry: Mapping[...] | None = None,
+) -> Plan:
+    roles = policy.roles(phrases)
+    # select SentenceSpec theo role/sentence_id
+    # gọi plan_slots(..., offset=phrase.start_bar, n=phrase.index)
+```
+
+- `build_plan` là pure: không đọc ctx, không render, không mutate registry.
+- `SuiteGate` chỉ làm gate/eligibility; gọi `build_plan` rồi `render_plan`.
+- `render_plan(ctx, plan)` chỉ nhận `PlannedSlot[]`; **không biết** AABA/trio.
+
+##### External plan
+
+JSON tối thiểu:
+
+```json
+{
+  "version": 1,
+  "id": "schottish_trio",
+  "pattern": "suite_schottish",
+  "meter": "2/4",
+  "phrases": [
+    { "startBar": 1, "bars": 4, "role": "A" },
+    { "startBar": 5, "bars": 4, "role": "B" },
+    { "startBar": 9, "bars": 4, "role": "A" },
+    { "startBar": 13, "bars": 4, "role": "close" }
+  ],
+  "sentenceByRole": {
+    "A": "schottish_a",
+    "B": "schottish_b",
+    "close": "schottish_close"
+  }
+}
+```
+
+Validation:
+
+- `pattern`/`meter` khớp;
+- `startBar` tăng dần, `bars >= 1`;
+- role cuối phải `close`;
+- `B` không ở phrase cuối;
+- `sentenceByRole` trỏ tới spec có trong `SENTENCE_SPECS[(pattern, meter)]`;
+- số phrase/bars khớp movement;
+- plan lạ → reject rõ, không silent fallback.
+
+##### Default / fallback
+
+- Default composer dùng `auto_aaba` (hoặc policy hiện tại) — byte-identical khi flag off.
+- Không có policy/không đủ phrase → fallback A + close; không render rỗng.
+- External plan chỉ dùng cho preview/export trước; promote phải qua flag/registry.
+
+##### Tests
+
+- Pure policy tests 1–8 phrase, bridge/trio, rise, 4 phrase không bridge.
+- `CompositePolicy` thứ tự rule.
+- `explicit` JSON round-trip; invalid plan reject.
+- `build_plan` offset phrase > 0.
+- `render_plan` nhận đúng slots; không import policy.
+- Default `auto_aaba` khớp hành vi hiện tại.
+- Valsa/Gavotta/Choros1 flag off byte-identical.
+
+##### Multi-spec registry
 
 - Không đổi `SuiteGate` single-spec path.
-- Thêm seam opt-in, ví dụ `PhraseGate`/`MultiSpecGate`, chỉ `suite_schottish` dùng.
-- `plan_slots` nhận offset phrase và danh sách spec.
-- Giữ `ensure_registered`/`unregister` đúng cho tuple.
-- Test Valsa/Gavotta/Choros1 flag off/on byte-identical.
+- `ensure_registered`/`unregister` đúng tuple.
+- `PhraseGate`/`MultiSpecGate` chỉ là wrapper mỏng gọi `build_plan`.
+- `plan_slots` nhận `offset`; `slot_start`/`bars` shift, `micro_velocity` relative.
 
 ### 3.3. Phase 3 — native 2/4
 
@@ -752,6 +898,8 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 11. **`keyFigures` là metadata Studio/export**, không phải registry production mới; gate chỉ áp cho pattern mới/promote.
 12. **Track B chỉ warning khi thiếu door.** Không tự lấy default `_villa_pattern_door`; `complete:false` đến khi user thêm đủ intro/outro.
 13. **Pickup metadata là nguồn duy nhất.** `summary.pickupBars` từ import; không dùng onset heuristic.
+14. **Plan selection tách khỏi renderer.** `sentence_plan.py` chứa `PlanPolicy`/`CompositePolicy`/`build_plan`; `render_plan` chỉ nhận `PlannedSlot[]`. External plan dùng JSON `explicit`, không mutate registry.
+15. **AABA/trio/ABAB là policy data**, không phải nhánh `if` trong `SuiteGate`.
 
 ---
 
@@ -795,6 +943,8 @@ B **luôn tồn tại** khi body ≥3 phrase; `rise` chỉ chọn B mạnh/yếu
   không dùng để bỏ B bắt buộc.
 - B không được ở phrase cuối.
 - Close luôn ở phrase cuối.
+- Thuật toán này là built-in `auto_aaba`; policy khác (`trio`, `abab`, `explicit`) nằm ở
+  `sentence_plan.py`, không sửa hàm render.
 
 ### 9.3. Spec + offset
 
@@ -896,6 +1046,7 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 13. `plan_slots`/`plan_sentence` chưa có `offset`; phrase 2+ sẽ plan về bar 0 nếu không sửa.
 14. 4 phrase không bridge phải vẫn có B ở `len(body)//2`; rise không được làm mất B.
 15. Phase 3 cần `_suite_meter_override` ở `plan_*`, không đổi `_guitar_meter` toàn cục.
+16. `SuiteGate._plan` hiện hardcode `n=0`; plan seam phải tách `sentence_plan.py`, không nhét thêm vào gate.
 
 ---
 
@@ -914,3 +1065,4 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 1. **Native 2/4 gán vào movement III** cho `1M`/`3M`; `1W` dùng 2/4 cho toàn movement.
 2. **Track B không tự sinh door**: chỉ warning + `complete:false`; user phải thêm intro/outro trước promote.
 3. **Không còn câu hỏi mở** cho Phase 0; các thay đổi code bắt đầu từ Phase 0 theo §3.0.
+4. **Plan seam tách bạch**: AABA/trio/ABAB/external plan nằm trong `sentence_plan.py`; renderer không biết policy. External JSON qua `explicit`, có validate và reject rõ.

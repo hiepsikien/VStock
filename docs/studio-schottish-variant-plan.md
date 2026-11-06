@@ -355,17 +355,19 @@ Preview mode:
 
 ---
 
-## 11. Future — PlanVariant
+## 11. Future — PlanVariant / external plan
 
-Chỉ làm sau Track A Phase 2:
+Chỉ làm sau Track A Phase 2, dùng chung schema với `sentence_plan.py`:
 
-- `PlanVariant` schema/version/round-trip;
-- validate `sentenceByRole` IDs tồn tại;
-- rule phrase count vs `phrases` entries;
-- precedence `PlanVariant` vs `SentenceSpec.select`;
+- `PlanVariant` = JSON `explicit` của Track A: `version`, `pattern`, `meter`, `phrases`, `sentenceByRole`;
+- validate như Track A §3.2.4: startBar tăng, bars ≥1, role cuối close, B không cuối,
+  sentence IDs tồn tại;
+- `PlanPolicy`/`CompositePolicy` nhận plan ngoài, không mutate registry;
+- precedence: explicit plan thắng auto policy; `SentenceSpec.select` chỉ dùng khi auto;
 - một nguồn quota duy nhất;
 - access/owner cho `/sentence/variants`;
-- UI đánh dấu future, không MVP.
+- UI đánh dấu future, không MVP;
+- preview/export trước, promote sau.
 
 ---
 
