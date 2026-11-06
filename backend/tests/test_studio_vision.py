@@ -15,6 +15,7 @@ import hashlib
 import sqlite3
 import struct
 import zlib
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
@@ -59,14 +60,19 @@ def _png(width: int = 4, height: int = 3, *, seed: int = 0) -> bytes:
     )
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch) -> TestClient:
+@contextmanager
+def _studio_client(tmp_path, monkeypatch, *, vision_flag):
+    """Build the same app; ``vision_flag=None`` leaves the flag unset (off)."""
     if store._db is not None:  # pragma: no cover - defensive cleanup
         asyncio.run(store.close_db())
 
     monkeypatch.setenv("VSTOCK_DB_PATH", str(tmp_path / "studio.db"))
     monkeypatch.setenv("VSTOCK_STUDIO_DIR", str(tmp_path / "studio"))
     monkeypatch.setenv("VSTOCK_STUDIO_SECRET", "test-secret")
+    if vision_flag is None:
+        monkeypatch.delenv(studio_vision_router.VISION_FLAG, raising=False)
+    else:
+        monkeypatch.setenv(studio_vision_router.VISION_FLAG, vision_flag)
     for name in (
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
@@ -88,6 +94,18 @@ def client(tmp_path, monkeypatch) -> TestClient:
             yield test_client
         finally:
             test_client.portal.call(store.close_db)
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch) -> TestClient:
+    with _studio_client(tmp_path, monkeypatch, vision_flag="1") as test_client:
+        yield test_client
+
+
+@pytest.fixture()
+def vision_disabled_client(tmp_path, monkeypatch) -> TestClient:
+    with _studio_client(tmp_path, monkeypatch, vision_flag=None) as test_client:
+        yield test_client
 
 
 def _upload(
@@ -173,6 +191,85 @@ def test_missing_session_is_400_for_upload_and_analyze(client: TestClient) -> No
         f"{BASE}/analyze", json={"uploadId": "anything"}, headers={}
     )
     assert analyze.status_code == 400
+
+
+DISABLED_DETAIL = {
+    "ok": False,
+    "errors": [{"path": "vision", "message": "Studio vision is disabled"}],
+}
+
+
+def _forbid_gemini(monkeypatch) -> list[int]:
+    """A Gemini seam that fails loudly if the disabled routes reach it."""
+    calls: list[int] = []
+
+    async def sentinel(*args, **kwargs):
+        calls.append(1)
+        raise AssertionError("Gemini must not be called while vision is disabled")
+
+    monkeypatch.setattr(vision, "analyze_image", sentinel)
+    monkeypatch.setattr(vision, "_call_gemini", sentinel)
+    return calls
+
+
+def test_vision_flag_off_hides_every_route_without_calling_gemini(
+    vision_disabled_client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    calls = _forbid_gemini(monkeypatch)
+
+    access = vision_disabled_client.get(f"{BASE}/access")
+    assert access.status_code == 404
+    assert access.json()["detail"] == DISABLED_DETAIL
+
+    analyze = vision_disabled_client.post(
+        f"{BASE}/analyze", json={"uploadId": "anything"}, headers=SESSION_A
+    )
+    assert analyze.status_code == 404
+    assert analyze.json()["detail"] == DISABLED_DETAIL
+
+    upload = _upload(vision_disabled_client, _png())
+    assert upload.status_code == 404
+    assert upload.json()["detail"] == DISABLED_DETAIL
+
+    media = vision_disabled_client.get(f"{BASE}/uploads/any?t=token")
+    assert media.status_code == 404
+
+    deleted = vision_disabled_client.delete(
+        f"{BASE}/uploads/any", headers=SESSION_A
+    )
+    assert deleted.status_code == 404
+
+    assert calls == []
+
+
+def test_vision_enabled_reads_the_env_on_every_call(monkeypatch) -> None:
+    monkeypatch.delenv(studio_vision_router.VISION_FLAG, raising=False)
+    assert studio_vision_router.VISION_FLAG == "VSTOCK_STUDIO_VISION"
+    assert studio_vision_router.vision_enabled() is False
+
+    with pytest.raises(HTTPException) as disabled:
+        studio_vision_router.require_vision_enabled()
+    assert disabled.value.status_code == 404
+    assert disabled.value.detail == DISABLED_DETAIL
+
+    monkeypatch.setenv(studio_vision_router.VISION_FLAG, "1")
+    assert studio_vision_router.vision_enabled() is True
+    assert studio_vision_router.require_vision_enabled() is None
+
+    monkeypatch.setenv(studio_vision_router.VISION_FLAG, "0")
+    assert studio_vision_router.vision_enabled() is False
+
+    for truthy in ("true", "YES", " on "):
+        monkeypatch.setenv(studio_vision_router.VISION_FLAG, truthy)
+        assert studio_vision_router.vision_enabled() is True
+
+    for falsy in ("", "false", "off", "no"):
+        monkeypatch.setenv(studio_vision_router.VISION_FLAG, falsy)
+        assert studio_vision_router.vision_enabled() is False
+
+    monkeypatch.delenv(studio_vision_router.VISION_FLAG, raising=False)
+    assert studio_vision_router.vision_enabled() is False
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +372,10 @@ def test_media_token_valid_expired_and_wrong_resource() -> None:
     # low padding bits of the final character, so a last-character change can
     # decode to the same bytes and make this assertion flaky.
     signature_start = token.index(".") + 1
+    signature_tail = signature_start + 1
     replacement = "A" if token[signature_start] != "A" else "B"
     tampered_token = (
-        token[:signature_start] + replacement + token[signature_start + 1 :]
+        token[:signature_start] + replacement + token[signature_tail:]
     )
     with pytest.raises(studio_session.TokenError) as tampered:
         studio_session.verify_media_token(tampered_token, "upload-1", now=1001)
