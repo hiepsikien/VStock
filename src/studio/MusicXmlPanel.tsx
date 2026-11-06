@@ -186,6 +186,10 @@ export function MusicXmlPanel({ compact = false }: Props) {
     [imported],
   );
   const grid = useMemo(() => musicXmlGrid(bars), [bars]);
+  const barStartTicks = useMemo(
+    () => new Map(grid.bars.map((bar) => [bar.bar, bar.startTick])),
+    [grid],
+  );
   const lanes = useMemo(
     () => (imported ? buildRoleLanes(imported.notes, bars) : []),
     [imported, bars],
@@ -202,6 +206,15 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const rangeLabel = passageRangeLabel(bars, range);
   const voicesInScore = useMemo(() => voiceOptions(imported), [imported]);
   const warnings = useMemo(() => warningUnion(imported), [imported]);
+  // The passage echoes the score warnings; the summary toggle already lists
+  // those, so only show passage-specific messages here.
+  const passageWarnings = useMemo(
+    () =>
+      passage
+        ? passage.warnings.filter((warning) => !warnings.includes(warning))
+        : [],
+    [passage, warnings],
+  );
   const matrixWidth = Math.max(1, grid.totalTicks * TICK_WIDTH);
   const summary = imported?.summary ?? EMPTY_SUMMARY;
 
@@ -737,6 +750,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
                           key={`${lane.role}:${cell.bar}:${cell.startTick}`}
                           cell={cell}
                           role={lane.role}
+                          offsetTicks={barStartTicks.get(cell.bar) ?? 0}
                         />
                       ))}
                     </View>
@@ -861,9 +875,9 @@ export function MusicXmlPanel({ compact = false }: Props) {
                 <ErrorRows errors={passageError.errors} />
               </View>
             ) : null}
-            {passage?.warnings.length ? (
+            {passageWarnings.length ? (
               <View style={styles.warningList}>
-                {passage.warnings.map((warning, index) => (
+                {passageWarnings.map((warning, index) => (
                   <Text key={`passage-warning:${index}`} style={styles.warningText}>
                     {warning}
                   </Text>
@@ -956,9 +970,12 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 function RoleCellView({
   cell,
   role,
+  offsetTicks,
 }: {
   cell: MusicXmlRoleCell;
   role: MusicXmlRole;
+  /** Absolute start tick of the cell's bar in the score-wide matrix. */
+  offsetTicks: number;
 }) {
   const width = Math.max(MIN_NOTE_WIDTH, cell.ticks * TICK_WIDTH);
   const height = ROW_HEIGHT - 8;
@@ -983,7 +1000,7 @@ function RoleCellView({
       style={[
         styles.cell,
         {
-          left: cell.startTick * TICK_WIDTH,
+          left: (offsetTicks + cell.startTick) * TICK_WIDTH,
           width,
           height,
           top: 4,
