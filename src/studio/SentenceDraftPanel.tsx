@@ -189,6 +189,9 @@ export function SentenceDraftPanel({
     setError(null);
     setWarningsOpen(false);
   }, [
+    importId,
+    meter,
+    voices,
     mode,
     pattern,
     templateId,
@@ -199,6 +202,13 @@ export function SentenceDraftPanel({
     range.barEnd,
     range.beatEnd,
   ]);
+
+  // A different import is a different piece; never mix its sentences into the
+  // pattern draft built from the previous score.
+  useEffect(() => {
+    setDraft(null);
+    setNote(null);
+  }, [importId]);
 
   const nextId = newPatternId(newName);
   const nextLabel = newPatternLabel(newName, nextId);

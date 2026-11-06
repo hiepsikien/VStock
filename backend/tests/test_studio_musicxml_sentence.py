@@ -47,7 +47,7 @@ def _client() -> TestClient:
     app.include_router(studio_audio_router.router)
     app.include_router(studio_export_router.router)
     app.include_router(studio_router.router)
-    return TestClient(app)
+    return TestClient(app, headers={"X-Studio-Session": "test-musicxml"})
 
 
 def _score(measures: str) -> bytes:
@@ -404,6 +404,8 @@ def test_new_villa_pattern_previews_with_the_draft_family_override() -> None:
         spec, body["fixture"], family="villa"
     )["pattern"] == "villa_choro_mazurka"
 
+    # Production routes must not expose the draft family override. A new
+    # pattern is previewable only through the MusicXML sentence-draft endpoint.
     audio = client.post(
         "/v1/studio/sentence/audio",
         json={
@@ -412,14 +414,7 @@ def test_new_villa_pattern_previews_with_the_draft_family_override() -> None:
             "family": "villa",
         },
     ).json()
-    assert audio["ok"] is True, audio["errors"]
-    assert audio["renderHash"] == body["preview"]["renderHash"]
-
-    without_family = client.post(
-        "/v1/studio/sentence/audio",
-        json={"spec": body["spec"], "fixture": body["fixture"]},
-    ).json()
-    assert without_family["ok"] is False
+    assert audio["ok"] is False
 
     exported = client.post(
         "/v1/studio/sentence/export",
@@ -429,14 +424,7 @@ def test_new_villa_pattern_previews_with_the_draft_family_override() -> None:
             "family": "villa",
         },
     ).json()
-    assert exported["ok"] is True, exported["errors"]
-    assert exported["bundle"]["registration"]["family"] == "villa"
-
-    production_export = client.post(
-        "/v1/studio/sentence/export",
-        json={"spec": body["spec"], "fixture": body["fixture"]},
-    ).json()
-    assert production_export["ok"] is False
+    assert exported["ok"] is False
 
 
 def test_blank_template_ids_auto_pick_a_villa_template() -> None:

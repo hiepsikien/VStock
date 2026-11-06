@@ -29,7 +29,7 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + crop web + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (native picker chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
 | Vision flag | `VSTOCK_STUDIO_VISION` + `EXPO_PUBLIC_STUDIO_VISION` default **off**; off → mọi route `/v1/musicalize/studio/*` trả 404, không gọi Gemini/upload/quota (§0.5.1) |
-| MusicXML draft | `POST /v1/studio/import/musicxml/{importId}/sentence-draft`: existing `PILOT_PATTERNS` hoặc new Villa pattern; một sentence whole-bar + fixture + WAV; `productionReady`; draft-only `family`; PatternDraft/export ở client; promote vẫn là sửa code (§0.5) |
+| MusicXML draft | `POST /v1/studio/import/musicxml/{importId}/sentence-draft`: existing `PILOT_PATTERNS` hoặc new Villa pattern; một sentence whole-bar + fixture + WAV; `productionReady`; draft-family chỉ nội bộ endpoint, production routes **không** nhận `family`; PatternDraft/export ở client; promote vẫn là sửa code (§0.5) |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
 | Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (44 row) + `render_matrix.json` (46 row); pattern-level matrix có `expected_empty` có lý do |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
@@ -232,13 +232,13 @@ Hợp đồng:
 ### 0.5.3. Access / quota / owner
 
 - Owner lấy từ `X-Studio-Session` (hash); thiếu header → namespace `anonymous`.
-- `importId` là `mxi_` + hash(**owner** + bytes), nên hai session upload cùng file vẫn có id riêng; import/passage của owner khác hoặc hết TTL → `404` (`import_not_found` / `passage_not_found`).
-- Quota draft: `VSTOCK_STUDIO_MUSICXML_DRAFTS_PER_DAY` default **50**, per owner/UTC day, **process-local** (dict trong RAM, không dùng SQLite `studio_quota`). Restart xoá count; nhiều worker không chia sẻ. Chỉ request đã qua check cấu trúc mới tiêu quota. Hết quota → `429` body `{ok:false, errors:[{path:"quota"}], limit, day, retryAfter}` + header `Retry-After`.
+- Upload/GET/passage/draft **bắt buộc** `X-Studio-Session` → `owner_id`; thiếu header → `400` (`studio_session_required`). `importId` là `mxi_` + hash(**owner** + bytes), nên hai session upload cùng file vẫn có id riêng; import/passage của owner khác hoặc hết TTL → `404` (`import_not_found` / `passage_not_found`).
+- Quota draft: `VSTOCK_STUDIO_MUSICXML_DRAFTS_PER_DAY` default **50** per owner/UTC day, cộng global cap `VSTOCK_STUDIO_MUSICXML_GLOBAL_DRAFTS_PER_DAY` default **200**. Vẫn **process-local** (dict RAM, chưa dùng SQLite `studio_quota`); restart xoá count, nhiều worker không chia sẻ. Quota được reserve trước render và **refund nếu render fail**. Hết quota → `429` body `{ok:false, errors:[{path:"quota"}], limit, day, retryAfter}` + header `Retry-After`.
 - Các cap MusicXML khác giữ nguyên: `..._MAX_BYTES`, `..._MAX_NOTES`, `..._TTL_SECONDS` (import), `..._PASSAGE_TTL_SECONDS`, `..._IMPORTS_MAX`, `..._PASSAGES_MAX`.
 
 ### 0.5.4. Preview / audio / export
 
-- `family` override chỉ dành cho draft, đi qua `dispatch.validate/preview_sentence/resolve_fixture`, `audio.preview_audio` và `compiler.compile_bundle` (qua `/sentence/audio`, `/sentence/export`). Allowlist 4 family; request production **không** truyền `family` và vẫn dùng `dispatch.family_for`.
+- `family` override chỉ dành cho **draft nội bộ** trong `musicxml_sentence` → `dispatch.validate/preview_sentence/resolve_fixture` và `audio.preview_audio`. Ba route production `/sentence/preview`, `/sentence/audio`, `/sentence/export` **không còn field `family`**; pattern lạ vẫn bị `dispatch.family_for` chặn.
 - Reuse sandbox: Torroba/Sor `preview_spec` + `use_registry`, Villa `villa_preview.preview_villa_sentence`; không có renderer/compiler mới, global `SENTENCE_SPECS` không đổi.
 - UI export là **JSON download ở client** (`pattern.json`): `{id,label,composer,renderer,meter,sentences:[{spec,fixture}]}`. Không gọi server export, không ghi `/data`, không publish SQLite cho pattern mới. Server compile/export vẫn dùng được cho một spec existing/published.
 

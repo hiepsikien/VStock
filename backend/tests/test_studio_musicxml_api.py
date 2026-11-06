@@ -43,7 +43,7 @@ def _client() -> TestClient:
     app = FastAPI()
     app.include_router(studio_musicxml.router)
     app.include_router(studio_audio_router.router)
-    return TestClient(app)
+    return TestClient(app, headers={"X-Studio-Session": "test-musicxml"})
 
 
 def _fixture(meter: str = "4/4") -> bytes:
@@ -1128,3 +1128,12 @@ def test_extreme_note_values_do_not_500_the_upload() -> None:
     rejected = _upload(client, only_extreme, filename="no-pitch.musicxml")
     assert rejected.status_code == 400
     assert rejected.json()["ok"] is False
+
+
+def test_musicxml_routes_require_a_session_header() -> None:
+    app = FastAPI()
+    app.include_router(studio_musicxml.router)
+    client = TestClient(app)
+    response = client.get("/v1/studio/import/musicxml/mxi_missing")
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "studio_session_required"

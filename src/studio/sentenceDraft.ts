@@ -433,22 +433,6 @@ export function appendPatternSentence(
   return { ok: true, draft: { ...draft, sentences: [...draft.sentences, sentence] } };
 }
 
-export function replacePatternSentence(
-  draft: PatternDraft,
-  index: number,
-  sentence: PatternDraftSentence,
-): PatternDraft {
-  if (index < 0 || index >= draft.sentences.length) return draft;
-  const key = sentenceDraftKey(sentence);
-  const duplicate = draft.sentences.some(
-    (item, itemIndex) => itemIndex !== index && key && sentenceDraftKey(item) === key,
-  );
-  if (duplicate) return draft;
-  const sentences = draft.sentences.slice();
-  sentences[index] = sentence;
-  return { ...draft, sentences };
-}
-
 export function removePatternSentence(draft: PatternDraft, index: number): PatternDraft {
   if (index < 0 || index >= draft.sentences.length) return draft;
   return {

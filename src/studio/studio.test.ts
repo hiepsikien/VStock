@@ -191,7 +191,6 @@ import {
   patternDraftJson,
   patternDraftLabel,
   removePatternSentence,
-  replacePatternSentence,
   sentenceDraftKey,
   slugifyPatternId,
   villaMeterSupported,
@@ -3634,14 +3633,6 @@ if (!duplicate.error.includes('already')) {
   throw new Error('duplicate sentence error should say it is already present');
 }
 equal(duplicate.draft.sentences.length, 2);
-
-const replaced = replacePatternSentence(appended.draft, 0, {
-  ...sentenceA,
-  rangeLabel: 'bar 10 · beat 1.0 → bar 13 · beat 3.0',
-});
-equal(replaced.sentences[0]?.rangeLabel, 'bar 10 · beat 1.0 → bar 13 · beat 3.0');
-const duplicateReplace = replacePatternSentence(appended.draft, 0, sentenceB);
-equal(duplicateReplace.sentences[0]?.spec.id, 'musicxml_a');
 
 const removed = removePatternSentence(appended.draft, 0);
 equal(removed.sentences.length, 1);

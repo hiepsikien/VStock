@@ -56,7 +56,7 @@ from typing import Any, Mapping
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from app.sonify.form import (
     METER_14,
@@ -95,6 +95,8 @@ _IMPORT_ID_PREFIX = "mxi_"
 _PASSAGE_ID_PREFIX = "mxp_"
 _MAX_AUTHORED_VOICES = 4
 _DEFAULT_DRAFTS_PER_DAY = 50
+_DEFAULT_GLOBAL_DRAFTS_PER_DAY = 200
+_GLOBAL_DRAFT_OWNER = "__global__"
 
 # MusicXML meter → runtime form meter. ``6/8`` is three quarter-note beats,
 # matching ``app.studio.audio._METER_BEATS``.
@@ -166,7 +168,7 @@ class PassageRequest(BaseModel):
     # default: 0 for beatStart and the end of barEnd for beatEnd.
     beatStart: float | None = None
     beatEnd: float | None = None
-    voices: list[int] | None = None
+    voices: list[StrictInt] | None = None
 
 
 class PassageResponse(BaseModel):
@@ -194,12 +196,12 @@ class NewPatternRequest(BaseModel):
     is ``villa`` in the MVP; other families stay out of the draft surface.
     """
 
-    id: str
-    label: str
-    composer: str
-    renderer: str = "villa"
-    meter: str | None = None
-    templateId: str | None = None
+    id: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=120)
+    composer: str = Field(min_length=1, max_length=120)
+    renderer: str = Field(default="villa", max_length=40)
+    meter: str | None = Field(default=None, max_length=16)
+    templateId: str | None = Field(default=None, max_length=160)
 
 
 class SentenceDraftRequest(BaseModel):
@@ -210,10 +212,10 @@ class SentenceDraftRequest(BaseModel):
     barEnd: int
     beatEnd: float | None = None
     mode: str
-    pattern: str | None = None
-    templateId: str | None = None
+    pattern: str | None = Field(default=None, max_length=80)
+    templateId: str | None = Field(default=None, max_length=160)
     newPattern: NewPatternRequest | None = None
-    voices: list[int] | None = None
+    voices: list[StrictInt] | None = None
 
 
 class ErrorResponse(BaseModel):
@@ -276,6 +278,15 @@ def drafts_per_day() -> int:
     )
 
 
+def global_drafts_per_day() -> int:
+    """Process-wide daily draft cap (still process-local, not multi-worker)."""
+    return _env_int(
+        "VSTOCK_STUDIO_MUSICXML_GLOBAL_DRAFTS_PER_DAY",
+        _DEFAULT_GLOBAL_DRAFTS_PER_DAY,
+        minimum=0,
+    )
+
+
 def imports_root() -> Path:
     path = studio_root() / "imports"
     path.mkdir(parents=True, exist_ok=True)
@@ -318,6 +329,7 @@ class _DraftQuota:
     used: int
     limit: int
     retry_after_seconds: int
+    scope: str = "owner"
 
 
 _LOCK = threading.RLock()
@@ -348,26 +360,57 @@ def _seconds_until_utc_midnight(now: datetime | None = None) -> int:
 
 
 def consume_draft(owner_id: str, *, now: datetime | None = None) -> _DraftQuota:
-    """Spend one draft for ``owner_id`` today, or report the 429 data."""
+    """Spend one draft for ``owner_id`` and the process-wide pool."""
     day = _utc_day(now)
     limit = drafts_per_day()
+    global_limit = global_drafts_per_day()
+    retry_after = _seconds_until_utc_midnight(now)
     with _DRAFT_LOCK:
         # Keep only today's rows; the map is tiny but should not grow forever.
         for key in [key for key in _DRAFT_USAGE if key[1] != day]:
             del _DRAFT_USAGE[key]
+        global_key = (_GLOBAL_DRAFT_OWNER, day)
+        global_used = _DRAFT_USAGE.get(global_key, 0)
+        if global_used >= global_limit:
+            return _DraftQuota(
+                allowed=False,
+                day=day,
+                used=global_used,
+                limit=global_limit,
+                retry_after_seconds=retry_after,
+                scope="global",
+            )
         key = (owner_id, day)
         used = _DRAFT_USAGE.get(key, 0)
-        allowed = used < limit
-        if allowed:
-            used += 1
-            _DRAFT_USAGE[key] = used
+        if used >= limit:
+            return _DraftQuota(
+                allowed=False,
+                day=day,
+                used=used,
+                limit=limit,
+                retry_after_seconds=retry_after,
+            )
+        used += 1
+        _DRAFT_USAGE[key] = used
+        _DRAFT_USAGE[global_key] = global_used + 1
     return _DraftQuota(
-        allowed=allowed,
+        allowed=True,
         day=day,
         used=used,
         limit=limit,
-        retry_after_seconds=_seconds_until_utc_midnight(now),
+        retry_after_seconds=retry_after,
     )
+
+
+def refund_draft(owner_id: str, day: str) -> None:
+    """Return one reserved draft after a failed render."""
+    with _DRAFT_LOCK:
+        for key in ((owner_id, day), (_GLOBAL_DRAFT_OWNER, day)):
+            used = _DRAFT_USAGE.get(key, 0)
+            if used <= 0:
+                _DRAFT_USAGE.pop(key, None)
+            else:
+                _DRAFT_USAGE[key] = used - 1
 
 
 def clear_store() -> None:
@@ -585,7 +628,7 @@ def _import_payload(record: _ImportRecord) -> dict[str, Any]:
 )
 async def upload_musicxml(
     file: UploadFile = File(...),
-    owner_id: str = Depends(studio_session.owner_or_anonymous),
+    owner_id: str = Depends(studio_session.require_owner),
 ) -> Any:
     """Parse one ``.musicxml``/``.xml`` upload and keep it for passages."""
     filename = Path((file.filename or "").strip()).name[:255]
@@ -664,7 +707,7 @@ async def upload_musicxml(
 )
 def get_musicxml_import(
     import_id: str,
-    owner_id: str = Depends(studio_session.owner_or_anonymous),
+    owner_id: str = Depends(studio_session.require_owner),
 ) -> Any:
     """Return the stored summary/notes/warnings for one owned upload."""
     record = _import_for(import_id, owner_id)
@@ -713,7 +756,11 @@ def _validate_voices(voices: list[int] | None) -> list[ErrorOut]:
         return [_error("voices", "voices must contain at least one voice number")]
     errors: list[ErrorOut] = []
     for index, voice in enumerate(voices):
-        if not isinstance(voice, int) or not 1 <= voice <= _MAX_AUTHORED_VOICES:
+        if (
+            isinstance(voice, bool)
+            or not isinstance(voice, int)
+            or not 1 <= voice <= _MAX_AUTHORED_VOICES
+        ):
             errors.append(
                 _error(
                     f"voices[{index}]",
@@ -1506,7 +1553,7 @@ def _passage_payload(
 def create_musicxml_passage(
     import_id: str,
     body: PassageRequest,
-    owner_id: str = Depends(studio_session.owner_or_anonymous),
+    owner_id: str = Depends(studio_session.require_owner),
 ) -> Any:
     """Validate and preview one 1-based tick range (bars plus beat offsets)."""
     record = _import_for(import_id, owner_id)
@@ -1543,7 +1590,7 @@ def create_musicxml_passage(
 )
 def get_musicxml_passage(
     passage_id: str,
-    owner_id: str = Depends(studio_session.owner_or_anonymous),
+    owner_id: str = Depends(studio_session.require_owner),
 ) -> Any:
     """Return an owned passage until its TTL expires."""
     record = _passage_for(passage_id, owner_id)
@@ -1568,7 +1615,7 @@ def _draft_quota_response(decision: _DraftQuota) -> JSONResponse:
                 {
                     "path": "quota",
                     "message": (
-                        "daily MusicXML draft quota "
+                        f"{decision.scope} daily MusicXML draft quota "
                         f"({decision.limit}) is exhausted"
                     ),
                 }
@@ -1591,7 +1638,7 @@ def _draft_quota_response(decision: _DraftQuota) -> JSONResponse:
 def create_sentence_draft(
     import_id: str,
     body: SentenceDraftRequest,
-    owner_id: str = Depends(studio_session.owner_or_anonymous),
+    owner_id: str = Depends(studio_session.require_owner),
 ) -> Any:
     """Build one sentence draft from a whole-bar passage.
 
@@ -1659,4 +1706,11 @@ def create_sentence_draft(
     decision = consume_draft(owner_id)
     if not decision.allowed:
         return _draft_quota_response(decision)
-    return musicxml_sentence.render_draft(draft)
+    try:
+        payload = musicxml_sentence.render_draft(draft)
+    except Exception:
+        refund_draft(owner_id, decision.day)
+        raise
+    if not payload.get("ok"):
+        refund_draft(owner_id, decision.day)
+    return payload

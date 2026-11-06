@@ -41,9 +41,6 @@ class SpecErrorOut(BaseModel):
 class ExportRequest(BaseModel):
     spec: dict[str, Any]
     fixture: dict[str, Any] = Field(default_factory=dict)
-    # Draft-only family override (e.g. a new Villa pattern). Production clients
-    # omit it; the family then comes from `dispatch.family_for`.
-    family: str | None = None
 
 
 class ExportResponse(BaseModel):
@@ -91,7 +88,7 @@ def export_sentence(body: ExportRequest) -> ExportResponse:
         spec = parse_spec(body.spec)
     except _PARSE_ERRORS as exc:
         return ExportResponse(ok=False, errors=[_parse_error(exc)])
-    return _compile(spec, body.fixture, body.family)
+    return _compile(spec, body.fixture)
 
 
 @router.post(
