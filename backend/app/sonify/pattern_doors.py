@@ -283,6 +283,16 @@ def register_studio_door(
     STUDIO_DOORS[key] = door
     if meter is not None:
         STUDIO_DOOR_METERS[key] = meter
+        try:
+            setattr(door, "studio_meter", meter)
+        except (AttributeError, TypeError):
+            pass
+    else:
+        STUDIO_DOOR_METERS.pop(key, None)
+        try:
+            delattr(door, "studio_meter")
+        except (AttributeError, TypeError):
+            pass
     return True
 
 

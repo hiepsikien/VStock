@@ -415,3 +415,18 @@ def test_one_studio_door_pattern_cannot_switch_meter_silently() -> None:
     assert register_studio_door("villa", "studio_meter_unit", door, meter="4/4")
     with pytest.raises(ValueError, match="already registered for 4/4"):
         register_studio_door("villa", "studio_meter_unit", door, meter="2/4", replace=True)
+
+
+def test_dispatch_ignores_a_meter_mismatched_studio_door() -> None:
+    from app.sonify.guitar_frame import _dispatch
+
+    pattern = "studio_meter_dispatch"
+    def door(ctx, bar, role, **kwargs):
+        return [(0, 1, 127, 1, 56, {})]
+
+    register_studio_door("villa", pattern, door, meter="4/4")
+    four = _ctx(meter=METER_44)
+    two = _ctx(meter=METER_24)
+    assert _dispatch(four, 0, 0, steps=2, closing=False, index=0, pattern=pattern)
+    fallback = _dispatch(two, 0, 0, steps=2, closing=False, index=0, pattern=pattern)
+    assert all(midi != 127 for _o, _l, midi, *_rest in fallback)

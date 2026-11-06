@@ -510,3 +510,25 @@ def test_validate_rejects_a_production_pattern(client: TestClient) -> None:
     body = response.json()
     assert body["ok"] is False
     assert any("production pattern" in error["message"] for error in body["errors"])
+
+
+def test_unpromote_works_after_the_promote_flag_is_turned_off(
+    client: TestClient, monkeypatch
+) -> None:
+    headers = {"X-Studio-Session": "test-owner"}
+    assert client.post(
+        "/v1/studio/figure/promote",
+        json={**_body(), "apply": True},
+        headers=headers,
+    ).json()["ok"] is True
+
+    monkeypatch.delenv("VSTOCK_STUDIO_FIGURE_PROMOTE", raising=False)
+    removed = client.post(
+        "/v1/studio/figure/unpromote",
+        json={"pattern": PATTERN, "meter": METER, "ensemble": "villa"},
+        headers=headers,
+    )
+    body = removed.json()
+    assert body["ok"] is True
+    assert body["removed"] is True
+    assert (PATTERN, METER) not in TEXTURE_CELLS

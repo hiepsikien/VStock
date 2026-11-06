@@ -77,6 +77,15 @@ def _promote_gate(
                 "message": f"set {_PROMOTE_ENV}=on to enable figure promotion",
             },
         )
+    _session_gate(owner_id, token)
+
+
+def _unpromote_gate(owner_id: str, token: str | None) -> None:
+    """Rollback stays available even when the promote flag was turned off."""
+    _session_gate(owner_id, token)
+
+
+def _session_gate(owner_id: str, token: str | None) -> None:
     if owner_id == "anonymous":
         raise HTTPException(
             status_code=403,
@@ -465,7 +474,7 @@ def unpromote_figures_route(
     Unpromote must work even when the Studio draft is incomplete or edited, so
     it only takes ``pattern``/``meter``/``ensemble``.
     """
-    _promote_gate(owner_id, promote_token)
+    _unpromote_gate(owner_id, promote_token)
     try:
         removed = unapply_promotion_by_key(
             body.ensemble, body.pattern, body.meter

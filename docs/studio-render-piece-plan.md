@@ -156,18 +156,15 @@ Quy tắc:
 ### 4.2. Export
 
 ```text
-GET /v1/studio/figure/render/{hash}.musicxml
-GET /v1/studio/sentence/audio/{key}.wav   (tái sử dụng route hiện có)
+GET  /v1/studio/figure/render/{renderHash}.musicxml
+GET  /v1/studio/figure/render/{audioHash}.wav
+POST /v1/studio/figure/render/{renderHash}/audio   -> 202 {jobId}
 ```
 
-Có thể thêm:
+Không tái sử dụng `/v1/studio/sentence/audio/{key}.wav`:
+route đó là synth preview 45s, cache/name/metadata khác hoàn toàn.
 
-```text
-POST /v1/studio/figure/render/export
-→ { musicxml, wav }
-```
-
-nhưng MVP chỉ cần URL.
+MVP dùng async cho audio, MusicXML trả ngay.
 
 ---
 
@@ -175,14 +172,16 @@ nhưng MVP chỉ cần URL.
 
 Các plan user chọn trước khi export:
 
-| id | role pattern | Ghi chú |
+| id | role pattern | Trạng thái |
 |---|---|---|
-| `auto_aaba` | A A B close | mặc định |
-| `trio` | A B A | B ở trio/bridge |
-| `abab` | A B A B | close ở cuối nếu cần |
-| `aab_close` | A A B close | |
-| `through` | A ... A close | |
+| `auto_aaba` | A A B close | **implemented** |
+| `trio` | A B A | **implemented** |
+| `abab` | A B A B | future |
+| `through` | A ... A close | future |
 | `explicit` | roles từ JSON | future/advanced |
+
+`aab_close` trùng `auto_aaba`; bỏ khỏi picker.
+`abab`/`through` chưa có trong `sentence_plan.py`; Phase B chỉ làm `auto_aaba` + `trio`.
 
 ### 5.1. Vật liệu B và close
 
@@ -216,6 +215,7 @@ tags optional: contrast, close
   - dùng `close` nếu có;
   - nếu không, bar cuối dùng `VILLA_CADENCE` (nếu pattern hỗ trợ), else key + warning.
 - `complete` cơ bản vẫn dựa trên 5 tag; plan-specific completeness kiểm thêm `contrast`/`close`.
+- Hiện `promote_figures` yêu cầu **đúng** 5 tag (`set(tags) == required`), nên Phase B phải đổi thành `required ⊆ tags` trước khi thêm `contrast`/`close`.
 
 ---
 
@@ -416,3 +416,225 @@ Hành vi:
    - Nếu production audio lỗi: trả MusicXML + lỗi audio rõ, không fallback synth và không cắt im lặng.
 5. **Quota**: render preview **không tiêu publish quota**. Có rate limit riêng cho render/audio; quota publish giữ nguyên.
 6. **Cache**: content hash `renderHash`, TTL 24h, LRU; MusicXML/WAV cùng key.
+
+---
+
+## 13. Production audio + hardening (W1–W10)
+
+Phần này là **blocker trước Phase C**. Không được nói “production audio có sẵn”.
+
+### W1 — `StudioPieceAudioStore`
+
+Không gọi trực tiếp `RecapStore._render_movement`. Tách store riêng:
+
+```text
+app/studio/render_audio.py
+
+render_studio_wav(
+    score,
+    *,
+    render_hash: str,
+    params,
+    title: str,
+) -> StudioAudioAsset
+```
+
+Tái sử dụng:
+
+- `score_to_musicxml`;
+- `musescore_export`;
+- voice balance/waveform helpers;
+- `piece_seconds`.
+
+Không tái sử dụng:
+
+- `RecapStore` cache theo symbol/span;
+- `EXPORT_SLOTS` toàn cục;
+- title/dance logic của `_compose`.
+
+### W2 — Async/job cho audio dài
+
+MuseScore/export có thể chậm; `EXPORT_SLOTS=1`.
+
+```text
+POST /v1/studio/figure/render
+→ 200: renderHash, musicxmlUrl, audio:{status:"queued"|"ready"|"unavailable", jobId?}
+
+POST /v1/studio/figure/render/{renderHash}/audio
+→ 202 {jobId}
+
+GET  /v1/studio/figure/render/{renderHash}/audio/{jobId}
+→ {status, audioUrl?, error?}
+```
+
+- Queue riêng cho audio dài; không dùng chung worker validate/preview.
+- Timeout: `max(180, piece_seconds*2 + 60)`.
+- Semaphore: `VSTOCK_STUDIO_RENDER_SLOTS` (default 1).
+- HTTP đồng bộ không được chờ vô hạn.
+
+### W3 — Route/store riêng
+
+Không dùng `/v1/studio/sentence/audio`:
+
+- route đó là synth preview 45s;
+- cache root/name/metadata khác;
+- `MAX_AUDIO_SEC=45`.
+
+Route mới:
+
+```text
+GET /v1/studio/figure/render/{renderHash}.musicxml
+GET /v1/studio/figure/render/{audioHash}.wav
+```
+
+### W4 — Hash/cache
+
+Hai hash khác nhau:
+
+```text
+renderHash = sha256(canonical({
+  figures specs, plan id/roles, resolved series bars, form, meter,
+  paramsHash, STUDIO_RENDER_REVISION
+}))
+
+audioHash = sha256(
+  AUDIO_REVISION | renderHash | paramsHash |
+  musescore_version | soundfont_version
+)
+```
+
+Sidecar:
+
+```json
+{
+  "renderHash": "...",
+  "audioHash": "...",
+  "scoreHash": "...",
+  "audioRevision": 1,
+  "durationSec": 32.4,
+  "createdAt": "..."
+}
+```
+
+- Atomic write + lock theo hash.
+- TTL/LRU 24h.
+- Không cache theo `symbol/date`; series phải resolve thành bars rồi hash.
+
+### W5 — Title/pattern mới
+
+Pattern Studio (`studio_*`) không có `PATTERN_META`/`movement_title`.
+Không gọi title logic của `_compose`; dùng:
+
+- `title` từ request; hoặc
+- `patternLabel` từ draft.
+
+MusicXML title lấy từ đó.
+
+### W6 — `_finish_voices` trong Studio mode
+
+`_finish_voices` thêm preludio bass, campanella, scale passages, bells, transitions, fill.
+Với authored cell, các pass này có thể thêm/ghi đè nốt.
+
+Chốt:
+
+```text
+studio_piece mode:
+- chạy shape/overlap/fill;
+- chạy wave/dynamics/humanize;
+- KHÔNG chạy preludio_bass/campanella/scale/bells/transitions/fill
+  trừ khi có flag riêng.
+```
+
+Test: note authored vẫn đúng số/độ dài/voice sau tail.
+
+### W7 — `VILLA_CADENCE` là figure, không phải cell
+
+`StudioPiece.cells` chỉ chứa `TextureSpec`; `VILLA_CADENCE=5` là figure id.
+Fallback close bằng `VILLA_CADENCE` sẽ fail nếu arrangement chỉ hỗ trợ cell.
+
+Chốt:
+
+```python
+arrangement entry = ("cell", cell_id, cell_bar) | ("figure", figure_id, bar)
+```
+
+Hoặc tạo cadence cell tương ứng. Không trộn figure id vào `cell_id`.
+
+### W8 — Plan/tag/sentence
+
+- Chỉ implement `auto_aaba` + `trio` ở Phase B.
+- `abab`/`through` future.
+- `sentenceByRole` phải map role → **tag hoặc cellId**, không phải figure id.
+- `promote_figures` phải đổi từ “set(tags) == required” thành “required ⊆ tags”.
+- Optional `contrast`/`close` phải có:
+  - `_TAG_BARS` (1–4);
+  - `FIGURE_TAGS`;
+  - `complete`/`/tags`/UI.
+
+### W9 — Series/form/validator
+
+- `symbol/date` loader phải nêu rõ hàm/route.
+- Series ngắn hơn `form.bars`: 400, không tự repeat/truncate.
+- `1M`/`3M`: cần `movementIndex` + scope (`SCHOTTISH_SCOPES`).
+- 2/4 override qua `compose_meter`.
+- Trước render:
+  - `validate_texture_spec(..., meter=...)`;
+  - playability;
+  - coverage/overlap/tie.
+
+### W10 — Quota/security/UI
+
+- Render audio production rất đắt:
+  - env `VSTOCK_STUDIO_RENDER_PER_DAY` (default nhỏ);
+  - per-owner + global;
+  - 429 + `retryAfter`.
+- `X-Studio-Session` là namespace, không phải auth:
+  - audio production cần flag/session/token rõ;
+  - public deployment cần auth thật.
+- UI phải có trạng thái:
+  - `pending` → poll;
+  - `ready` → Play/Export;
+  - `unavailable` → MusicXML + lỗi.
+- Bỏ warning “audio cap 45s” khỏi UI plan.
+
+---
+
+## 14. Phase C chi tiết
+
+### C1 — Render + MusicXML + hash
+- `studio_piece` injection.
+- `renderHash`, cache.
+- `GET .musicxml`.
+
+### C2 — Production audio store
+- `render_studio_wav`, semaphore/timeout.
+- `audioHash`, sidecar, atomic write.
+
+### C3 — Async/job + routes
+- 202 + poll.
+- error codes:
+  - `audio_unavailable`;
+  - `audio_timeout`;
+  - `audio_failed`.
+
+### C4 — Tests
+- cache hit/miss;
+- audio unavailable/timeout;
+- 2/4 và 4/4;
+- frame 1/3/4 bar;
+- no authored-note drift;
+- flag off no-op.
+
+---
+
+## 15. Thứ tự thực hiện
+
+```text
+1. C2 dispatch meter guard + unpromote flag-off (code hardening)
+2. Phase A (studio_piece seam)
+3. Phase B (trio/AABA, contrast/close)
+4. W1–W4 audio store/async/cache
+5. Phase C routes
+6. Phase D UI
+7. W5–W10
+```

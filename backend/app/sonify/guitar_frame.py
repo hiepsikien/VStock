@@ -137,7 +137,12 @@ def _dispatch(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int
     if pattern:
         door = _extra_doors().get((ctx.ensemble, pattern))
         if door is not None:
-            return door(ctx, bar, role, steps=steps, closing=closing, index=index)
+            # Studio doors are meter-bound. A 4/4 cell must not be rendered
+            # into a 2/4 context (or vice versa); fall through to the composer
+            # fallback instead of silently using the wrong meter.
+            door_meter = getattr(door, "studio_meter", None)
+            if door_meter is None or door_meter == ctx.kind:
+                return door(ctx, bar, role, steps=steps, closing=closing, index=index)
     composer = _frame_composer(ctx)
     return composer(ctx, bar, role, steps=steps, closing=closing, index=index)
 
