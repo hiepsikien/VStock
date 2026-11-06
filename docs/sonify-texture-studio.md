@@ -231,6 +231,8 @@ Hợp đồng:
 
 **Selection trong matrix:** kéo lane body tạo selection mới; hai handle dọc ở `startTick`/`endTick` cho phép resize từng mép (snap 1 nốt đen, tối thiểu 1 nốt). Ruler dùng cùng tick span với lane; bar chỉ được tô full khi selection phủ trọn bar, bar một phần chỉ hiện dải tick. Tap bar header vẫn chọn nguyên bar.
 
+**New-pattern audio:** `mode:"new"` is rhythm-faithful. It reuses the passage payload (notes, durations, bars, reference MIDI) and returns `rhythmTemplate:true`; the spec is a `TextureSpec` with `id` `rhythm_<importId>_<barStart>_<barEnd>_<hash>` and `source.patternId` (not a production `SentenceSpec`). `templateId` is optional/ignored for audio. The UI shows `source rhythm` and hides the template picker. `productionReady:false`; promote still requires mapping/registration.
+
 ### 0.5.3. Access / quota / owner
 
 - Owner lấy từ `X-Studio-Session` (hash); thiếu header → namespace `anonymous`.

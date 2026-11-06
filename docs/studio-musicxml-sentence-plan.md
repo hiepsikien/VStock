@@ -160,6 +160,7 @@ Response:
 ```
 
 - Mỗi passage trả **một** draft sentence.
+- `mode:"new"` trả `rhythmTemplate:true`: spec là `TextureSpec` preview-only lấy đúng rhythm/reference pitch của passage; `templateId` không điều khiển audio.
 - UI giữ `PatternDraft` trong state:
   ```ts
   {
