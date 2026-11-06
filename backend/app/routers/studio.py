@@ -74,6 +74,8 @@ class ValidateResponse(BaseModel):
 class PreviewRequest(BaseModel):
     spec: dict[str, Any]
     fixture: dict[str, Any] = Field(default_factory=dict)
+    # Draft-only family override. Production clients omit it.
+    family: str | None = None
 
 
 class PreviewResponse(BaseModel):
@@ -146,7 +148,7 @@ def preview_sentence(body: PreviewRequest) -> PreviewResponse:
         spec = parse_spec(body.spec)
     except _PARSE_ERRORS as exc:
         return PreviewResponse(ok=False, errors=[_parse_error(exc)])
-    result = dispatch.preview_sentence(spec, body.fixture)
+    result = dispatch.preview_sentence(spec, body.fixture, family=body.family)
     return PreviewResponse(**result.as_response())
 
 

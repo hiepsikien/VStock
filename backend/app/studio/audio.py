@@ -415,12 +415,18 @@ def beats_per_bar(spec: SentenceSpec, fixture: Mapping[str, Any] | None) -> int:
 
 
 def preview_audio(
-    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+    spec: SentenceSpec,
+    fixture: Mapping[str, Any] | None = None,
+    family: str | None = None,
 ) -> AudioResult:
-    """Validate/render a preview and return its cached short WAV."""
+    """Validate/render a preview and return its cached short WAV.
+
+    `family` is the draft-only override forwarded to `dispatch`; production
+    callers omit it and keep the pattern-derived family.
+    """
     from app.studio import dispatch
 
-    result = dispatch.preview_sentence(spec, fixture)
+    result = dispatch.preview_sentence(spec, fixture, family=family)
     if not result.ok or result.render_hash is None:
         return AudioResult(
             ok=False,

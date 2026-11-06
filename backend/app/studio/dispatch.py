@@ -47,6 +47,11 @@ VILLA = "villa"
 BARRIOS = "barrios"
 BROUWER = "brouwer"
 
+# The four families a draft may name explicitly. Production requests never pass
+# `family`, so `family_for` stays the only production authority.
+FAMILIES = (TORROBA_SOR, VILLA, BARRIOS, BROUWER)
+_FAMILIES = frozenset(FAMILIES)
+
 # `PILOT_PATTERNS` is exactly the registered Torroba/Sor set today; it is the
 # public order-stable list that the exporter already owns.
 _TORROBA_SOR_PATTERNS = frozenset(PILOT_PATTERNS)
@@ -78,16 +83,50 @@ def _unknown(pattern: object) -> preview.Error:
     )
 
 
-def validate(spec: SentenceSpec) -> list[preview.Error]:
-    """Validate one spec with its own family's rules."""
-    family = family_for(getattr(spec, "pattern", None))
+def _unknown_family(family: object) -> preview.Error:
+    return preview.Error(
+        "family",
+        f"unknown family {family!r}; expected one of {', '.join(FAMILIES)}",
+    )
+
+
+def _owner(pattern: object, family: str | None) -> str | None:
+    """The family to use, honouring an explicit draft-only override."""
+    if family is not None:
+        return family if family in _FAMILIES else None
+    return family_for(pattern)
+
+
+def _villa_patterns(spec: SentenceSpec, family: str | None) -> set[str] | None:
+    # A draft pattern is created by the server, so an explicit family call is
+    # the only place Villa's whitelist is widened. Production calls pass no
+    # family and keep the immutable `VILLA_PATTERNS` check.
     if family is None:
+        return None
+    pattern = getattr(spec, "pattern", None)
+    return {pattern} if isinstance(pattern, str) and pattern else None
+
+
+def validate(
+    spec: SentenceSpec, family: str | None = None
+) -> list[preview.Error]:
+    """Validate one spec with its own family's rules.
+
+    `family` is the draft-only override: when set, it selects the renderer even
+    if `family_for(spec.pattern)` is `None`. Production callers omit it.
+    """
+    if family is not None and family not in _FAMILIES:
+        return [_unknown_family(family)]
+    owner = _owner(getattr(spec, "pattern", None), family)
+    if owner is None:
         return [_unknown(getattr(spec, "pattern", None))]
-    if family == TORROBA_SOR:
+    if owner == TORROBA_SOR:
         return preview.validate_spec(spec)
-    if family == VILLA:
-        return villa_preview.validate_villa_spec(spec)
-    if family == BARRIOS:
+    if owner == VILLA:
+        return villa_preview.validate_villa_spec(
+            spec, allowed_patterns=_villa_patterns(spec, family)
+        )
+    if owner == BARRIOS:
         return barrios_preview.validate_barrios_period(spec)
     return brouwer_preview.validate_brouwer_spec(spec)
 
@@ -112,19 +151,28 @@ def _normalize(result: Any) -> preview.PreviewResult:
 
 
 def preview_sentence(
-    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+    spec: SentenceSpec,
+    fixture: Mapping[str, Any] | None = None,
+    family: str | None = None,
 ) -> preview.PreviewResult:
-    """Validate and render one bounded fixture through the owning family."""
-    family = family_for(getattr(spec, "pattern", None))
-    if family is None:
+    """Validate and render one bounded fixture through the owning family.
+
+    `family` is the draft-only override; see `validate`.
+    """
+    if family is not None and family not in _FAMILIES:
+        return preview.PreviewResult(ok=False, errors=(_unknown_family(family),))
+    owner = _owner(getattr(spec, "pattern", None), family)
+    if owner is None:
         return preview.PreviewResult(
             ok=False, errors=(_unknown(getattr(spec, "pattern", None)),)
         )
-    if family == TORROBA_SOR:
+    if owner == TORROBA_SOR:
         result = preview.preview_spec(spec, fixture)
-    elif family == VILLA:
-        result = villa_preview.preview_villa_sentence(spec, fixture)
-    elif family == BARRIOS:
+    elif owner == VILLA:
+        result = villa_preview.preview_villa_sentence(
+            spec, fixture, allowed_patterns=_villa_patterns(spec, family)
+        )
+    elif owner == BARRIOS:
         result = barrios_preview.preview_barrios_period(spec, fixture)
     else:
         result = brouwer_preview.preview_brouwer_sentence(spec, fixture)
@@ -140,7 +188,9 @@ _RESOLVERS = {
 
 
 def resolve_fixture(
-    spec: SentenceSpec, fixture: Mapping[str, Any] | None = None
+    spec: SentenceSpec,
+    fixture: Mapping[str, Any] | None = None,
+    family: str | None = None,
 ) -> dict[str, Any]:
     """The bounded fixture `preview_sentence` would render for one spec.
 
@@ -148,9 +198,11 @@ def resolve_fixture(
     axes); the compiler needs the resolved values to write `fixture.json`, so
     this exposes the same pure resolution step. It raises `ValueError` (or the
     family's `SpecParseError`) on a bad fixture; callers that already previewed
-    successfully will not see one.
+    successfully will not see one. `family` is the draft-only override.
     """
-    family = family_for(getattr(spec, "pattern", None))
-    if family is None:
+    if family is not None and family not in _FAMILIES:
+        raise ValueError(f"unknown family {family!r}")
+    owner = _owner(getattr(spec, "pattern", None), family)
+    if owner is None:
         raise ValueError(f"unknown pattern {getattr(spec, 'pattern', None)!r}")
-    return _RESOLVERS[family](spec, fixture)
+    return _RESOLVERS[owner](spec, fixture)
