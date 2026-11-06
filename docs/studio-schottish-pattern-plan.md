@@ -315,3 +315,124 @@ MVP không nên nhảy thẳng Phase 3 khi Phase 1/2 chưa có form/cadence.
 4. 70/30 có bắt buộc không?
 5. Pattern mới là **preset production** hay **user-authorable trong Studio**?
 6. Key figure lấy bar nào của Scottish, và ưu tiên rhythm fidelity hay Villa texture?
+
+---
+
+## 9. Làm rõ: 16-bar sentence vs phrase-level plan
+
+### 16-bar sentence
+
+```text
+A1 4 bar  key figure
+A2 4 bar  key figure variation
+B  4 bar  contrast
+A3 4 bar  close
+tile = 16
+```
+
+Ưu điểm:
+
+- dễ code, dễ test;
+- đúng AABA nếu movement đúng 16 bar;
+- dùng `SentenceSpec` hiện có.
+
+Nhược:
+
+- movement 8/30 bar không khớp: 30 bar = 16 + 14, dễ cắt giữa B/A3;
+- không theo phrase thật;
+- B không đặt theo bridge/trio;
+- cadence cuối không đảm bảo.
+
+### Phrase-level plan (khuyến nghị)
+
+- Chia movement theo `ctx.phrases`/`ctx.sections`.
+- Mỗi phrase chọn một `SentenceSpec`:
+  - phrase mở: A;
+  - phrase giữa: A/B;
+  - phrase có bridge/trio: B;
+  - phrase cuối: close/cadence.
+- Trong phrase dài, lặp A unit; B chỉ ở vị trí contrast.
+- `n`, `closes`, `rise` được dùng thật, không hardcode.
+
+Ưu điểm:
+
+- 8/16/30 bar đều có form;
+- không cắt giữa B;
+- cadence cuối;
+- nghe coherent hơn.
+
+Nhược:
+
+- cần mở rộng `SuiteGate`/sentence planner để chọn nhiều spec theo phrase;
+- test nhiều hơn.
+
+**Đề xuất: chọn phrase-level plan.** Nếu cần ship nhanh, làm 16-bar nhưng chỉ dùng cho movement đúng 16 bar; không dùng cho 30 bar.
+
+---
+
+## 10. Sentence quota (thay cho 70/30 cứng)
+
+Không cần đúng 70/30. Đề xuất quota mềm:
+
+```text
+target = 70% body bars dùng sentence
+tolerance = ±10%
+key figure = phần bar còn lại
+```
+
+Quy tắc:
+
+1. Ưu tiên câu kết/close; không hy sinh cadence để đủ quota.
+2. B được đặt ở phrase contrast; không cắt B.
+3. Nếu quota vượt tolerance:
+   - giảm A lặp ở phrase giữa;
+   - giữ key figure ở phrase mở/đoạn chuyển.
+4. Key figure vẫn có thể chạy **dưới** sentence lead (accompaniment), không nhất thiết chiếm bar riêng.
+5. Quota cấu hình:
+
+```text
+VSTOCK_SENTENCE_QUOTA=0.7
+VSTOCK_SENTENCE_QUOTA_TOLERANCE=0.1
+```
+
+MVP: có thể chỉ log/plan quota, chưa cần ép; Phase sau mới enforce.
+
+---
+
+## 11. Preset production vs user-authorable
+
+### Preset production
+
+- Pattern + sentence nằm trong code.
+- User không tạo/sửa trong Studio.
+- Chỉ chọn được trong composer khi flag bật.
+- Không cần mở `VILLA_PATTERNS`/dispatch.
+- Nhanh, an toàn, nhưng không phải luồng MusicXML authoring.
+
+### User-authorable trong Studio
+
+- User upload MusicXML → passage → draft.
+- Pattern/sentence preview/audio/export trong Studio.
+- Promote lên production qua code/flag.
+- Cần:
+  - `VILLA_PATTERNS`/dispatch family;
+  - 2/4 template/key figure;
+  - registry/promotion.
+- Đúng vision Studio, nhưng nhiều việc hơn.
+
+**Đề xuất:**
+
+- Phase 1–2: preset production để có bản nhạc chạy.
+- Phase 3–4: mở user-authorable cho pattern/key figure mới.
+- Không trộn hai mục tiêu trong cùng PR.
+
+---
+
+## 12. Chốt tạm
+
+1. Phase 1: **4/4 fold** — đã đồng ý.
+2. Phase 2: **phrase-level plan** — khuyến nghị.
+3. Native 2/4: làm ở Phase 3, sau khi form/span path có test composer thật.
+4. Quota: **70% ±10%**, mềm, không cắt cadence/B.
+5. Preset trước; user-authorable sau.
+6. Key figure Bước 4: chọn bar 2 hoặc 3 của Scottish; ưu tiên rhythm fidelity, dùng `TextureSpec` hiện có.
