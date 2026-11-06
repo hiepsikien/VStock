@@ -13,23 +13,33 @@ import { palette } from '../musicalize/palette';
 import { type } from '../musicalize/type';
 import { fetchSentenceExamples, requestMusicXmlSentenceDraft } from './api';
 import {
+  FIGURE_TAGS,
   VILLA_COMPOSER,
   VILLA_RENDERER,
   VILLA_RENDERER_LABEL,
+  appendPatternFigure,
   appendPatternSentence,
   composerOptions,
   createPatternDraft,
   existingTemplateOptions,
   genericPatternOptions,
   isGenericPatternId,
+  missingFigureTags,
   newPatternId,
   newPatternLabel,
+  patternDraftComplete,
+  patternDraftFigures,
   patternDraftJson,
   patternDraftLabel,
+  patternFigureFromTextureSpec,
+  removeFigureTag,
+  removePatternFigure,
   removePatternSentence,
   sentenceDraftSourceLabel,
+  setFigureTag,
   villaMeterSupported,
   villaTemplateOptions,
+  type FigureTag,
   type MusicXmlSentenceDraftRequest,
   type PatternDraft,
   type PatternDraftMeta,
@@ -49,6 +59,15 @@ import type { PassageRange } from './musicxml';
 
 /** Existing generic patterns are Torroba/Sor; the MVP new pattern is Villa. */
 const EXISTING_PATTERN_RENDERER = 'torroba_sor';
+
+/** Compact labels for the five Studio role tags. */
+const FIGURE_TAG_LABEL: Record<FigureTag, string> = {
+  key: 'Key',
+  'intro.short': 'Intro 2',
+  'intro.long': 'Intro 4',
+  'outro.short': 'Outro 2',
+  'outro.long': 'Outro 4',
+};
 
 type Props = {
   importId: string;
@@ -413,7 +432,12 @@ export function SentenceDraftPanel({
   );
 
   const exportBundle = useCallback(() => {
-    if (!draft || draft.sentences.length === 0) return;
+    if (
+      !draft ||
+      (draft.sentences.length === 0 && patternDraftFigures(draft).length === 0)
+    ) {
+      return;
+    }
     const text = patternDraftJson(draft);
     if (
       Platform.OS === 'web' &&
@@ -462,6 +486,103 @@ export function SentenceDraftPanel({
     [draft, playingUrl, stopAudio],
   );
 
+  const addFigure = useCallback(() => {
+    if (!result?.ok || !result.spec || mode !== 'new') return;
+    const used = new Set(
+      (draft ? patternDraftFigures(draft) : []).flatMap((figure) => [
+        figure.id,
+        figure.cellId,
+      ]),
+    );
+    const base = specText(result.spec.id) || 'figure';
+    let id = base;
+    let suffix = 2;
+    while (used.has(id)) id = `${base}_${suffix++}`;
+    const figure = patternFigureFromTextureSpec(result.spec, { id });
+    if (!figure) {
+      setError({ text: 'This passage has no bars to save as a figure.' });
+      return;
+    }
+
+    if (!draft) {
+      const meta: PatternDraftMeta = {
+        id: nextId,
+        label: nextLabel,
+        composer,
+        renderer: VILLA_RENDERER,
+        meter,
+      };
+      setDraft({ ...createPatternDraft(meta), figures: [figure] });
+      setResult(null);
+      setError(null);
+      setNote(`Added figure ${figure.id} (${figure.bars} bars).`);
+      return;
+    }
+    if (draft.id !== nextId) {
+      setError({
+        text: `Draft already holds ${draft.id}; export or clear it before starting another pattern.`,
+      });
+      return;
+    }
+    if (draft.meter !== meter) {
+      setError({
+        text: `Draft is ${draft.meter}; preview a passage in ${draft.meter} or clear the draft.`,
+      });
+      return;
+    }
+    const appended = appendPatternFigure(draft, figure);
+    if (!appended.ok) {
+      setError({ text: appended.error });
+      return;
+    }
+    setDraft(appended.draft);
+    setResult(null);
+    setError(null);
+    setNote(`Added figure ${figure.id} (${figure.bars} bars).`);
+  }, [
+    composer,
+    draft,
+    meter,
+    mode,
+    nextId,
+    nextLabel,
+    result,
+  ]);
+
+  const tagFigure = useCallback(
+    (figureId: string, tag: FigureTag) => {
+      if (!draft) return;
+      const figure = patternDraftFigures(draft).find((item) => item.id === figureId);
+      if (!figure) return;
+      setExportText(null);
+      setNote(null);
+      if (figure.tags.includes(tag)) {
+        setDraft(removeFigureTag(draft, figureId, tag));
+        setError(null);
+        return;
+      }
+      const tagged = setFigureTag(draft, figureId, tag);
+      if (!tagged.ok) {
+        setError({ text: tagged.error });
+        return;
+      }
+      setDraft(tagged.draft);
+      setError(null);
+    },
+    [draft],
+  );
+
+  const removeFigure = useCallback(
+    (figureId: string) => {
+      if (!draft) return;
+      setDraft(removePatternFigure(draft, figureId));
+      setExportText(null);
+      setNote(null);
+      setError(null);
+    },
+    [draft],
+  );
+
   const advancedJson = useMemo(() => {
     if (draft) return patternDraftJson(draft);
     if (result?.spec) return JSON.stringify(result.spec, null, 2);
@@ -481,6 +602,10 @@ export function SentenceDraftPanel({
   const resultNotes = result?.preview?.notes ?? 0;
   const canPlayResult =
     Platform.OS === 'web' && Boolean(result?.preview?.audioUrl);
+  const draftFigures = draft ? patternDraftFigures(draft) : [];
+  const missingTags = draft ? missingFigureTags(draft) : [];
+  const draftComplete = draft ? patternDraftComplete(draft) : false;
+  const canAddFigure = mode === 'new' && Boolean(result?.ok && result.spec);
 
   return (
     <View style={styles.box}>
@@ -693,6 +818,9 @@ export function SentenceDraftPanel({
                 onPress={() => void togglePlay(result.preview?.audioUrl)}
               />
             ) : null}
+            {canAddFigure ? (
+              <ActionButton label="Add to figures" onPress={addFigure} />
+            ) : null}
             <ActionButton label="Add sentence" primary onPress={addSentence} />
           </View>
         </View>
@@ -763,12 +891,86 @@ export function SentenceDraftPanel({
                 </Pressable>
               </View>
             ))}
+
+            <View style={styles.figureSection}>
+              <View style={styles.headerRow}>
+                <Text style={styles.inputLabel}>Figures</Text>
+                <Text style={styles.fieldMeta}>
+                  {draftFigures.length} figure
+                  {draftFigures.length === 1 ? '' : 's'} ·{' '}
+                  {missingTags.length
+                    ? `missing ${missingTags.join(', ')}`
+                    : '5/5 tags'}{' '}
+                  · {draftComplete ? 'COMPLETE' : 'INCOMPLETE'}
+                </Text>
+              </View>
+              {draftFigures.length === 0 ? (
+                <Text style={styles.hint}>
+                  No figures yet. In a new pattern, preview a passage and use
+                  “Add to figures”; then tag it key / intro / outro.
+                </Text>
+              ) : (
+                draftFigures.map((figure) => (
+                  <View key={`draft-figure:${figure.id}`} style={styles.figureRow}>
+                    <View style={styles.figureBody}>
+                      <Text style={styles.figureTitle} numberOfLines={1}>
+                        {figure.id} · {figure.bars} bar
+                        {figure.bars === 1 ? '' : 's'}
+                      </Text>
+                      <Text style={styles.figureMeta} numberOfLines={1}>
+                        cell {figure.cellId}
+                        {figure.previewMode ? ` · ${figure.previewMode}` : ''}
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.chipRow}
+                      >
+                        {FIGURE_TAGS.map((tag) => {
+                          const active = figure.tags.includes(tag);
+                          return (
+                            <Chip
+                              key={`figure-tag:${figure.id}:${tag}`}
+                              label={FIGURE_TAG_LABEL[tag]}
+                              active={active}
+                              onPress={() => tagFigure(figure.id, tag)}
+                              accessibilityLabel={`${
+                                active ? 'Remove' : 'Set'
+                              } ${tag} on figure ${figure.id}`}
+                            />
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                    <Pressable
+                      onPress={() => removeFigure(figure.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove figure ${figure.id}`}
+                      style={({ pressed }) => [
+                        styles.smallButton,
+                        pressed ? styles.pressed : null,
+                      ]}
+                    >
+                      <Text style={styles.smallButtonText}>Remove</Text>
+                    </Pressable>
+                  </View>
+                ))
+              )}
+              <Text style={styles.fieldMeta}>
+                Tagging never edits the SentenceSpec editor and never
+                publishes. The key tag derives the body sentence at promote.
+              </Text>
+            </View>
+
             <View style={styles.actionRow}>
               <ActionButton
                 label="Export bundle"
-                primary={!result?.ok && draft.sentences.length > 0}
+                primary={
+                  !result?.ok &&
+                  (draft.sentences.length > 0 || draftFigures.length > 0)
+                }
                 onPress={exportBundle}
-                disabled={draft.sentences.length === 0}
+                disabled={draft.sentences.length === 0 && draftFigures.length === 0}
               />
             </View>
             {exportText ? (
@@ -1312,6 +1514,38 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   sentenceId: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 8,
+    lineHeight: 11,
+  },
+  figureSection: {
+    gap: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
+  },
+  figureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
+  },
+  figureBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  figureTitle: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '700',
+  },
+  figureMeta: {
     color: palette.textFaint,
     fontFamily: type.mono.fontFamily,
     fontSize: 8,

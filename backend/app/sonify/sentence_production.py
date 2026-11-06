@@ -46,6 +46,13 @@ class SentenceVoices:
     `owns_preludio_bass` tells the shared tail that the sentence's bar writers
     already emitted the ringing Preludio pedal, so the historical movement-wide
     append must be skipped. The Barrios period is the only such owner today.
+
+    `covered` is the set of absolute bars this sentence replaces. `None` keeps
+    the historical whole-movement contract. A partial sentence (a body inside
+    an intro/outro frame) names only its body bars, so the shared renderer can
+    keep the historical door and pedal bars and merge the two raw voice sets
+    before the post-wave tail runs once. `pattern` is the production pattern id
+    to use on those bars when the base loop chose something else.
     """
 
     lead: list[NoteEvent]
@@ -56,6 +63,8 @@ class SentenceVoices:
     slot_contours: dict[int, MicroVelocity] = field(default_factory=dict)
     texture_contour: MicroVelocity | None = None
     owns_preludio_bass: bool = False
+    covered: frozenset[int] | None = None
+    pattern: str | None = None
 
 
 def bar_figures(planned: PlannedSpans | None, bars: int) -> dict[int, int] | None:
@@ -77,16 +86,21 @@ def bar_figures(planned: PlannedSpans | None, bars: int) -> dict[int, int] | Non
 
 
 def bar_plan(
-    planned: Sequence[PlannedSlot] | None, bars: int
+    planned: Sequence[PlannedSlot] | None,
+    bars: int,
+    *,
+    require_full: bool = True,
 ) -> tuple[dict[int, int], dict[int, MicroVelocity]] | None:
     """Figures per bar plus authored slot contours, or `None` to fall back.
 
-    This is the `plan_slots` counterpart to :func:`bar_figures`. The coverage
-    rule is identical: only a plan that covers every bar is usable. Slot
-    contours are keyed by their occurrence origin, so a repeated tile keeps one
-    entry per repetition and each one stays slot-relative. A slot with no
-    contour, or a canonical empty one, contributes nothing and keeps the
-    byte-identical path.
+    This is the `plan_slots` counterpart to :func:`bar_figures`. With
+    ``require_full=True`` (the historical contract) only a plan that covers
+    every bar is usable. ``require_full=False`` is the partial body/door seam:
+    it returns the bars the plan does cover so the caller can merge them into a
+    base render. An empty plan still returns ``None``. Slot contours are keyed
+    by their occurrence origin, so a repeated tile keeps one entry per
+    repetition and each one stays slot-relative. A slot with no contour, or a
+    canonical empty one, contributes nothing and keeps the byte-identical path.
     """
     if not planned:
         return None
@@ -102,9 +116,53 @@ def bar_plan(
                 figures[bar] = slot.figure
         if not is_empty(slot.micro_velocity):
             contours[slot.slot_start] = slot.micro_velocity
-    if sorted(figures) != list(range(bars)):
+    if require_full and sorted(figures) != list(range(bars)):
         return None
     return figures, contours
+
+
+def bar_plan_cells(
+    planned: Sequence[PlannedSlot] | None,
+    bars: int,
+    *,
+    require_full: bool = True,
+) -> tuple[dict[int, int], dict[int, str], dict[int, MicroVelocity]] | None:
+    """Figures, cells, and authored slot contours, or ``None`` to fall back.
+
+    This is the Phase 4 counterpart to :func:`bar_plan`. Coverage is a
+    ``figure`` **or** a ``cell``: a sentence that tiles a texture cell owns its
+    bars even though it has no figure id. The figure-only :func:`bar_plan`
+    keeps its historical behaviour for every module that has no cell renderer.
+
+    With ``require_full=True`` a plan must cover every bar. With
+    ``require_full=False`` the partial body/door seam gets only the bars the
+    plan covers. An empty plan still returns ``None``. ``cells`` is bar ->
+    cell id; the caller derives the cell-local offset from the slot origin
+    because only it knows the plan's slot list.
+    """
+    if not planned:
+        return None
+    from app.studio.micro_velocity import is_empty
+
+    figures: dict[int, int] = {}
+    cells: dict[int, str] = {}
+    contours: dict[int, MicroVelocity] = {}
+    covered: set[int] = set()
+    for slot in planned:
+        for bar in slot.bars:
+            if not 0 <= bar < bars:
+                continue
+            if slot.figure is not None:
+                figures[bar] = slot.figure
+                covered.add(bar)
+            elif slot.cell is not None:
+                cells[bar] = slot.cell
+                covered.add(bar)
+        if not is_empty(slot.micro_velocity):
+            contours[slot.slot_start] = slot.micro_velocity
+    if require_full and sorted(covered) != list(range(bars)):
+        return None
+    return figures, cells, contours
 
 
 def shape_voices(

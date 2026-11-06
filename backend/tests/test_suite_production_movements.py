@@ -33,14 +33,25 @@ import app.sonify.guitar_suite_schottish as suite_schottish
 import app.sonify.guitar_suite_valsa as suite_valsa
 from app.sonify import production_flags as flags
 from app.sonify import sentence_specs as specs
-from app.sonify.form import METER_34, METER_44, FormSection, FormSpec
+from app.sonify.form import METER_24, METER_34, METER_44, FormSection, FormSpec
+from app.sonify.form import compose_meter
+from app.sonify.guitar import _PEDAL
 from app.sonify.guitar_villa_figures import (
     VILLA_ARPEGGIO,
     VILLA_CHORD_MELODY,
+    VILLA_FIGURES,
+    render_villa_figure,
 )
 from app.sonify.guitar_wave import PROFILES
 from app.sonify.model import Bar
 from app.sonify.params import compose_params
+from app.sonify.span import (
+    attach_frame,
+    plan_month,
+    plan_quarter,
+    plan_week,
+    week_spec,
+)
 from app.sonify.pattern_registry import PATTERN_META, PatternMeta, meta
 from app.sonify.program import pattern_title
 from app.sonify.render import render
@@ -78,6 +89,8 @@ class Case:
     figures: tuple[int, ...]
     title: str
     env: str
+    movement_span: str | None = None
+    movement_index: int | None = None
 
 
 VALSA_FIGURES = (
@@ -163,6 +176,8 @@ CASES = (
         figures=SCHOTTISH_FIGURES,
         title=suite_schottish.SUITE_SCHOTTISH_TITLE,
         env=flags.SUITE_SCHOTTISH_ENV,
+        movement_span="1M",
+        movement_index=2,
     ),
     Case(
         module=suite_choros1,
@@ -210,7 +225,31 @@ def _form(bars: int, meter) -> FormSpec:
     )
 
 
-def _render(ensemble: str, meter, bars: int):
+def _scope(case: Case) -> dict:
+    """The movement scope a case needs; non-scoped movements get nothing."""
+    if case.movement_span is None:
+        return {}
+    return {
+        "movement_span": case.movement_span,
+        "movement_index": case.movement_index,
+    }
+
+
+def _render_case(case: Case):
+    """Render one case with the movement scope it needs."""
+    return _render(
+        "villa", case.meter, case.bars, **_scope(case)
+    )
+
+
+def _render(
+    ensemble: str,
+    meter,
+    bars: int,
+    *,
+    movement_span: str | None = None,
+    movement_index: int | None = None,
+):
     with compose_params({}):
         return render(
             _bars(bars),
@@ -218,7 +257,36 @@ def _render(ensemble: str, meter, bars: int):
             ensemble=ensemble,
             form=_form(bars, meter),
             framed=True,
+            movement_span=movement_span,
+            movement_index=movement_index,
         )
+
+
+def _render_form(
+    form: FormSpec,
+    *,
+    movement_span: str | None = None,
+    movement_index: int | None = None,
+):
+    with compose_params({}):
+        return render(
+            _bars(form.bars),
+            variant="guitar",
+            ensemble="villa",
+            form=form,
+            framed=True,
+            movement_span=movement_span,
+            movement_index=movement_index,
+        )
+
+
+def _body_bars(form: FormSpec) -> set[int]:
+    return {
+        bar
+        for section in form.sections
+        for bar in range(section.start, section.end)
+        if section.kind not in _PEDAL
+    }
 
 
 def _digest(score) -> str:
@@ -252,7 +320,13 @@ def _spy_figure(monkeypatch, module) -> list[tuple[int, int]]:
     return calls
 
 
-def _patterns_context(meter_label: str, bars: int):
+def _patterns_context(
+    meter_label: str,
+    bars: int,
+    *,
+    movement_span: str | None = None,
+    movement_index: int | None = None,
+):
     from tests.guitar_fixture import meter_named, pattern_case
 
     section = FormSection(0, bars, "phrase", 0)
@@ -267,6 +341,8 @@ def _patterns_context(meter_label: str, bars: int):
         first_body=True,
         previous=[],
         section=section,
+        movement_span=movement_span,
+        movement_index=movement_index,
     )[0]
 
 
@@ -310,9 +386,9 @@ def test_profile_and_door_are_shared_with_the_villa_roll(case: Case) -> None:
 @pytest.mark.parametrize("case", CASES_WITH_IDS)
 def test_off_is_the_historical_render(monkeypatch, case: Case) -> None:
     monkeypatch.delenv(case.env, raising=False)
-    off = _digest(_render("villa", case.meter, case.bars))
+    off = _digest(_render_case(case))
     calls = _spy_figure(monkeypatch, case.module)
-    on = _render("villa", case.meter, case.bars)
+    on = _render_case(case)
     assert calls == []
     assert _digest(on) == off
     assert case.key not in specs.SENTENCE_SPECS
@@ -321,10 +397,12 @@ def test_off_is_the_historical_render(monkeypatch, case: Case) -> None:
 @pytest.mark.parametrize("case", CASES_WITH_IDS)
 def test_on_falls_back_below_min_bars(monkeypatch, case: Case) -> None:
     short = case.min_bars - 1
-    off = _digest(_render("villa", case.meter, short))
+    off = _digest(
+        _render("villa", case.meter, short, **_scope(case))
+    )
     calls = _spy_figure(monkeypatch, case.module)
     with case.context(True):
-        on = _render("villa", case.meter, short)
+        on = _render("villa", case.meter, short, **_scope(case))
     assert calls == []
     assert _digest(on) == off
     assert case.key not in specs.SENTENCE_SPECS
@@ -333,10 +411,10 @@ def test_on_falls_back_below_min_bars(monkeypatch, case: Case) -> None:
 @pytest.mark.parametrize("case", CASES_WITH_IDS)
 def test_on_falls_back_in_the_other_meter(monkeypatch, case: Case) -> None:
     other = METER_44 if case.meter is METER_34 else METER_34
-    off = _digest(_render("villa", other, case.bars))
+    off = _digest(_render("villa", other, case.bars, **_scope(case)))
     calls = _spy_figure(monkeypatch, case.module)
     with case.context(True):
-        on = _render("villa", other, case.bars)
+        on = _render("villa", other, case.bars, **_scope(case))
     assert calls == []
     assert _digest(on) == off
     assert case.key not in specs.SENTENCE_SPECS
@@ -360,6 +438,7 @@ def test_on_falls_back_with_a_pedal_frame(monkeypatch, case: Case) -> None:
             ensemble="villa",
             form=framed,
             framed=True,
+            **_scope(case),
         )
     calls = _spy_figure(monkeypatch, case.module)
     with case.context(True):
@@ -370,10 +449,75 @@ def test_on_falls_back_with_a_pedal_frame(monkeypatch, case: Case) -> None:
                 ensemble="villa",
                 form=framed,
                 framed=True,
+                **_scope(case),
             )
-    assert calls == []
-    assert _digest(on) == _digest(off)
+    if case.module is suite_schottish:
+        # Schottish opts into the body/door seam: a pedal frame is allowed, so
+        # the body renders and the movement does not fall back wholesale.
+        assert calls
+        assert {bar for bar, _figure in calls} == set(range(1, case.bars))
+        assert _digest(on) != _digest(off)
+    else:
+        assert calls == []
+        assert _digest(on) == _digest(off)
     assert case.key not in specs.SENTENCE_SPECS
+
+
+def test_schottish_partial_merge_on_a_real_framed_week(monkeypatch) -> None:
+    """A real week + frame selects Schottish and renders only its body bars."""
+    form = attach_frame(week_spec(1), "1M")
+    body = _body_bars(form)
+    assert body and len(body) >= suite_schottish.SUITE_SCHOTTISH_MIN_BARS
+
+    monkeypatch.delenv(flags.SUITE_SCHOTTISH_ENV, raising=False)
+    off = _digest(_render_form(form, movement_span="1M", movement_index=2))
+    calls = _spy_figure(monkeypatch, suite_schottish)
+    with suite_schottish.use_suite_schottish_abab(True):
+        on = _render_form(form, movement_span="1M", movement_index=2)
+        assert calls
+        assert {bar for bar, _figure in calls} == body
+        assert _digest(on) != off
+    assert suite_schottish.SUITE_SCHOTTISH_KEY not in specs.SENTENCE_SPECS
+    assert (
+        _digest(_render_form(form, movement_span="1M", movement_index=2))
+        == off
+    )
+
+
+def test_schottish_flag_off_is_identical_on_a_real_frame(monkeypatch) -> None:
+    form = attach_frame(week_spec(1), "1M")
+    monkeypatch.delenv(flags.SUITE_SCHOTTISH_ENV, raising=False)
+    calls = _spy_figure(monkeypatch, suite_schottish)
+    assert _digest(_render_form(form)) == _digest(_render_form(form))
+    assert calls == []
+    assert suite_schottish.SUITE_SCHOTTISH_KEY not in specs.SENTENCE_SPECS
+
+
+def test_schottish_selection_differs_between_flag_off_and_on() -> None:
+    form = attach_frame(week_spec(1), "1M")
+    from tests.guitar_fixture import meter_named, pattern_case
+
+    def patterns_for(enabled: bool) -> list[str]:
+        with compose_params({}):
+            with suite_schottish.use_suite_schottish_abab(enabled):
+                ctx, _phrases = pattern_case(
+                    "probe",
+                    meter_named("4/4"),
+                    ensemble="villa",
+                    mood="calm",
+                    band="mf",
+                    bpm=96,
+                    bars=form.bars,
+                    first_body=True,
+                    previous=[],
+                    sections=list(form.sections),
+                    movement_span="1M",
+                    movement_index=2,
+                )
+                return patterns._patterns(ctx)
+
+    assert "suite_schottish" not in patterns_for(False)
+    assert "suite_schottish" in patterns_for(True)
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +526,7 @@ def test_on_falls_back_with_a_pedal_frame(monkeypatch, case: Case) -> None:
 
 @pytest.mark.parametrize("case", CASES_WITH_IDS)
 def test_on_registers_selects_and_renders_the_tile(monkeypatch, case: Case) -> None:
-    off = _digest(_render("villa", case.meter, case.bars))
+    off = _digest(_render_case(case))
     calls = _spy_figure(monkeypatch, case.module)
 
     with case.context(True):
@@ -392,7 +536,7 @@ def test_on_registers_selects_and_renders_the_tile(monkeypatch, case: Case) -> N
             case.pattern, case.meter_label, case.bars, 0
         ) == [(figure, (bar,)) for bar, figure in enumerate(tiled)]
 
-        on = _render("villa", case.meter, case.bars)
+        on = _render_case(case)
 
         assert calls == list(enumerate(tiled))
         assert on.divisions == 2
@@ -401,21 +545,23 @@ def test_on_registers_selects_and_renders_the_tile(monkeypatch, case: Case) -> N
 
     assert case.key not in specs.SENTENCE_SPECS
     assert specs.plan_sentence(case.pattern, case.meter_label, case.bars, 0) is None
-    assert _digest(_render("villa", case.meter, case.bars)) == off
+    assert _digest(_render_case(case)) == off
 
 
 @pytest.mark.parametrize("case", CASES_WITH_IDS)
 def test_selection_is_the_same_predicate_as_render(case: Case) -> None:
     with compose_params({}):
         with case.context(True):
-            ctx = _patterns_context(case.meter_label, case.bars)
+            ctx = _patterns_context(case.meter_label, case.bars, **_scope(case))
             assert patterns._patterns(ctx) == [case.pattern]
 
-            short = _patterns_context(case.meter_label, case.min_bars - 1)
+            short = _patterns_context(
+                case.meter_label, case.min_bars - 1, **_scope(case)
+            )
             assert case.pattern not in patterns._patterns(short)
 
             other_label = "4/4" if case.meter is METER_34 else "3/4"
-            other_ctx = _patterns_context(other_label, case.bars)
+            other_ctx = _patterns_context(other_label, case.bars, **_scope(case))
             assert case.pattern not in patterns._patterns(other_ctx)
 
 
@@ -424,7 +570,7 @@ def test_env_auditions_without_the_context(monkeypatch, case: Case) -> None:
     monkeypatch.setenv(case.env, "on")
     calls = _spy_figure(monkeypatch, case.module)
     try:
-        score = _render("villa", case.meter, case.bars)
+        score = _render_case(case)
         assert len(calls) == case.bars
         assert case.key in specs.SENTENCE_SPECS
         assert score.divisions == 2
@@ -517,3 +663,183 @@ def test_importing_the_movement_modules_registers_no_suite_sentence() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "[]"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: native 2/4 for the Schottish scope
+
+
+def test_schottish_gates_share_the_scope_and_expose_both_meters() -> None:
+    assert suite_schottish.SCHOTTISH_SCOPES == frozenset(
+        {("1W", 0), ("1M", 2), ("3M", 2)}
+    )
+    assert suite_schottish.GATES == (
+        suite_schottish.GATE_44,
+        suite_schottish.GATE_24,
+    )
+    assert {gate.key for gate in suite_schottish.GATES} == {
+        suite_schottish.SUITE_SCHOTTISH_KEY,
+        suite_schottish.SUITE_SCHOTTISH_KEY_24,
+    }
+    assert all(
+        gate.movement_scopes == suite_schottish.SCHOTTISH_SCOPES
+        and gate.partial
+        for gate in suite_schottish.GATES
+    )
+
+
+def test_direct_context_without_scope_never_selects_schottish() -> None:
+    with compose_params({}):
+        with suite_schottish.use_suite_schottish_abab(True):
+            bare = _patterns_context("4/4", 8)
+            assert not suite_schottish.eligible(bare)
+            assert not suite_schottish.selectable(bare)
+            assert "suite_schottish" not in patterns._patterns(bare)
+
+            # One half of the pair is not enough.
+            assert not suite_schottish.selectable(
+                dataclasses.replace(bare, movement_span="1M")
+            )
+            assert not suite_schottish.selectable(
+                dataclasses.replace(bare, movement_index=2)
+            )
+
+            scoped = dataclasses.replace(
+                bare, movement_span="1M", movement_index=2
+            )
+            assert suite_schottish.selectable(scoped)
+            assert patterns._patterns(scoped) == ["suite_schottish"]
+
+
+def test_year_movement_three_does_not_select_schottish() -> None:
+    with compose_params({}):
+        with suite_schottish.use_suite_schottish_abab(True):
+            ctx = _patterns_context(
+                "4/4", 8, movement_span="1Y", movement_index=2
+            )
+            assert not suite_schottish.eligible(ctx)
+            assert not suite_schottish.selectable(ctx)
+            assert "suite_schottish" not in patterns._patterns(ctx)
+
+
+def test_month_and_quarter_movement_three_use_native_2_4(monkeypatch) -> None:
+    with compose_params({}):
+        with suite_schottish.use_suite_schottish_abab(True):
+            plans = {
+                "1M": plan_month([8, 8, 8, 8], "guitar", "villa")[2],
+                "3M": plan_quarter([8, 8, 8], "guitar", "villa")[2],
+            }
+            for span, movement in plans.items():
+                assert movement.spec.meter is METER_24
+                ctx = _patterns_context(
+                    "2/4", 8, movement_span=span, movement_index=2
+                )
+                assert patterns._patterns(ctx) == ["suite_schottish"]
+
+                calls = _spy_figure(monkeypatch, suite_schottish)
+                score = _render_form(
+                    movement.spec,
+                    movement_span=span,
+                    movement_index=2,
+                )
+                assert calls
+                assert {bar for bar, _figure in calls} == _body_bars(
+                    movement.spec
+                )
+                assert {event.bar for event in score.lead} <= set(
+                    range(movement.spec.bars)
+                )
+                assert (score.bars, score.beats, score.beat_type) == (
+                    movement.spec.bars,
+                    2,
+                    4,
+                )
+
+
+def test_week_uses_native_2_4_for_the_whole_movement(monkeypatch) -> None:
+    with compose_params({}):
+        with suite_schottish.use_suite_schottish_abab(True):
+            movement = plan_week(2, "guitar", "villa")[0]
+            assert movement.spec.meter is METER_24
+
+            ctx = _patterns_context(
+                "2/4", 8, movement_span="1W", movement_index=0
+            )
+            assert patterns._patterns(ctx) == ["suite_schottish"]
+
+            calls = _spy_figure(monkeypatch, suite_schottish)
+            score = _render_form(
+                movement.spec,
+                movement_span="1W",
+                movement_index=0,
+            )
+            assert calls
+            assert {bar for bar, _figure in calls} == _body_bars(
+                movement.spec
+            )
+            assert (score.beats, score.beat_type) == (2, 4)
+
+
+def test_month_movements_one_two_and_four_do_not_select_schottish() -> None:
+    with compose_params({}):
+        with suite_schottish.use_suite_schottish_abab(True):
+            movements = plan_month([8, 8, 8, 8], "guitar", "villa")
+            for index in (0, 1, 3):
+                spec = movements[index].spec
+                label = f"{spec.meter.beats}/{spec.meter.beat_type}"
+                assert spec.meter is not METER_24
+                ctx = _patterns_context(
+                    label, 8, movement_span="1M", movement_index=index
+                )
+                assert not suite_schottish.selectable(ctx)
+                assert "suite_schottish" not in patterns._patterns(ctx)
+
+
+def test_flag_off_keeps_the_historical_meter_and_render(monkeypatch) -> None:
+    from app.sonify.span import month_specs, quarter_specs
+
+    monkeypatch.delenv(flags.SUITE_SCHOTTISH_ENV, raising=False)
+    with compose_params({}):
+        assert plan_week(2, "guitar", "villa")[0].spec == week_spec(2)
+        assert plan_month(
+            [8, 8, 8, 8], "guitar", "villa"
+        )[2].spec == attach_frame(month_specs("guitar")[2], "1M")
+        assert plan_quarter(
+            [8, 8, 8], "guitar", "villa"
+        )[2].spec == attach_frame(quarter_specs("guitar")[2], "3M")
+
+        form = attach_frame(week_spec(1), "1M")
+        scoped = _digest(
+            _render_form(form, movement_span="1M", movement_index=2)
+        )
+        bare = _digest(_render_form(form))
+        assert scoped == bare
+
+
+def test_every_villa_figure_fits_a_2_4_bar() -> None:
+    from tests.guitar_fixture import meter_named, pattern_case
+
+    meter = meter_named("2/4")
+    ctx, _phrases = pattern_case(
+        "probe",
+        meter,
+        ensemble="villa",
+        mood="calm",
+        band="mf",
+        bpm=96,
+        bars=4,
+    )
+    bar_beats = meter.quarter_beats
+    with compose_meter(meter):
+        for figure in sorted(VILLA_FIGURES):
+            for bar in range(ctx.bars):
+                voices = render_villa_figure(
+                    ctx, bar, ctx.phrases[0], figure
+                )
+                for events in voices:
+                    for event in events:
+                        assert event.beat >= 0
+                        assert (
+                            event.beat + event.duration_beats
+                            <= bar_beats + 1e-9
+                        ), (figure, bar, event)

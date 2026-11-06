@@ -156,8 +156,39 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
 }
 
 
-def profile_for(ensemble: str, pattern: str) -> PatternWaveProfile | None:
-    return PROFILES.get((ensemble, pattern))
+# Native 2/4 rows. The 4/4 table above is the default and stays byte-identical;
+# these rows differ only in the accent language the pattern writer reads (the
+# strong eighth and the half-bar sub-beat, never the 4/4 tresillo).
+PROFILES_24: dict[tuple[str, str], PatternWaveProfile] = {
+    ("villa", "villa_pattern"): _profile(
+        28, 34, 58, 63, 68, 72, 1, 3, "accent24", 3
+    ),
+    ("villa", "suite_schottish"): _profile(
+        28, 34, 58, 63, 68, 72, 1, 3, "accent24", 3
+    ),
+    ("villa", "chord_melody"): _profile(
+        26, 32, 54, 60, None, None, 0, 0, "none", 9
+    ),
+}
+
+
+def profile_for(
+    ensemble: str,
+    pattern: str,
+    meter: str | None = None,
+) -> PatternWaveProfile | None:
+    """The wave row for a pattern, meter-aware when a 2/4 row exists.
+
+    ``meter=None`` keeps every historical caller on the 4/4 table. A 2/4
+    pattern without its own row borrows the 4/4 window; the accent itself is
+    chosen from ``ctx.kind`` where the bar is written.
+    """
+    key = (ensemble, pattern)
+    if meter == "2/4":
+        row = PROFILES_24.get(key)
+        if row is not None:
+            return row
+    return PROFILES.get(key)
 
 
 # The Villa sentence ids share the 3/4 roll's accent and tresillo grouping.
@@ -186,7 +217,11 @@ def _wave_profile(ctx, pattern: str) -> PatternWaveProfile | None:
     and the outro, not the body floor. `d_hi` stays 8, so a note written 72
     reaches 63. Movement 1 and later, and a missing index, keep 58.
     """
-    profile = profile_for(getattr(ctx, "ensemble", ""), pattern)
+    profile = profile_for(
+        getattr(ctx, "ensemble", ""),
+        pattern,
+        getattr(ctx, "kind", None),
+    )
     if profile is None:
         return None
     if (
@@ -701,7 +736,10 @@ def _body_spans(ctx, pedal: set[int]) -> list[tuple[object, int, int]]:
 def _section_pattern(ctx, patterns: list[str], start: int, end: int) -> str:
     for bar in range(start, end):
         pattern = _pattern_at(ctx, bar, patterns)
-        if profile_for(ctx.ensemble, pattern) is not None:
+        profile = profile_for(
+            ctx.ensemble, pattern, getattr(ctx, "kind", None)
+        )
+        if profile is not None:
             return pattern
     return _pattern_at(ctx, start, patterns)
 
@@ -1020,7 +1058,9 @@ def _is_target(
     scale_eighths: set[int] | None = None,
     written_velocity: int | None = None,
 ) -> bool:
-    profile = profile_for(ctx.ensemble, pattern)
+    profile = profile_for(
+        ctx.ensemble, pattern, getattr(ctx, "kind", None)
+    )
     if profile is None or profile.snap_wide is None:
         return False
     rise = 0 if phrase is None else phrase.rise
@@ -1073,6 +1113,10 @@ def _is_target(
     if pattern == "vals":
         return voice == "lead" and event.accent and eighth == 4
     if pattern in _VILLA_SENTENCE_PATTERNS:
+        if getattr(ctx, "kind", None) == "2/4":
+            # 2/4 has one strong beat and a half-bar sub-beat. The 4/4
+            # tresillo (0, 3, 6) would land outside the bar.
+            return voice == "lead" and (eighth in {0, 2} or apex)
         return voice == "lead" and (eighth in {0, 3, 6} or apex)
     if pattern == "etude1":
         slot = int(round(beat * 4))
@@ -1153,7 +1197,9 @@ def _collect_units(
                 from app.sonify.guitar_torroba import castillos_wave_row
 
                 row = castillos_wave_row(ctx, event.bar, patterns, pattern)
-            profile = profile_for(ctx.ensemble, row)
+            profile = profile_for(
+                ctx.ensemble, row, getattr(ctx, "kind", None)
+            )
             if profile is None or profile.snap_wide is None:
                 continue
             if wave.alpha_price < 0.25 and pattern != "elogio_pizz":
@@ -1175,7 +1221,15 @@ def _collect_units(
                 if offsets[quarter] != max(offsets):
                     continue
             ceiling = _snap_ceiling(profile, wave.alpha_price, pattern)
-            if pattern in _VILLA_SENTENCE_PATTERNS and int(round(event.beat * 2)) in {0, 3, 6}:
+            accent_eighths = (
+                {0, 2}
+                if getattr(ctx, "kind", None) == "2/4"
+                else {0, 3, 6}
+            )
+            if (
+                pattern in _VILLA_SENTENCE_PATTERNS
+                and int(round(event.beat * 2)) in accent_eighths
+            ):
                 existing = tresillo.get(event.bar)
                 if existing is None:
                     tresillo[event.bar] = _Unit(score, pattern, event.bar, _phrase_key(phrase), voice, [index], ceiling)
@@ -1212,7 +1266,9 @@ def _collect_units(
 
 
 def _budget(ctx, pattern: str, wave: _Wave, voices, start: int, end: int, scale_eighths=None) -> int:
-    profile = profile_for(ctx.ensemble, pattern)
+    profile = profile_for(
+        ctx.ensemble, pattern, getattr(ctx, "kind", None)
+    )
     if profile is None or profile.snap_wide is None:
         return 0
     if wave.alpha_price < 0.25:
@@ -1251,7 +1307,9 @@ def _select_units(ctx, units: list[_Unit], waves, voices, scale_eighths=None) ->
     chosen: list[_Unit] = []
     for (start, end, pattern), group in by_section.items():
         wave = waves[group[0].bar]
-        profile = profile_for(ctx.ensemble, pattern)
+        profile = profile_for(
+            ctx.ensemble, pattern, getattr(ctx, "kind", None)
+        )
         if profile is None:
             continue
         per_phrase: dict[int, list[_Unit]] = {}

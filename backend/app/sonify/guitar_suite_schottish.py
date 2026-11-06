@@ -5,6 +5,11 @@ phrase over the existing Villa figures: one engine bar stands for two folded
 2/4 source bars. This module promotes it from the preview-only candidate behind
 its own default-off flag.
 
+Phase 3 adds the native 2/4 twin of the same tile. The week and movement III of
+a month/quarter take the 2/4 gate; the 4/4 gate is kept as the rollback and
+regression path. Both gates share `SCHOTTISH_SCOPES`, so a direct render that
+carries no movement span/index can never select either one.
+
 Flag
 ----
 `VSTOCK_SUITE_SCHOTTISH` is read through :mod:`app.sonify.production_flags` at
@@ -14,19 +19,17 @@ historical Villa path byte for byte, and selection never returns
 
 Registration
 ------------
-The pattern id is `suite_schottish`, its engine meter is `4/4`, and its printed
-title is `Schottish-Choro`. The sentence is registered as
-`("suite_schottish", "4/4")` with `valid_figures=VILLA_FIGURES` only when the
-flag is on. Importing this module never mutates `SENTENCE_SPECS`.
-
-Caveat
-------
-``SUITE_SCHOTTISH_CAVEAT`` keeps the audit's 4/4 fold stand-in: the source is
-2/4, `form.Meter` has no 2/4, and the fold is not landed in `span.py`. The
-promotion renders the existing 4/4 engine as a meter proxy, not a transcription.
+The pattern id is `suite_schottish`, its printed title is `Schottish-Choro`, and
+it registers under both `(suite_schottish, 4/4)` and `(suite_schottish, 2/4)`
+with `valid_figures=VILLA_FIGURES` only when the flag is on. Importing this
+module never mutates `SENTENCE_SPECS`.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 
 from app.sonify.guitar_suite_gate import (
     SuiteGate,
@@ -50,11 +53,15 @@ from app.sonify.sentence_specs import Select, SentenceSpec, Slot, Span
 
 SUITE_SCHOTTISH_PATTERN = "suite_schottish"
 SUITE_SCHOTTISH_METER = "4/4"
+SUITE_SCHOTTISH_METER_24 = "2/4"
 SUITE_SCHOTTISH_MIN_BARS = 4
 SUITE_SCHOTTISH_ABAB_ID = "suite_schottish_arpeggio_abab"
 SUITE_SCHOTTISH_TITLE = "Schottish-Choro"
 SUITE_SCHOTTISH_LEVEL = "topic"
 SUITE_SCHOTTISH_NAME_SOURCE = "dance"
+# Schottish is movement III of a month/quarter and the whole of a week. A year
+# keeps its own programme, so `1Y` is deliberately absent.
+SCHOTTISH_SCOPES = frozenset({("1W", 0), ("1M", 2), ("3M", 2)})
 SUITE_SCHOTTISH_CAVEAT = (
     "The source is 2/4 and form.Meter has no 2/4. This candidate uses the "
     "existing 4/4 engine as a stand-in: one engine bar stands for two folded "
@@ -80,7 +87,19 @@ SUITE_SCHOTTISH_ABAB = SentenceSpec(
 SUITE_SCHOTTISH_SPECS = (SUITE_SCHOTTISH_ABAB,)
 SUITE_SCHOTTISH_KEY = (SUITE_SCHOTTISH_PATTERN, SUITE_SCHOTTISH_METER)
 
-SUITE_SCHOTTISH_GATE = SuiteGate(
+# The native 2/4 twin of the same ABAB tile. The meter is the only change.
+SUITE_SCHOTTISH_ABAB_24 = replace(
+    SUITE_SCHOTTISH_ABAB, meter=SUITE_SCHOTTISH_METER_24
+)
+SUITE_SCHOTTISH_KEY_24 = (
+    SUITE_SCHOTTISH_PATTERN,
+    SUITE_SCHOTTISH_METER_24,
+)
+
+# The 4/4 row stays as the rollback/fallback gate. It shares the movement scope
+# with the native 2/4 row; because their meters differ, only one is eligible in
+# a given movement.
+GATE_44 = SuiteGate(
     pattern=SUITE_SCHOTTISH_PATTERN,
     meter=SUITE_SCHOTTISH_METER,
     title=SUITE_SCHOTTISH_TITLE,
@@ -91,8 +110,29 @@ SUITE_SCHOTTISH_GATE = SuiteGate(
     caveat=SUITE_SCHOTTISH_CAVEAT,
     enabled=suite_schottish_enabled,
     use_flag=use_suite_schottish,
+    # A real Schottish movement carries an intro/outro frame. The body is what
+    # the ABAB tile covers; the door keeps the historical render.
+    partial=True,
+    movement_scopes=SCHOTTISH_SCOPES,
 )
-SUITE_SCHOTTISH_META = SUITE_SCHOTTISH_GATE.meta
+GATE_24 = SuiteGate(
+    pattern=SUITE_SCHOTTISH_PATTERN,
+    meter=SUITE_SCHOTTISH_METER_24,
+    title=SUITE_SCHOTTISH_TITLE,
+    name_source=SUITE_SCHOTTISH_NAME_SOURCE,
+    min_bars=SUITE_SCHOTTISH_MIN_BARS,
+    sentence_id=SUITE_SCHOTTISH_ABAB_ID,
+    spec=SUITE_SCHOTTISH_ABAB_24,
+    caveat=SUITE_SCHOTTISH_CAVEAT,
+    enabled=suite_schottish_enabled,
+    use_flag=use_suite_schottish,
+    partial=True,
+    movement_scopes=SCHOTTISH_SCOPES,
+)
+GATES = (GATE_44, GATE_24)
+# Kept for callers that name the original 4/4 gate directly.
+SUITE_SCHOTTISH_GATE = GATE_44
+SUITE_SCHOTTISH_META = GATE_44.meta
 
 
 def enabled() -> bool:
@@ -101,30 +141,43 @@ def enabled() -> bool:
 
 
 def ensure_registered() -> bool:
-    """Register the folded phrase if the table does not already hold it."""
-    return _ensure_registered(SUITE_SCHOTTISH_GATE)
+    """Register both the 4/4 rollback tile and the native 2/4 tile."""
+    added = False
+    for gate in GATES:
+        added = _ensure_registered(gate) or added
+    return added
 
 
 def unregister() -> bool:
-    """Remove exactly the spec this module owns, leaving anything else alone."""
-    return _unregister(SUITE_SCHOTTISH_GATE)
+    """Remove exactly the specs this module owns, not anything else."""
+    removed = False
+    for gate in GATES:
+        removed = _unregister(gate) or removed
+    return removed
 
 
-def use_suite_schottish_abab(enabled: bool = True):
-    """Pin the flag and own this module's registry entry for the context."""
-    return use_gate(SUITE_SCHOTTISH_GATE, enabled)
+@contextmanager
+def use_suite_schottish_abab(enabled: bool = True) -> Iterator[None]:
+    """Pin the flag and own both registry entries for the context."""
+    with use_gate(GATE_44, enabled):
+        with use_gate(GATE_24, enabled):
+            yield
 
 
 def eligible(ctx) -> bool:
-    """A whole 4/4 Villa movement of at least four bars with no pedal bar."""
-    return _eligible(SUITE_SCHOTTISH_GATE, ctx)
+    """Whether either Schottish gate can carry this scoped movement."""
+    return any(_eligible(gate, ctx) for gate in GATES)
 
 
 def selectable(ctx) -> bool:
     """Whether selection may return `suite_schottish` for this movement."""
-    return _selectable(SUITE_SCHOTTISH_GATE, ctx)
+    return any(_selectable(gate, ctx) for gate in GATES)
 
 
 def render_sentence(ctx):
-    """Render the folded phrase for an eligible movement, or None to fall back."""
-    return _render_sentence(SUITE_SCHOTTISH_GATE, ctx, render_villa_figure)
+    """Render the first eligible meter's phrase, or None to fall back."""
+    for gate in GATES:
+        sentence = _render_sentence(gate, ctx, render_villa_figure)
+        if sentence is not None:
+            return sentence
+    return None

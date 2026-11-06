@@ -15,6 +15,7 @@ from app.sonify.sentence_specs import (
     Span,
     plan_run,
     plan_sentence,
+    plan_slots,
     register,
 )
 
@@ -201,15 +202,44 @@ def test_a_cycle_slot_needs_a_cell_realizer() -> None:
         register("unit_cycle_figure", "3/4", spec, replace=True)
 
 
-def test_a_cell_realizer_needs_a_cycle_span() -> None:
+def test_a_cell_realizer_is_allowed_outside_a_cycle() -> None:
+    """Phase 4: a tile/exact span may carry a texture cell."""
     spec = _spec(
         "unit_cell_plain",
-        select=Select(),
-        span=Span(tile=8),
-        slots=(Slot(0, 8, cell="a"),),
+        select=Select(length_min=4),
+        span=Span(tile=4),
+        slots=(Slot(0, 4, cell="key_a"),),
     )
-    with pytest.raises(ValueError, match="needs a cycle span"):
-        register("unit_cell_plain", "3/4", spec, replace=True)
+    pattern = _register(spec, valid_cells={"key_a"})
+
+    # `plan_sentence` only plans figures, so a cell-only tile emits no span.
+    assert plan_sentence(pattern, "3/4", 4, 0) == []
+    assert plan_sentence(pattern, "3/4", 8, 0) == []
+
+    # `plan_slots` still emits the cell for the owner's renderer.
+    slots = plan_slots(pattern, "3/4", 4, 0)
+    assert slots is not None
+    assert [(slot.cell, slot.bars) for slot in slots] == [
+        ("key_a", (0, 1, 2, 3))
+    ]
+    repeated = plan_slots(pattern, "3/4", 8, 0)
+    assert repeated is not None
+    assert [slot.cell for slot in repeated] == ["key_a", "key_a"]
+    assert [slot.bars for slot in repeated] == [
+        (0, 1, 2, 3),
+        (4, 5, 6, 7),
+    ]
+
+
+def test_a_cycle_still_requires_a_cell_realizer() -> None:
+    spec = _spec(
+        "unit_cycle_still",
+        select=Select(),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 8, figure=1),),
+    )
+    with pytest.raises(ValueError, match="needs a cell realizer"):
+        register("unit_cycle_still", "3/4", spec, replace=True)
 
 
 def test_register_rejects_unknown_cell() -> None:

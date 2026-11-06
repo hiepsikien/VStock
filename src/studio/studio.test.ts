@@ -179,27 +179,43 @@ import {
   type MusicXmlRoleLane,
 } from './musicxml';
 import {
+  FIGURE_TAGS,
   GENERIC_PATTERN_IDS,
+  KEY_BODY_MISSING,
   VILLA_COMPOSER,
   VILLA_RENDERER,
+  appendPatternFigure,
   appendPatternSentence,
   composerOptions,
   buildPatternDraftExport,
   buildSentenceDraftBody,
   createPatternDraft,
+  createPatternFigure,
   existingTemplateOptions,
+  figureBarsFromTextureSpec,
+  figureTagError,
   genericPatternOptions,
+  missingFigureTags,
   newPatternId,
+  normalizePatternDraft,
   normalizeSentenceDraftResponse,
+  patternDraftComplete,
   patternDraftJson,
+  patternDraftKeyFigure,
   patternDraftLabel,
+  patternFigureFromTextureSpec,
+  removeFigureTag,
+  removePatternFigure,
   removePatternSentence,
   sentenceDraftKey,
   sentenceDraftSourceLabel,
+  setFigureTag,
   slugifyPatternId,
   villaMeterSupported,
   villaTemplateOptions,
+  type FigureTag,
   type PatternDraft,
+  type PatternDraftFigure,
   type PatternDraftSentence,
 } from './sentenceDraft';
 import { saveVelocityContourToSpec } from './velocitySpec';
@@ -3742,15 +3758,202 @@ deepEqual(buildPatternDraftExport(appended.draft), {
   composer: 'Villa-Lobos',
   renderer: 'villa',
   meter: '3/4',
+  figures: [],
   sentences: [
     { spec: sentenceA.spec, fixture: sentenceA.fixture },
     { spec: sentenceB.spec, fixture: sentenceB.fixture },
+  ],
+  complete: false,
+  missing: [
+    KEY_BODY_MISSING,
+    'intro.short',
+    'intro.long',
+    'outro.short',
+    'outro.long',
   ],
 });
 const exported = patternDraftJson(appended.draft);
 if (exported.includes('rangeLabel') || exported.includes('renderHash')) {
   throw new Error('export bundle must contain only spec + fixture per sentence');
 }
+
+/* ------------------------------------------------------------------------- *
+ * Figure pool (Phase 4)
+ * ------------------------------------------------------------------------- */
+
+equal(FIGURE_TAGS.length, 5);
+equal(FIGURE_TAGS.join(','), 'key,intro.short,intro.long,outro.short,outro.long');
+equal(figureTagError('intro.short', 2), null);
+if (!figureTagError('intro.short', 4)?.includes('needs 2 bars')) {
+  throw new Error('short tag must reject four bars');
+}
+
+const keySpec: Record<string, unknown> = {
+  id: 'musicxml_key',
+  authored: {
+    events: [
+      { bar: 0, beat: 0, duration_beats: 1, voice: 1, pitch: { kind: 'chord_root' } },
+      { bar: 1, beat: 0, duration_beats: 1, voice: 1, pitch: { kind: 'chord_root' } },
+      { bar: 3, beat: 0, duration_beats: 1, voice: 1, pitch: { kind: 'chord_root' } },
+    ],
+  },
+};
+equal(figureBarsFromTextureSpec(keySpec), 4);
+const keyFigure = patternFigureFromTextureSpec(keySpec, {
+  id: 'fig_key',
+  tags: ['key'],
+});
+if (!keyFigure) throw new Error('key TextureSpec should create a figure');
+equal(keyFigure.bars, 4);
+const introShort = createPatternFigure({
+  id: 'fig_intro_2',
+  spec: keySpec,
+  bars: 2,
+  tags: ['intro.short'],
+});
+const introLong = createPatternFigure({
+  id: 'fig_intro_4',
+  spec: keySpec,
+  bars: 4,
+  tags: ['intro.long'],
+});
+const outroShort = createPatternFigure({
+  id: 'fig_outro_2',
+  spec: keySpec,
+  bars: 2,
+});
+const outroLong = createPatternFigure({
+  id: 'fig_outro_4',
+  spec: keySpec,
+  bars: 4,
+  tags: ['outro.long'],
+});
+
+let figureDraft: PatternDraft = {
+  ...createPatternDraft({ id: 'villa_test', label: 'Test', composer: 'Villa-Lobos', renderer: 'villa', meter: '2/4' }),
+  figures: [],
+};
+for (const figure of [keyFigure, introShort, introLong, outroLong, outroShort]) {
+  const result = appendPatternFigure(figureDraft, figure);
+  if (!result.ok) throw new Error(result.error);
+  figureDraft = result.draft;
+}
+equal(figureDraft.figures?.length, 5);
+deepEqual(missingFigureTags(figureDraft), ['outro.short']);
+equal(patternDraftComplete(figureDraft), false);
+equal(patternDraftKeyFigure(figureDraft)?.id, 'fig_key');
+equal(patternDraftKeyFigure(figureDraft)?.cellId, 'fig_key');
+
+const tagged = setFigureTag(figureDraft, 'fig_outro_2', 'outro.short');
+if (!tagged.ok) throw new Error(tagged.error);
+figureDraft = tagged.draft;
+equal(patternDraftComplete(figureDraft), true);
+deepEqual(missingFigureTags(figureDraft), []);
+deepEqual(missingFigureTags([]), [
+  KEY_BODY_MISSING,
+  'intro.short',
+  'intro.long',
+  'outro.short',
+  'outro.long',
+]);
+
+const spareShort = createPatternFigure({
+  id: 'fig_spare_2',
+  spec: keySpec,
+  bars: 2,
+});
+const withSpare = appendPatternFigure(figureDraft, spareShort);
+if (!withSpare.ok) throw new Error(withSpare.error);
+figureDraft = withSpare.draft;
+const moved = setFigureTag(figureDraft, 'fig_spare_2', 'outro.short');
+if (!moved.ok) throw new Error(moved.error);
+equal(
+  moved.draft.figures?.find((figure) => figure.id === 'fig_outro_2')?.tags.includes('outro.short'),
+  false,
+);
+equal(
+  moved.draft.figures?.find((figure) => figure.id === 'fig_spare_2')?.tags.includes('outro.short'),
+  true,
+);
+figureDraft = moved.draft;
+const badTag = setFigureTag(figureDraft, 'fig_intro_2', 'intro.long');
+equal(badTag.ok, false);
+const untagged = removeFigureTag(figureDraft, 'fig_spare_2', 'outro.short');
+equal(
+  untagged.figures?.find((figure) => figure.id === 'fig_spare_2')?.tags.includes('outro.short'),
+  false,
+);
+equal(removePatternFigure(figureDraft, 'missing').figures?.length, 6);
+
+// Key 4 bars + a sentence tile 2 bars is rejected; a matching one is kept.
+const shortTileDraft: PatternDraft = {
+  ...figureDraft,
+  sentences: [
+    {
+      spec: {
+        id: 'hand_body',
+        slots: [{ start: 0, bars: 4, cell: 'fig_key' }],
+        span: { tile: 2 },
+      },
+      fixture: {},
+    },
+  ],
+};
+deepEqual(missingFigureTags(shortTileDraft), [KEY_BODY_MISSING]);
+equal(patternDraftComplete(shortTileDraft), false);
+const goodTileDraft: PatternDraft = {
+  ...figureDraft,
+  sentences: [
+    {
+      spec: {
+        id: 'hand_body',
+        slots: [{ start: 0, bars: 4, cell: 'fig_key' }],
+        span: { tile: 4 },
+      },
+      fixture: {},
+    },
+  ],
+};
+equal(patternDraftComplete(goodTileDraft), true);
+equal(patternDraftKeyFigure(goodTileDraft)?.id, 'fig_key');
+
+const figureExport = buildPatternDraftExport(goodTileDraft);
+equal(figureExport.complete, true);
+deepEqual(figureExport.missing, []);
+equal(Array.isArray(figureExport.figures), true);
+
+// Migration: an old `{sentences}` draft loads with an empty figure pool and
+// is incomplete. `keyFigures` is never read as a source.
+const oldDraft = normalizePatternDraft({
+  id: 'villa_old',
+  label: 'Old',
+  composer: 'Villa-Lobos',
+  renderer: 'villa',
+  meter: '3/4',
+  sentences: [{ spec: sentenceA.spec, fixture: sentenceA.fixture }],
+  keyFigures: [keyFigure],
+  complete: true,
+});
+if (!oldDraft) throw new Error('old draft should normalize');
+deepEqual(oldDraft.figures, []);
+equal(oldDraft.sentences.length, 1);
+equal(patternDraftComplete(oldDraft), false);
+deepEqual(missingFigureTags(oldDraft), [
+  KEY_BODY_MISSING,
+  'intro.short',
+  'intro.long',
+  'outro.short',
+  'outro.long',
+]);
+const roundTrip = normalizePatternDraft(JSON.parse(patternDraftJson(figureDraft)));
+if (!roundTrip) throw new Error('figure draft should round-trip');
+deepEqual(roundTrip.figures, figureDraft.figures);
+equal(patternDraftComplete(roundTrip), true);
+const tagAt = (draft: PatternDraft, id: string, tag: FigureTag): boolean =>
+  draft.figures?.find((figure) => figure.id === id)?.tags.includes(tag) ?? false;
+equal(tagAt(roundTrip, 'fig_outro_4', 'outro.long'), true);
+const duplicateFigure = appendPatternFigure(figureDraft, keyFigure);
+equal(duplicateFigure.ok, false);
 
 type FakeStore = {
   value: string | null;

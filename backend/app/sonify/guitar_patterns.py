@@ -261,6 +261,9 @@ class _Ctx:
     regime_at: dict = field(default_factory=dict)
     # 0 is the first prepared movement (1D, 1W, and the first 1Y month that has bars).
     movement_index: int | None = None
+    # The long-form span ("1W", "1M", "3M", "1Y"), so a gate can scope a
+    # movement by (span, index). `None` keeps direct/legacy callers untouched.
+    movement_span: str | None = None
     # Per-render memo tables. They never change a rendered note; they only keep
     # repeated phrase, pattern, and pedal queries off the linear scans.
     _phrase_source: tuple[Phrase, ...] | None = field(
@@ -1049,6 +1052,23 @@ def _patterns(ctx: _Ctx) -> list[str]:
             continue
         body.append(index)
     if _framed(ctx):
+        # A framed movement still has a real body. The Suite gates own their
+        # own eligibility (including the partial body/door seam), so let the
+        # same predicate the renderer uses paint the body before the historical
+        # macro chooser. Flag off never reaches this branch.
+        if ctx.ensemble == "villa":
+            from app.sonify.production_flags import any_suite_movement_enabled
+
+            if any_suite_movement_enabled():
+                from app.sonify.guitar_suite_movements import (
+                    selectable_pattern,
+                )
+
+                selected = selectable_pattern(ctx)
+                if selected is not None:
+                    for index in body:
+                        chosen[index] = selected
+                    return chosen
         return _assign_macro(ctx, chosen, body)
     previous: list[str] = []
     for ordinal, index in enumerate(body):
@@ -3428,6 +3448,7 @@ def render_patterned_voices(
     impulses: tuple = (),
     regime_at: dict | None = None,
     movement_index: int | None = None,
+    movement_span: str | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -3470,6 +3491,7 @@ def render_patterned_voices(
         impulses=tuple(impulses or ()),
         regime_at=dict(regime_at or {}),
         movement_index=movement_index,
+        movement_span=movement_span,
     )
     patterns = _patterns(ctx) if phrases else []
     headline = _HEADLINE.get()
@@ -3483,9 +3505,6 @@ def render_patterned_voices(
     _TRACE_OWNED.set([])
     _TRACE_SUPPRESS.set(set())
     from app.sonify.micro_velocity_writer import (
-        apply_etude1,
-        apply_etude11,
-        apply_tremolo,
         begin_occurrences,
         writers_enabled,
     )
@@ -3499,7 +3518,7 @@ def render_patterned_voices(
     # returns raw bar voices only for a whole movement it can cover; the shared
     # tail below then shapes them exactly like the historical bar loop.
     sentence = _gated_sentence(ctx)
-    if sentence is not None:
+    if sentence is not None and sentence.covered is None:
         return _render_sentence_tail(
             ctx,
             patterns,
@@ -3508,6 +3527,77 @@ def render_patterned_voices(
             micro_velocity_writers=micro_velocity_writers,
             micro_velocity_token=micro_velocity_token,
         )
+    tail: dict = {}
+    base = _render_base_raw(
+        ctx,
+        patterns,
+        levels=levels,
+        micro_velocity_writers=micro_velocity_writers,
+        tail=tail,
+    )
+    if sentence is not None:
+        from app.sonify.sentence_production import apply_default_contours
+
+        lead, support, low = apply_default_contours(
+            ctx, sentence, enabled=micro_velocity_writers
+        )
+        shaped = replace(sentence, lead=lead, support=support, low=low)
+        merged = merge_covered(base, shaped, sentence.covered)
+        merged_patterns = _merge_covered_patterns(
+            ctx, patterns, sentence.covered, sentence.pattern
+        )
+        return _finish_voices(
+            ctx,
+            merged_patterns,
+            *merged,
+            levels=levels,
+            micro_velocity_writers=micro_velocity_writers,
+            micro_velocity_token=micro_velocity_token,
+            original_melody=tail["original_melody"],
+            lowered_eighths=tail["lowered_eighths"],
+            figure_at=tail["figure_at"],
+            preludio_bass=not sentence.owns_preludio_bass,
+        )
+    return _finish_voices(
+        ctx,
+        patterns,
+        *base,
+        levels=levels,
+        micro_velocity_writers=micro_velocity_writers,
+        micro_velocity_token=micro_velocity_token,
+        original_melody=tail["original_melody"],
+        lowered_eighths=tail["lowered_eighths"],
+        figure_at=tail["figure_at"],
+    )
+
+
+def _render_base_raw(
+    ctx: _Ctx,
+    patterns: list[str],
+    *,
+    levels: dict[int, int] | None = None,
+    micro_velocity_writers: bool = False,
+    tail: dict | None = None,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """The historical per-bar loop, stopping before `_finish_voices`.
+
+    Both the normal path and the partial body/door merge call this once,
+    then pass the raw voices through the shared tail exactly once. The
+    `tail` mapping receives the torroba metadata `_finish_voices` needs
+    (`original_melody`, `lowered_eighths`, `figure_at`).
+    """
+    from app.sonify.micro_velocity_writer import (
+        apply_etude1,
+        apply_etude11,
+        apply_tremolo,
+    )
+
+    phrases = ctx.phrases
+    musical_bars = ctx.bars
+    epb = ctx.epb
+    bpm = ctx.bpm
+    if levels is None:
+        levels = _grand_levels(ctx, patterns)
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
@@ -3559,9 +3649,6 @@ def render_patterned_voices(
     # The passage below still reads this copy. The render loop reads the lowered array.
     original_melody = list(ctx.melody)
     lowered_eighths = _lower_torroba_stretches(ctx, figure_at)
-    attacks_by_phrase = {
-        index: _lead_attacks(ctx.melody, phrase.start, phrase.end) for index, phrase in enumerate(phrases)
-    }
     ornaments = {
         index: _phrase_appoggiatura(ctx, phrase)
         for index, phrase in enumerate(phrases)
@@ -3572,7 +3659,6 @@ def render_patterned_voices(
             continue
         pattern = _bar_pattern(ctx, bar, patterns)
         owner = _owner(ctx, bar)
-        attacks = attacks_by_phrase.get(owner, set()) if owner is not None else set()
         allow_approach = _allow_approach(ctx, bar, patterns)
         phrase_here = phrases[owner] if owner is not None else _phrase_at(ctx, bar * epb)
         if pattern == "tremolo" and bar in tremolo_bars:
@@ -3833,19 +3919,11 @@ def render_patterned_voices(
             low.extend(part_low)
         else:
             lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
-    return _finish_voices(
-        ctx,
-        patterns,
-        lead,
-        support,
-        low,
-        levels=levels,
-        micro_velocity_writers=micro_velocity_writers,
-        micro_velocity_token=micro_velocity_token,
-        original_melody=original_melody,
-        lowered_eighths=lowered_eighths,
-        figure_at=figure_at,
-    )
+    if tail is not None:
+        tail["original_melody"] = original_melody
+        tail["lowered_eighths"] = lowered_eighths
+        tail["figure_at"] = figure_at
+    return lead, support, low
 
 
 def _gated_sentence(ctx: _Ctx):
@@ -3903,6 +3981,75 @@ def _gated_sentence(ctx: _Ctx):
 
             return render_brouwer_aba(ctx)
     return None
+
+
+def merge_covered(
+    base: tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]],
+    sentence_voices,
+    covered: frozenset[int] | None,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Replace every covered bar of all three base voices with the sentence.
+
+    `covered=None` is the historical whole-movement contract and returns the
+    base voices unchanged. Bars outside `covered` keep the base/door/pedal
+    events exactly as the historical loop emitted them. The merge is per bar,
+    so each voice stays in bar order and `_finish_voices` runs once on the
+    merged set.
+    """
+    if covered is None:
+        return base
+    base_lead, base_support, base_low = base
+
+    def merged(base_voice, sentence_voice):
+        last = max(
+            (
+                event.bar
+                for event in (*base_voice, *sentence_voice)
+                if isinstance(event.bar, int)
+            ),
+            default=-1,
+        )
+        result: list[NoteEvent] = []
+        for bar in range(last + 1):
+            source = sentence_voice if bar in covered else base_voice
+            result.extend(event for event in source if event.bar == bar)
+        return result
+
+    return (
+        merged(base_lead, sentence_voices.lead),
+        merged(base_support, sentence_voices.support),
+        merged(base_low, sentence_voices.low),
+    )
+
+
+def _merge_covered_patterns(
+    ctx: _Ctx,
+    patterns: list[str],
+    covered: frozenset[int] | None,
+    sentence_pattern: str | None,
+) -> list[str]:
+    """Use the sentence pattern inside the covered bars, base pattern outside.
+
+    `patterns` is phrase-indexed. A phrase that owns any covered bar takes the
+    sentence id; a door/pedal phrase keeps its base id. `None`/empty covered is
+    the byte-identical path.
+    """
+    if covered is None or not covered or sentence_pattern is None:
+        return patterns
+    result = list(patterns)
+    epb = max(1, ctx.epb)
+    for index, phrase in enumerate(ctx.phrases):
+        start = max(0, phrase.start // epb)
+        end = max(
+            start + 1,
+            (max(phrase.end, phrase.start + 1) - 1) // epb + 1,
+        )
+        if any(bar in covered for bar in range(start, min(ctx.bars, end))):
+            if index < len(result):
+                result[index] = sentence_pattern
+            else:
+                result.append(sentence_pattern)
+    return result
 
 
 def _render_sentence_tail(

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from app.sonify.chords import C, CM
 from app.sonify.form import (
+    METER_24,
     METER_34,
     METER_44,
     METER_68,
@@ -46,6 +47,7 @@ from app.sonify.model import Phrase, Run
 _CONTOUR = (67, 65, 64, 62, 60, 62, 64, 65)
 
 _METERS: dict[str, Meter] = {
+    "2/4": METER_24,
     "3/4": METER_34,
     "4/4": METER_44,
     "6/8": METER_68,
@@ -110,6 +112,8 @@ def pattern_case(
     sections: list[FormSection] | None = None,
     phrase_start: int | None = None,
     rel_span: float = 0.02,
+    movement_index: int | None = None,
+    movement_span: str | None = None,
 ) -> tuple[_Ctx, list[Phrase]]:
     """Build the fixed context/phrases for one `(pattern, meter)` row.
 
@@ -214,6 +218,8 @@ def pattern_case(
         strong=tuple(meter.strong_eighths),
         bar_beats=meter.quarter_beats,
         regime_at={bar: "sideway" for bar in range(bars)},
+        movement_index=movement_index,
+        movement_span=movement_span,
     )
     return ctx, list(ctx.phrases)
 

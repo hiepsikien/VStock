@@ -26,14 +26,17 @@ from app.sonify.form import (
 )
 from app.sonify.model import Bar, NoteEvent, Score
 from app.sonify.render import render
-from app.sonify.form import FormSection, FormSpec, METER_44, METER_54
+from app.sonify.form import FormSection, FormSpec, METER_24, METER_44, METER_54
+from app.sonify.guitar_frame import frame_roles
 from app.sonify.session import SessionPoint
 from app.sonify.span import (
     attach_frame,
+    frame_bars_for,
     quarter_parts,
     month_parts,
     month_specs,
     plan_month,
+    plan_quarter,
     prepare_month,
     prepare_quarter,
     prepare_week,
@@ -999,3 +1002,68 @@ def test_span_peaks_carries_readiness_and_identity(monkeypatch) -> None:
     assert response.movements[0].renderSec == 30.0
     assert response.movements[0].renderRatio == 0.125
     assert response.movements[1].ready is False
+
+
+def test_2_4_frame_keeps_the_short_long_contract() -> None:
+    assert frame_bars_for(METER_24, "1Y") == 2
+    assert frame_bars_for(METER_24, "1M") == 4
+    assert frame_bars_for(METER_24, "3M") == 4
+
+
+def test_frame_roles_cover_one_to_four_bars() -> None:
+    assert frame_roles(0) == []
+    assert frame_roles(1) == [0]
+    assert frame_roles(2) == [0, 1]
+    assert frame_roles(3) == [0, 2, 3]
+    assert frame_roles(4) == [0, 1, 2, 3]
+
+
+def test_schottish_scope_gets_native_2_4_only_at_movement_three() -> None:
+    from app.sonify.production_flags import use_suite_schottish
+
+    off_week = week_spec(2)
+    off_month = tuple(
+        attach_frame(spec, "1M") for spec in month_specs("guitar")
+    )
+    off_quarter = tuple(
+        attach_frame(spec, "3M") for spec in quarter_specs("guitar")
+    )
+    with use_suite_schottish(False):
+        assert plan_week(2, "guitar", "villa")[0].spec == off_week
+        assert tuple(
+            movement.spec
+            for movement in plan_month([8, 8, 8, 8], "guitar", "villa")
+        ) == off_month
+        assert tuple(
+            movement.spec
+            for movement in plan_quarter([8, 8, 8], "guitar", "villa")
+        ) == off_quarter
+
+    with use_suite_schottish(True):
+        week = plan_week(2, "guitar", "villa")[0]
+        assert week.spec.meter is METER_24
+        month = plan_month([8, 8, 8, 8], "guitar", "villa")
+        assert [movement.spec.meter for movement in month] == [
+            off_month[0].meter,
+            off_month[1].meter,
+            METER_24,
+            off_month[3].meter,
+        ]
+        quarter = plan_quarter([8, 8, 8], "guitar", "villa")
+        assert [movement.spec.meter for movement in quarter] == [
+            off_quarter[0].meter,
+            off_quarter[1].meter,
+            METER_24,
+        ]
+        # The frame follows the new meter: four bars for 1M/3M, two for 1Y.
+        assert _frame_lengths(month[2].spec) == (4, 4)
+        assert _frame_lengths(quarter[2].spec) == (4, 4)
+        # A non-Villa ensemble and another variant never take the override.
+        assert (
+            plan_month([8, 8, 8, 8], "guitar", "bach")[2].spec.meter
+            is not METER_24
+        )
+        assert (
+            plan_month([8, 8, 8, 8], "symphony", "villa")[2].spec.meter
+            is not METER_24
+        )

@@ -65,6 +65,7 @@ def use_registry(
     finally:
         _PLAN_REGISTRY.reset(token)
 
+
 METER_ANY = "*"
 _N_PARITY = frozenset({"any", "even", "odd"})
 _ANCHORS = frozenset({"start", "middle", "end"})
@@ -87,7 +88,8 @@ class Slot:
 
     Exactly one of `figure`, `cell`, and `procedure` is set. `figure` resolves
     through the owner's `_FIGURES`; `cell` is an id the owner resolves on its
-    own (galop); `procedure` is an id the owner/renderer resolves through
+    own (galop, or a `texture_figure.TEXTURE_CELLS` entry for a tile/exact
+    span); `procedure` is an id the owner/renderer resolves through
     `procedure_specs.PROCEDURES`. `plan_sentence` only emits figure spans;
     `plan_run` only emits cells; neither emits a procedure span.
 
@@ -286,8 +288,6 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
             raise ValueError(f"{spec.id}: a procedure id must be a non-empty string")
         if span.cycle and slot.cell is None:
             raise ValueError(f"{spec.id}: a cycle slot needs a cell realizer")
-        if not span.cycle and slot.cell is not None:
-            raise ValueError(f"{spec.id}: a cell realizer needs a cycle span")
         if span.cycle and slot.anchor != "start":
             raise ValueError(f"{spec.id}: a cycle slot must be start-anchored")
 
@@ -597,6 +597,8 @@ def _tile(
     spec: SentenceSpec,
     length: int,
     place: Callable[[SentenceSpec, int, int, int], list] | None = None,
+    *,
+    offset: int = 0,
 ) -> list:
     if place is None:
         place = _slots
@@ -604,7 +606,7 @@ def _tile(
     if span.exact or span.remainder == "exact":
         if span.tile is not None and length != span.tile:
             return []
-        return place(spec, 0, length, length)
+        return place(spec, offset, length, length)
 
     tile = span.tile
     if tile is None:  # validated at register; guard for python -O
@@ -619,7 +621,7 @@ def _tile(
     start = 0
     while start < length:
         chunk = min(tile, length - start)
-        spans.extend(place(spec, start, chunk, length))
+        spans.extend(place(spec, offset + start, chunk, length))
         start += chunk
     return spans
 
@@ -656,15 +658,21 @@ def plan_sentence(
     *,
     closes: bool = False,
     rise: int = 0,
+    offset: int = 0,
     registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
 ) -> list[tuple[int, tuple[int, ...]]] | None:
-    """Figure spans for one phrase, or `None` when the pair has no data yet."""
+    """Figure spans for one phrase, or `None` when the pair has no data yet.
+
+    ``offset`` is the absolute bar where the phrase starts. It shifts the
+    emitted bar indexes, not the phrase-local tiling, so a phrase at bar 5
+    plans bars 5.. instead of overwriting bar 0.
+    """
     specs = _lookup(pattern, meter, registry)
     if specs is None:
         return None
     for spec in specs:
         if _matches(spec, length, n, closes, rise):
-            return _tile(spec, length)
+            return _tile(spec, length, offset=offset)
     return []
 
 
@@ -676,6 +684,7 @@ def plan_slots(
     *,
     closes: bool = False,
     rise: int = 0,
+    offset: int = 0,
     registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
 ) -> list[PlannedSlot] | None:
     """Slot occurrences for one phrase, or `None` when the pair has no data.
@@ -683,14 +692,15 @@ def plan_slots(
     This is the planner seam for consumers that need more than a figure span:
     the authored slot index, its absolute origin, and its `micro_velocity`.
     The selection and tiling are identical to `plan_sentence`, so the two
-    planners always cover the same bars for the same inputs.
+    planners always cover the same bars for the same inputs. ``offset`` shifts
+    ``bars`` and ``slot_start``; ``micro_velocity`` stays relative to the slot.
     """
     specs = _lookup(pattern, meter, registry)
     if specs is None:
         return None
     for spec in specs:
         if _matches(spec, length, n, closes, rise):
-            return _tile(spec, length, _slot_entries)
+            return _tile(spec, length, _slot_entries, offset=offset)
     return []
 
 

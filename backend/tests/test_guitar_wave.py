@@ -17,6 +17,7 @@ from app.sonify.guitar_patterns import _Ctx, _shape_dynamics
 from app.sonify.guitar_wave import (
     BAND_LEVEL,
     PROFILES,
+    PROFILES_24,
     SPEECH,
     affine_raw,
     alpha_price,
@@ -96,6 +97,12 @@ _EXPECTED = {
     ("torroba", "torroba_tremolo"),
     ("torroba", "alcaniz"),
     ("torroba", "olite"),
+}
+# Native 2/4 rows. The 4/4 table stays the default for every legacy caller.
+_EXPECTED_24 = {
+    ("villa", "villa_pattern"),
+    ("villa", "suite_schottish"),
+    ("villa", "chord_melody"),
 }
 
 
@@ -1718,3 +1725,60 @@ def test_breath_never_lowers_an_anchored_center(monkeypatch) -> None:
         ctx, ["cantabile"], [4.0], {"cantabile": (0, 0)}, set()
     )
     assert placed[0].center == 54.0
+
+
+def test_2_4_rows_are_meter_aware_and_keep_the_4_4_default() -> None:
+    assert set(PROFILES_24) == _EXPECTED_24
+    assert (
+        profile_for("villa", "suite_schottish", "2/4")
+        is PROFILES_24[("villa", "suite_schottish")]
+    )
+    assert (
+        profile_for("villa", "suite_schottish")
+        is PROFILES[("villa", "suite_schottish")]
+    )
+    # A 2/4 pattern without its own row borrows the 4/4 window rather than
+    # losing the wave altogether.
+    assert (
+        profile_for("villa", "etude1", "2/4")
+        is PROFILES[("villa", "etude1")]
+    )
+
+
+def test_2_4_accents_the_downbeat_and_half_bar_not_the_tresillo() -> None:
+    phrase = _phrase_over(1, 0)
+    ctx = _ctx(
+        ensemble="villa",
+        bars=1,
+        volumes=[4.0],
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+    )
+    ctx_24 = replace(ctx, kind="2/4", epb=4, bar_beats=2.0)
+
+    def target(beat: float) -> bool:
+        return _is_target(
+            ctx_24,
+            "suite_schottish",
+            _note(0, beat, 64),
+            "lead",
+            phrase,
+            beat * 2,
+            0.9,
+        )
+
+    assert target(0.0)
+    assert target(1.0)
+    assert not target(1.5)
+    assert not target(2.0)
+
+    # 4/4 keeps its existing third-eighth tresillo accent.
+    assert _is_target(
+        ctx,
+        "suite_schottish",
+        _note(0, 1.5, 64),
+        "lead",
+        phrase,
+        3.0,
+        0.9,
+    )

@@ -15,6 +15,7 @@ import pytest
 from app.sonify import sentence_specs as specs
 from app.sonify.guitar_villa_figures import (
     VILLA_ARPEGGIO,
+    VILLA_CADENCE,
     VILLA_CHORD_MELODY,
     VILLA_ETUDE1,
     VILLA_ETUDE11,
@@ -84,6 +85,7 @@ def test_figure_registry_covers_the_villa_bar_writers() -> None:
         VILLA_CHORD_MELODY,
         VILLA_ETUDE1,
         VILLA_ETUDE11,
+        VILLA_CADENCE,
     }
     assert set(VILLA_FIGURE_NAMES) == set(VILLA_FIGURES)
     assert len(set(VILLA_FIGURE_NAMES.values())) == len(VILLA_FIGURES)

@@ -144,6 +144,8 @@ class _GateCase:
     slot_index: int
     pattern: str
     pattern_meter: str
+    movement_span: str | None = None
+    movement_index: int | None = None
 
 
 GATED_CASES = (
@@ -256,6 +258,8 @@ GATED_CASES = (
             1,
             suite_schottish.SUITE_SCHOTTISH_PATTERN,
             suite_schottish.SUITE_SCHOTTISH_METER,
+            "1M",
+            2,
         ),
         id="suite_schottish",
     ),
@@ -319,7 +323,24 @@ def _form(bars: int, meter) -> FormSpec:
     )
 
 
-def _render(ensemble: str, meter, bars: int):
+def _scope(case: _GateCase) -> dict:
+    """The movement scope a case needs; non-scoped families get nothing."""
+    if case.movement_span is None:
+        return {}
+    return {
+        "movement_span": case.movement_span,
+        "movement_index": case.movement_index,
+    }
+
+
+def _render(
+    ensemble: str,
+    meter,
+    bars: int,
+    *,
+    movement_span: str | None = None,
+    movement_index: int | None = None,
+):
     with compose_params({}):
         return render(
             _bars(bars),
@@ -327,7 +348,19 @@ def _render(ensemble: str, meter, bars: int):
             ensemble=ensemble,
             form=_form(bars, meter),
             framed=True,
+            movement_span=movement_span,
+            movement_index=movement_index,
         )
+
+
+def _render_case(case: _GateCase):
+    """Render one gated family with the movement scope it needs."""
+    return _render(
+        case.ensemble,
+        case.meter,
+        case.bars,
+        **_scope(case),
+    )
 
 
 def _digest(score) -> str:
@@ -407,19 +440,19 @@ def _installed(monkeypatch: pytest.MonkeyPatch, module: Any, key: Any, spec):
 @pytest.mark.parametrize("case", GATED_CASES)
 def test_flag_off_on_and_deterministic_digests(case: _GateCase) -> None:
     """The default is the historical render; on is new, stable, and repeatable."""
-    off = _digest(_render(case.ensemble, case.meter, case.bars))
+    off = _digest(_render_case(case))
     assert off == case.off_digest
 
     with case.context(True):
-        first = _digest(_render(case.ensemble, case.meter, case.bars))
-        second = _digest(_render(case.ensemble, case.meter, case.bars))
-        third = _digest(_render(case.ensemble, case.meter, case.bars))
+        first = _digest(_render_case(case))
+        second = _digest(_render_case(case))
+        third = _digest(_render_case(case))
 
     assert first == second == third == case.on_digest
     assert first != off
 
     # The context removed only its own entry, so the off path is restored.
-    assert _digest(_render(case.ensemble, case.meter, case.bars)) == off
+    assert _digest(_render_case(case)) == off
 
 
 @pytest.mark.parametrize("case", GATED_CASES)
@@ -462,7 +495,7 @@ def test_gated_render_runs_the_whole_shared_tail(
     monkeypatch.setenv(micro_writer.WRITERS_FLAG, "on")
 
     with case.context(True):
-        _render(case.ensemble, case.meter, case.bars)
+        _render_case(case)
 
     assert wave_calls == [case.bars], "the gated path skipped the volume wave"
     assert scale_calls == [case.bars], "the gated path skipped scale passages"
@@ -499,11 +532,11 @@ def test_slot_override_reaches_production_only_with_writers_on(
         with _installed(
             monkeypatch, _owner(case.context), case.key, case.spec
         ):
-            base = _render(case.ensemble, case.meter, case.bars)
+            base = _render_case(case)
         with _installed(
             monkeypatch, _owner(case.context), case.key, override
         ):
-            changed = _render(case.ensemble, case.meter, case.bars)
+            changed = _render_case(case)
 
         base_bars = _by_bar(base)
         changed_bars = _by_bar(changed)
@@ -533,11 +566,11 @@ def test_slot_override_reaches_production_only_with_writers_on(
         with _installed(
             monkeypatch, _owner(case.context), case.key, case.spec
         ):
-            base_off = _render(case.ensemble, case.meter, case.bars)
+            base_off = _render_case(case)
         with _installed(
             monkeypatch, _owner(case.context), case.key, override
         ):
-            off = _render(case.ensemble, case.meter, case.bars)
+            off = _render_case(case)
 
     assert _digest(off) == _digest(base_off)
 
@@ -576,15 +609,15 @@ def test_texture_override_reaches_the_tail_only_with_writers_on(
 
     with case.context(True):
         monkeypatch.setenv(micro_writer.WRITERS_FLAG, "on")
-        base_on = _render(case.ensemble, case.meter, case.bars)
+        base_on = _render_case(case)
         monkeypatch.delenv(micro_writer.WRITERS_FLAG)
-        base_off = _render(case.ensemble, case.meter, case.bars)
+        base_off = _render_case(case)
 
         monkeypatch.setattr(owner, "render_sentence", with_texture)
         monkeypatch.setenv(micro_writer.WRITERS_FLAG, "on")
-        textured_on = _render(case.ensemble, case.meter, case.bars)
+        textured_on = _render_case(case)
         monkeypatch.delenv(micro_writer.WRITERS_FLAG)
-        textured_off = _render(case.ensemble, case.meter, case.bars)
+        textured_off = _render_case(case)
 
     assert _digest(textured_on) != _digest(base_on)
 

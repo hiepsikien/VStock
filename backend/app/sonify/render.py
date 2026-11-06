@@ -921,6 +921,7 @@ def render(
     character_at: Sequence[MovementCharacter | None] | None = None,
     gap_leads: Sequence[str | None] | None = None,
     movement_index: int | None = None,
+    movement_span: str | None = None,
 ) -> Score:
     """Compose in C, with register bounds shifted for `key` before any note is placed.
 
@@ -961,6 +962,7 @@ def render(
             character_at=character_at,
             gap_leads=gap_leads,
             movement_index=movement_index,
+            movement_span=movement_span,
         )
     return score
 
@@ -994,6 +996,7 @@ def _compose(
     character_at: Sequence[MovementCharacter | None] | None = None,
     gap_leads: Sequence[str | None] | None = None,
     movement_index: int | None = None,
+    movement_span: str | None = None,
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -1428,15 +1431,18 @@ def _compose(
                 raw_pitches=raw_pitches,
                 impulses=impulses,
                 movement_index=movement_index,
+                movement_span=movement_span,
                 price_eighths=price_eighths,
             )
             # The guitar score grows this parameter. Pass it when the call can
             # take it; do not drop a later error that mentions the same name.
             accepted = inspect.signature(render_guitar_score).parameters
-            if "movement_index" not in accepted and not any(
+            if not any(
                 parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in accepted.values()
             ):
-                guitar_kwargs.pop("movement_index")
+                for optional in ("movement_index", "movement_span"):
+                    if optional not in accepted:
+                        guitar_kwargs.pop(optional)
             return _finish(render_guitar_score(**guitar_kwargs))
 
         flute_notes, yield_spans, flute_wedges, flute_dynamics = _flute_and_violin_dovetail(

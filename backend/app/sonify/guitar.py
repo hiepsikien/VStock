@@ -110,6 +110,7 @@ def _render_guitar_score_impl(
     raw_pitches: list[int] | None = None,
     impulses: tuple | None = None,
     movement_index: int | None = None,
+    movement_span: str | None = None,
     price_eighths: list[float] | None = None,
 ) -> Score:
     meter = active_meter()
@@ -181,6 +182,7 @@ def _render_guitar_score_impl(
         impulses=impulses,
         regime_at={bar: slot.regime for slot in slots for bar in slot.bars()},
         movement_index=movement_index,
+        movement_span=movement_span,
     )
     try:
         lead, support, low, divisions = render_patterned_voices(**voice_kwargs)

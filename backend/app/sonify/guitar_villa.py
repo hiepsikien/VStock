@@ -180,6 +180,12 @@ def _chord_grid(ctx: _Ctx, bar: int, phrase: Phrase | None) -> tuple[list[int], 
         if phrase is not None and rise and bar <= phrase.apex.start // ctx.epb:
             return [0, 2, 4, 6], [2, 2, 2, 2]
         return [0, 4], [4, 4]
+    if ctx.kind == "2/4":
+        # Two beats per bar: a mid-bar attack at the half-bar, never the 4/4
+        # `[0, 4]` grid whose second attack lands on the next barline.
+        if phrase is not None and rise:
+            return [0, 2], [2, 2]
+        return [0], [ctx.epb]
     if ctx.kind == "6/8":
         if phrase is not None and rise:
             apex_bar = phrase.apex.start // ctx.epb
@@ -457,6 +463,9 @@ def _render_etude1_bar(
     # Pitch and hairpin both come from the price eighth at the start of the
     # beat. The pluck sits a sixteenth later, inside the next eighth.
     last = len(ctx.melody) - 1
+    native_24 = ctx.kind == "2/4"
+    bar_beats = ctx.epb / 2.0 if native_24 else 4.0
+    slots = ctx.epb * 2 if native_24 else 16
     # The two sung notes ring: an eighth up to the next one, then through the bar.
     high_at = {
         7: (sung_beat2, min(start + 2, last), 0.5),
@@ -464,12 +473,14 @@ def _render_etude1_bar(
     }
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
-    for index in range(16):
+    for index in range(slots):
         if breathe and index >= 12:
             continue
         beat = index / 4
         if index in high_at:
             midi, hairpin_eighth, duration = high_at[index]
+            if native_24:
+                duration = min(duration, max(0.25, bar_beats - beat))
             lead.append(
                 _placed(bar, beat, midi, duration, 1, _etude_hairpin(ctx, phrase, hairpin_eighth))
             )
@@ -495,7 +506,7 @@ def _render_etude1_bar(
     sung_velocity = min(
         _etude_hairpin(ctx, phrase, eighth) for _midi, eighth, _duration in high_at.values()
     )
-    low = [_placed(bar, 0.0, bass, 4.0, 3, max(44, sung_velocity - 4))]
+    low = [_placed(bar, 0.0, bass, bar_beats, 3, max(44, sung_velocity - 4))]
     _suppress_trace_bars(bar, bar + 1)
     return lead, support, low
 
@@ -568,7 +579,8 @@ def _render_etude11_bar(
     low: list[NoteEvent] = []
     previous: int | None = None
     previous_melody: int | None = None
-    for quarter in range(4):
+    quarters = max(1, int(ctx.epb // 2)) if ctx.kind == "2/4" else 4
+    for quarter in range(quarters):
         eighth = min(start + quarter * 2, len(ctx.melody) - 1)
         melody = ctx.melody[eighth]
         hairpin = _etude_hairpin(ctx, phrase, eighth)

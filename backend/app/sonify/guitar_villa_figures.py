@@ -20,11 +20,16 @@ from the production branch, again with the sustained lead.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
+from app.sonify.chords import Chord
 from app.sonify.guitar import _apex_eighths
 from app.sonify.guitar_patterns import (
     _Ctx,
+    _choose_bass,
+    _choose_inner,
+    _eighth_event,
     _render_block_bar,
     _sustain,
 )
@@ -36,16 +41,24 @@ from app.sonify.guitar_villa import (
 )
 from app.sonify.model import NoteEvent, Phrase
 
+logger = logging.getLogger(__name__)
+
 VILLA_ARPEGGIO = 1
 VILLA_CHORD_MELODY = 2
 VILLA_ETUDE1 = 3
 VILLA_ETUDE11 = 4
+VILLA_CADENCE = 5
+
+# One sustained attack at beat 0. The cadence is a chord, not an arpeggio:
+# lead root, inner chord tone, bass root all ring for the whole bar.
+_CADENCE_VEL = 50
 
 VILLA_FIGURE_NAMES: dict[int, str] = {
     VILLA_ARPEGGIO: "villa_arpeggio",
     VILLA_CHORD_MELODY: "villa_chord_melody",
     VILLA_ETUDE1: "villa_etude1",
     VILLA_ETUDE11: "villa_etude11",
+    VILLA_CADENCE: "villa_cadence",
 }
 
 # Default extracted contour per figure. The arpeggio and chord_melody writers
@@ -105,11 +118,90 @@ def _etude11_bar(ctx: _Ctx, bar: int, phrase: Phrase | None) -> FigureNotes:
     return _render_etude11_bar(ctx, bar, phrase, False)
 
 
+def _nearest_chord_root(
+    ctx: _Ctx,
+    chord: Chord,
+    start: int,
+    low: int,
+    high: int,
+) -> int | None:
+    """Chord root pitch class nearest the previous melody note.
+
+    The previous note is clamped into `ctx.melody`; an empty melody has no
+    anchor, so the cadence stays silent instead of guessing.
+    """
+    if not ctx.melody:
+        return None
+    previous = ctx.melody[min(max(0, start - 1), len(ctx.melody) - 1)]
+    root_pc = chord.pitches[0] % 12
+    candidates = [
+        note for note in range(low, high + 1) if note % 12 == root_pc
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda note: abs(note - previous))
+
+
+def is_half_cadence(ctx: _Ctx, bar: int) -> bool:
+    """True when the final chord is not the movement's opening root."""
+    if ctx.bars < 1:
+        return False
+    closing = ctx.chord(bar).pitches[0] % 12
+    opening = ctx.chord(0).pitches[0] % 12
+    return closing != opening
+
+
+def _cadence_bar(ctx: _Ctx, bar: int, phrase: Phrase | None) -> FigureNotes:
+    """One sustained tonic chord: lead root, inner tone, bass root.
+
+    `VILLA_CADENCE` is deliberately not an arpeggio and does not use
+    `_chord_grid`, so 2/4 and 4/4 each get exactly one attack at beat 0 and a
+    sustain through the bar.
+    """
+    start = bar * ctx.epb
+    chord = ctx.chord(bar)
+    lead = _nearest_chord_root(
+        ctx, chord, start, ctx.treble_floor, ctx.treble_top
+    )
+    if lead is None:
+        return [], [], []
+    bass = _choose_bass(
+        chord, 0, None, ctx.bass_low, ctx.bass_high, ctx.semitones
+    )
+    support = _choose_inner(
+        chord,
+        lead,
+        bass,
+        ctx.mid_low,
+        ctx.mid_high,
+        ctx.semitones,
+        False,
+        0,
+    )
+    if bar == ctx.bars - 1 and is_half_cadence(ctx, bar):
+        logger.warning(
+            "VILLA_CADENCE half cadence at bar %s: "
+            "closing root %s != opening root %s",
+            bar,
+            chord.name,
+            ctx.chord(0).name,
+        )
+    high = _eighth_event(start, ctx.epb, lead, ctx.epb, 1, _CADENCE_VEL)
+    mid = (
+        []
+        if support is None
+        else _eighth_event(start, ctx.epb, support, ctx.epb, 2, _CADENCE_VEL)
+    )
+    low = _eighth_event(start, ctx.epb, bass, ctx.epb, 3, _CADENCE_VEL)
+    return high, mid, low
+
+
 VILLA_FIGURES: dict[int, VillaFigure] = {
     VILLA_ARPEGGIO: _arpeggio_bar,
     VILLA_CHORD_MELODY: _chord_melody_bar,
     VILLA_ETUDE1: _etude1_bar,
     VILLA_ETUDE11: _etude11_bar,
+    VILLA_CADENCE: _cadence_bar,
 }
 
 

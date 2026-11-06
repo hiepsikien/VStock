@@ -40,7 +40,12 @@ SUITE_MOVEMENTS = (
     (
         guitar_suite_schottish.SUITE_SCHOTTISH_PATTERN,
         guitar_suite_schottish,
-        guitar_suite_schottish.SUITE_SCHOTTISH_GATE,
+        guitar_suite_schottish.GATE_44,
+    ),
+    (
+        guitar_suite_schottish.SUITE_SCHOTTISH_PATTERN,
+        guitar_suite_schottish,
+        guitar_suite_schottish.GATE_24,
     ),
     (
         guitar_suite_choros1.SUITE_CHOROS1_PATTERN,

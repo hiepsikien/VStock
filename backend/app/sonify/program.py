@@ -142,6 +142,7 @@ def guitar_form_description(
     outro_override=None,
     framed: bool = True,
     movement_index: int | None = None,
+    movement_span: str | None = None,
 ) -> str:
     """The non-printed form row `render` writes. Tests use this; a request must not.
 
@@ -168,6 +169,7 @@ def guitar_form_description(
             outro_override=outro_override,
             framed=framed,
             movement_index=movement_index,
+            movement_span=movement_span,
         )
     finally:
         _HEADLINE.reset(token_headline)

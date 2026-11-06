@@ -1507,6 +1507,7 @@ class RecapStore:
                 character_at=movement.bar_characters,
                 gap_leads=movement.gap_leads,
                 movement_index=0 if span == "1W" else index,
+                movement_span=span,
             )
             if _humanize_on(values):
                 score = humanize_score(score, params=values)

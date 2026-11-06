@@ -13,6 +13,7 @@ from datetime import date
 
 from app.sonify.groove import gap_direction
 from app.sonify.form import (
+    METER_24,
     METER_34,
     METER_44,
     METER_54,
@@ -137,9 +138,27 @@ def frame_bars_for(meter: Meter, span: str) -> int:
     """Bars of warm-up and of cool-down. 1Y is the short frame."""
     key = (meter.beats, meter.beat_type)
     if span == "1Y":
-        table = {(4, 4): 2, (3, 4): 3, (6, 8): 3, (12, 8): 1, (6, 4): 1, (5, 4): 2, (7, 8): 2}
+        table = {
+            (2, 4): 2,
+            (4, 4): 2,
+            (3, 4): 3,
+            (6, 8): 3,
+            (12, 8): 1,
+            (6, 4): 1,
+            (5, 4): 2,
+            (7, 8): 2,
+        }
     else:
-        table = {(4, 4): 4, (3, 4): 6, (6, 8): 6, (12, 8): 3, (6, 4): 3, (5, 4): 4, (7, 8): 5}
+        table = {
+            (2, 4): 4,
+            (4, 4): 4,
+            (3, 4): 6,
+            (6, 8): 6,
+            (12, 8): 3,
+            (6, 4): 3,
+            (5, 4): 4,
+            (7, 8): 5,
+        }
     return table[key]
 
 
@@ -829,13 +848,46 @@ def _planned_title(
     return curated_movement_title(ensemble, span, index, character)
 
 
+def _suite_meter_override(
+    spec: FormSpec,
+    *,
+    variant: str,
+    ensemble: str,
+    span: str,
+    index: int,
+) -> FormSpec:
+    """Give the Schottish movement its native 2/4 meter, before the frame.
+
+    The override is deliberately narrow: guitar Villa only, the Schottish flag
+    on, and either the whole week or movement III of a month/quarter. `1Y` is
+    not in scope. Every other movement keeps the meter `_guitar_meter` chose.
+    """
+    if variant != "guitar" or ensemble != "villa":
+        return spec
+    from app.sonify.production_flags import suite_schottish_enabled
+
+    if not suite_schottish_enabled():
+        return spec
+    if span == "1W" and index == 0:
+        return replace(spec, meter=METER_24)
+    if span in ("1M", "3M") and index == 2:
+        return replace(spec, meter=METER_24)
+    return spec
+
+
 def plan_week(
     session_count: int,
     variant: str = "symphony",
     ensemble: str = "classic",
     character: str | None = None,
 ) -> tuple[Movement, ...]:
-    spec = week_spec(session_count)
+    spec = _suite_meter_override(
+        week_spec(session_count),
+        variant=variant,
+        ensemble=ensemble,
+        span="1W",
+        index=0,
+    )
     return (
         Movement(
             "Tuần",
@@ -850,7 +902,19 @@ def plan_week(
 def plan_month(
     session_counts: list[int], variant: str = "symphony", ensemble: str = "classic"
 ) -> tuple[Movement, ...]:
-    specs = tuple(attach_frame(spec, "1M") for spec in month_specs(variant))
+    specs = tuple(
+        attach_frame(
+            _suite_meter_override(
+                spec,
+                variant=variant,
+                ensemble=ensemble,
+                span="1M",
+                index=index,
+            ),
+            "1M",
+        )
+        for index, spec in enumerate(month_specs(variant))
+    )
     if len(session_counts) != 4:
         raise ValueError("a month is four movements")
     labels = ("I", "II", "III", "IV")
@@ -872,7 +936,19 @@ def plan_month(
 def plan_quarter(
     session_counts: list[int], variant: str = "symphony", ensemble: str = "classic"
 ) -> tuple[Movement, ...]:
-    specs = tuple(attach_frame(spec, "3M") for spec in quarter_specs(variant))
+    specs = tuple(
+        attach_frame(
+            _suite_meter_override(
+                spec,
+                variant=variant,
+                ensemble=ensemble,
+                span="3M",
+                index=index,
+            ),
+            "3M",
+        )
+        for index, spec in enumerate(quarter_specs(variant))
+    )
     if len(session_counts) != 3:
         raise ValueError("a quarter is three movements")
     labels = ("I", "II", "III")

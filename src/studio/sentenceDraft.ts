@@ -421,8 +421,57 @@ export type PatternDraftMeta = {
   meter: string;
 };
 
+/* ------------------------------------------------------------------------- *
+ * Figure pool (Phase 4)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The five Studio role tags. `key` is the body figure; short/long are the two
+ * scripts of the same intro/outro role, not separate patterns.
+ */
+export type FigureTag =
+  | 'key'
+  | 'intro.short'
+  | 'intro.long'
+  | 'outro.short'
+  | 'outro.long';
+
+/** Missing a tag uses `key.body` when the body sentence is not derivable. */
+export type FigureMissingTag = FigureTag | 'key.body';
+
+export const FIGURE_TAGS: readonly FigureTag[] = [
+  'key',
+  'intro.short',
+  'intro.long',
+  'outro.short',
+  'outro.long',
+];
+
+export const KEY_BODY_MISSING = 'key.body' as const;
+
+/** Short scripts are 2 bars, long scripts are 4; `key` allows any length >= 1. */
+const FIGURE_TAG_BARS: Partial<Record<FigureTag, number>> = {
+  'intro.short': 2,
+  'intro.long': 4,
+  'outro.short': 2,
+  'outro.long': 4,
+};
+
+export type PatternDraftFigure = {
+  /** Local stable id. */
+  id: string;
+  /** Maps 1:1 to `TEXTURE_CELLS[(pattern, meter)]`; defaults to `id`. */
+  cellId: string;
+  spec: Record<string, unknown>;
+  bars: number;
+  tags: FigureTag[];
+  previewMode?: 'source' | 'aaba';
+};
+
 export type PatternDraft = PatternDraftMeta & {
   sentences: PatternDraftSentence[];
+  /** Source of cells/tags. Absent on an old `{sentences}` draft. */
+  figures?: PatternDraftFigure[];
 };
 
 export type PatternDraftAppendResult =
@@ -440,6 +489,364 @@ export function createPatternDraft(
     renderer: meta.renderer,
     meter: meta.meter,
     sentences: sentence ? [sentence] : [],
+    figures: [],
+  };
+}
+
+export function isFigureTag(value: unknown): value is FigureTag {
+  return typeof value === 'string' && (FIGURE_TAGS as readonly string[]).includes(value);
+}
+
+/** Bars required by a tagged script, or `null` for the flexible `key` tag. */
+export function figureTagBars(tag: FigureTag): number | null {
+  return FIGURE_TAG_BARS[tag] ?? null;
+}
+
+/** Human-readable reason a tag does not fit `bars`, or `null` when it does. */
+export function figureTagError(tag: FigureTag, bars: number): string | null {
+  if (!Number.isFinite(bars) || bars < 1) return 'bars must be >= 1';
+  const expected = figureTagBars(tag);
+  if (expected != null && bars !== expected) {
+    return `${tag} needs ${expected} bars, got ${bars}`;
+  }
+  return null;
+}
+
+function normalizeFigureTags(tags: readonly unknown[] | undefined): FigureTag[] {
+  const seen = new Set<FigureTag>();
+  for (const tag of tags ?? []) {
+    if (isFigureTag(tag)) seen.add(tag);
+  }
+  return FIGURE_TAGS.filter((tag) => seen.has(tag));
+}
+
+export type CreatePatternFigureInput = {
+  id: string;
+  cellId?: string;
+  spec: Record<string, unknown>;
+  bars: number;
+  tags?: readonly FigureTag[];
+  previewMode?: 'source' | 'aaba';
+};
+
+export function createPatternFigure(input: CreatePatternFigureInput): PatternDraftFigure {
+  const id = text(input.id) ?? '';
+  const bars = Math.trunc(finite(input.bars) ?? 0);
+  return {
+    id,
+    cellId: text(input.cellId) ?? id,
+    spec: input.spec,
+    bars,
+    tags: normalizeFigureTags(input.tags),
+    ...(input.previewMode ? { previewMode: input.previewMode } : {}),
+  };
+}
+
+export function patternDraftFigures(draft: PatternDraft): PatternDraftFigure[] {
+  return draft.figures ?? [];
+}
+
+function figuresOrList(
+  value: PatternDraft | readonly PatternDraftFigure[],
+): readonly PatternDraftFigure[] {
+  return Array.isArray(value) ? value : patternDraftFigures(value as PatternDraft);
+}
+
+/** The bars a figure covers: max authored bar + 1, then source fallbacks. */
+export function figureBarsFromTextureSpec(spec: Record<string, unknown>): number {
+  const authored = isRecord(spec.authored) ? spec.authored : null;
+  const events = authored && Array.isArray(authored.events) ? authored.events : [];
+  let maxBar = -1;
+  for (const event of events) {
+    if (!isRecord(event)) continue;
+    const bar = finite(event.bar);
+    if (bar != null && bar >= 0) maxBar = Math.max(maxBar, Math.trunc(bar));
+  }
+  if (maxBar >= 0) return maxBar + 1;
+
+  const source = isRecord(spec.source) ? spec.source : null;
+  const bars = finite(source?.bars);
+  if (bars != null && bars >= 1) return Math.trunc(bars);
+  if (source && Array.isArray(source.passageBars) && source.passageBars.length === 2) {
+    const start = finite(source.passageBars[0]);
+    const end = finite(source.passageBars[1]);
+    if (start != null && end != null && end >= start) {
+      return Math.max(1, Math.trunc(end - start + 1));
+    }
+  }
+  return 0;
+}
+
+/** Build a figure from a `TextureSpec` response; `null` when it has no bars. */
+export function patternFigureFromTextureSpec(
+  spec: Record<string, unknown>,
+  options: {
+    id?: string;
+    cellId?: string;
+    tags?: readonly FigureTag[];
+    previewMode?: 'source' | 'aaba';
+  } = {},
+): PatternDraftFigure | null {
+  const bars = figureBarsFromTextureSpec(spec);
+  if (bars < 1) return null;
+  const id = text(options.id) ?? text(spec.id) ?? 'figure';
+  return createPatternFigure({
+    id,
+    cellId: options.cellId,
+    spec,
+    bars,
+    tags: options.tags,
+    previewMode: options.previewMode,
+  });
+}
+
+export function appendPatternFigure(
+  draft: PatternDraft,
+  figure: PatternDraftFigure,
+): PatternDraftAppendResult {
+  const figures = patternDraftFigures(draft);
+  if (figures.some((item) => item.id === figure.id)) {
+    return {
+      ok: false,
+      error: `Figure ${figure.id} is already in this pattern draft.`,
+      draft,
+    };
+  }
+  if (
+    figure.cellId &&
+    figures.some((item) => item.cellId === figure.cellId)
+  ) {
+    return {
+      ok: false,
+      error: `Cell ${figure.cellId} is already used by another figure.`,
+      draft,
+    };
+  }
+  return { ok: true, draft: { ...draft, figures: [...figures, figure] } };
+}
+
+export function removePatternFigure(draft: PatternDraft, figureId: string): PatternDraft {
+  const figures = patternDraftFigures(draft);
+  if (!figures.some((figure) => figure.id === figureId)) return draft;
+  return {
+    ...draft,
+    figures: figures.filter((figure) => figure.id !== figureId),
+  };
+}
+
+/**
+ * Give `tag` to one figure, taking it away from any other figure. A tag stays
+ * on at most one figure (MVP); moving it never duplicates the figure.
+ */
+export function setFigureTag(
+  draft: PatternDraft,
+  figureId: string,
+  tag: FigureTag,
+): PatternDraftAppendResult {
+  const figures = patternDraftFigures(draft);
+  const target = figures.find((figure) => figure.id === figureId);
+  if (!target) {
+    return { ok: false, error: `Figure ${figureId} is not in this draft.`, draft };
+  }
+  const error = figureTagError(tag, target.bars);
+  if (error) {
+    return { ok: false, error: `${target.id}: ${error}`, draft };
+  }
+  return {
+    ok: true,
+    draft: {
+      ...draft,
+      figures: figures.map((figure) => {
+        const tags = figure.tags.filter((item) => item !== tag);
+        if (figure.id === figureId) tags.push(tag);
+        return { ...figure, tags: normalizeFigureTags(tags) };
+      }),
+    },
+  };
+}
+
+export function removeFigureTag(
+  draft: PatternDraft,
+  figureId: string,
+  tag: FigureTag,
+): PatternDraft {
+  const figures = patternDraftFigures(draft);
+  return {
+    ...draft,
+    figures: figures.map((figure) =>
+      figure.id === figureId
+        ? { ...figure, tags: figure.tags.filter((item) => item !== tag) }
+        : figure,
+    ),
+  };
+}
+
+function figureTagValid(figure: PatternDraftFigure, tag: FigureTag): boolean {
+  return figureTagError(tag, figure.bars) === null;
+}
+
+function validFigureOwners(
+  figures: readonly PatternDraftFigure[],
+): Map<FigureTag, PatternDraftFigure[]> {
+  const owners = new Map<FigureTag, PatternDraftFigure[]>();
+  for (const figure of figures) {
+    for (const tag of figure.tags) {
+      if (!isFigureTag(tag) || !figureTagValid(figure, tag)) continue;
+      const list = owners.get(tag) ?? [];
+      list.push(figure);
+      owners.set(tag, list);
+    }
+  }
+  return owners;
+}
+
+/** SentenceSpecs in the draft that already use the key figure's cell. */
+function bodySentenceProblems(
+  draft: PatternDraft,
+  key: PatternDraftFigure,
+): string[] {
+  const problems: string[] = [];
+  for (const sentence of draft.sentences) {
+    const spec = sentence.spec;
+    if (!isRecord(spec) || !Array.isArray(spec.slots)) continue;
+    const usesCell = spec.slots.some(
+      (slot) => isRecord(slot) && text(slot.cell) === key.cellId,
+    );
+    if (!usesCell) continue;
+    const span = isRecord(spec.span) ? spec.span : null;
+    const tile = span ? finite(span.tile) : null;
+    for (const slot of spec.slots) {
+      if (!isRecord(slot) || text(slot.cell) !== key.cellId) continue;
+      const bars = finite(slot.bars);
+      if (bars != null && Math.trunc(bars) !== key.bars) {
+        problems.push(
+          `${text(spec.id) ?? 'sentence'}: key cell slot has ${Math.trunc(
+            bars,
+          )} bars, figure has ${key.bars}`,
+        );
+      }
+    }
+    if (tile != null && tile < key.bars) {
+      problems.push(
+        `${text(spec.id) ?? 'sentence'}: tile ${Math.trunc(
+          tile,
+        )} is shorter than the key figure (${key.bars} bars)`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * Required tags that no valid figure owns, in display order. A missing or
+ * ambiguous key reports `key.body`; duplicate tags are incomplete (MVP).
+ */
+export function missingFigureTags(
+  value: PatternDraft | readonly PatternDraftFigure[],
+): FigureMissingTag[] {
+  const figures = figuresOrList(value);
+  const owners = validFigureOwners(figures);
+  const draft = Array.isArray(value) ? null : (value as PatternDraft);
+  const missing: FigureMissingTag[] = [];
+  for (const tag of FIGURE_TAGS) {
+    const unique = (owners.get(tag)?.length ?? 0) === 1;
+    if (tag === 'key') {
+      if (!unique) {
+        missing.push(KEY_BODY_MISSING);
+        continue;
+      }
+      if (draft && bodySentenceProblems(draft, owners.get(tag)![0]).length > 0) {
+        missing.push(KEY_BODY_MISSING);
+      }
+    } else if (!unique) {
+      missing.push(tag);
+    }
+  }
+  return missing;
+}
+
+/** The one key figure, when it is uniquely and validly tagged. */
+export function patternDraftKeyFigure(
+  draft: PatternDraft,
+): PatternDraftFigure | null {
+  const owners = validFigureOwners(patternDraftFigures(draft)).get('key') ?? [];
+  return owners.length === 1 ? owners[0] : null;
+}
+
+/** Optional back-compat projection; never read as the source of truth. */
+export function patternDraftKeyFigures(draft: PatternDraft): PatternDraftFigure[] {
+  return patternDraftFigures(draft).filter((figure) => figure.tags.includes('key'));
+}
+
+export function patternDraftComplete(draft: PatternDraft): boolean {
+  return missingFigureTags(draft).length === 0;
+}
+
+/**
+ * Tolerant loader for a saved/exported draft. An old `{sentences}` payload
+ * becomes `figures: []` (and therefore incomplete); `keyFigures` is ignored.
+ */
+export function normalizePatternDraft(
+  value: unknown,
+  fallback?: Partial<PatternDraftMeta>,
+): PatternDraft | null {
+  if (!isRecord(value)) return null;
+  const id = text(value.id) ?? text(fallback?.id);
+  if (!id) return null;
+  const sentences: PatternDraftSentence[] = [];
+  if (Array.isArray(value.sentences)) {
+    for (const item of value.sentences) {
+      if (!isRecord(item) || !isRecord(item.spec)) continue;
+      sentences.push({
+        spec: item.spec,
+        fixture: isRecord(item.fixture) ? item.fixture : {},
+        ...(text(item.rangeLabel) ? { rangeLabel: text(item.rangeLabel)! } : {}),
+        ...(typeof item.audioUrl === 'string' || item.audioUrl === null
+          ? { audioUrl: item.audioUrl }
+          : {}),
+        ...(finite(item.durationSec) != null
+          ? { durationSec: finite(item.durationSec)! }
+          : {}),
+        ...(typeof item.renderHash === 'string' || item.renderHash === null
+          ? { renderHash: item.renderHash }
+          : {}),
+      });
+    }
+  }
+  const figures: PatternDraftFigure[] = [];
+  if (Array.isArray(value.figures)) {
+    for (const item of value.figures) {
+      if (!isRecord(item) || !isRecord(item.spec)) continue;
+      const figureId = text(item.id);
+      if (!figureId) continue;
+      const bars = Math.trunc(finite(item.bars) ?? 0);
+      const tags = normalizeFigureTags(
+        Array.isArray(item.tags) ? (item.tags as unknown[]) : [],
+      );
+      const previewMode =
+        item.previewMode === 'source' || item.previewMode === 'aaba'
+          ? item.previewMode
+          : undefined;
+      figures.push(
+        createPatternFigure({
+          id: figureId,
+          cellId: text(item.cellId) ?? figureId,
+          spec: item.spec,
+          bars,
+          tags,
+          previewMode,
+        }),
+      );
+    }
+  }
+  return {
+    id,
+    label: text(value.label) ?? text(fallback?.label) ?? id,
+    composer: text(value.composer) ?? text(fallback?.composer) ?? '',
+    renderer: text(value.renderer) ?? text(fallback?.renderer) ?? '',
+    meter: text(value.meter) ?? text(fallback?.meter) ?? '',
+    sentences,
+    figures,
   };
 }
 
@@ -479,16 +886,27 @@ export function removePatternSentence(draft: PatternDraft, index: number): Patte
 
 /** Export payload documented in the sprint plan; no extra preview fields. */
 export function buildPatternDraftExport(draft: PatternDraft): Record<string, unknown> {
+  const missing = missingFigureTags(draft);
   return {
     id: draft.id,
     label: draft.label,
     composer: draft.composer,
     renderer: draft.renderer,
     meter: draft.meter,
+    figures: patternDraftFigures(draft).map((figure) => ({
+      id: figure.id,
+      cellId: figure.cellId,
+      spec: figure.spec,
+      bars: figure.bars,
+      tags: [...figure.tags],
+      ...(figure.previewMode ? { previewMode: figure.previewMode } : {}),
+    })),
     sentences: draft.sentences.map((sentence) => ({
       spec: sentence.spec,
       fixture: sentence.fixture,
     })),
+    complete: missing.length === 0,
+    missing,
   };
 }
 
