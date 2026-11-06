@@ -22,6 +22,7 @@ from app.routers.companion import router as companion_router
 from app.routers.sonify import router as sonify_router
 from app.routers.studio import router as studio_router
 from app.routers.studio_figures import router as studio_figures_router
+from app.routers.studio_render import router as studio_render_router
 from app.routers.studio_jobs import router as studio_jobs_router
 from app.routers.studio_publish import router as studio_publish_router
 from app.routers.studio_export import router as studio_export_router
@@ -100,6 +101,7 @@ app.include_router(studio_musicxml_router)
 app.include_router(studio_texture_router)
 app.include_router(studio_vision_router)
 app.include_router(studio_figures_router)
+app.include_router(studio_render_router)
 
 
 @app.get("/health", response_model=HealthResponse)

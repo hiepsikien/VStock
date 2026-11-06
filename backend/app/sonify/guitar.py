@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from functools import wraps
 import logging
+from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,9 @@ from app.sonify.model import (
 from app.sonify.dfi import trace_from_notes
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
+
+if TYPE_CHECKING:
+    from app.sonify.studio_piece import StudioPiece
 
 GUITAR_BPM = {"bach": 96, "classic": 88, "villa": 100, "barrios": 120, "brouwer": 108, "torroba": 96}
 # Listening tests: a tremolo only reads as a sung line from 90 BPM up, sits
@@ -112,6 +116,7 @@ def _render_guitar_score_impl(
     movement_index: int | None = None,
     movement_span: str | None = None,
     price_eighths: list[float] | None = None,
+    studio_piece: "StudioPiece | None" = None,
 ) -> Score:
     meter = active_meter()
     register = active_register()
@@ -183,6 +188,7 @@ def _render_guitar_score_impl(
         regime_at={bar: slot.regime for slot in slots for bar in slot.bars()},
         movement_index=movement_index,
         movement_span=movement_span,
+        studio_piece=studio_piece,
     )
     try:
         lead, support, low, divisions = render_patterned_voices(**voice_kwargs)

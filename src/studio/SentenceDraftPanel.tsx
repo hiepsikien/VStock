@@ -11,17 +11,32 @@ import {
 } from 'react-native';
 import { palette } from '../musicalize/palette';
 import { type } from '../musicalize/type';
-import { fetchSentenceExamples, requestMusicXmlSentenceDraft } from './api';
 import {
+  fetchFigureAudioJob,
+  fetchFigureRenderAudio,
+  fetchSentenceExamples,
+  renderFigurePiece,
+  requestMusicXmlSentenceDraft,
+} from './api';
+import { nextJobPollDelayMs } from './protocol';
+import {
+  DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
+  DEMO_SERIES_LABEL,
+  FIGURE_RENDER_FORM_SPANS,
+  FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
   VILLA_COMPOSER,
   VILLA_RENDERER,
   VILLA_RENDERER_LABEL,
   appendPatternFigure,
   appendPatternSentence,
+  buildFigureRenderRequest,
   composerOptions,
   createPatternDraft,
+  demoSeries,
   existingTemplateOptions,
+  figureAudioStatusLabel,
+  figureRenderDraftKey,
   genericPatternOptions,
   isGenericPatternId,
   missingFigureTags,
@@ -39,6 +54,10 @@ import {
   setFigureTag,
   villaMeterSupported,
   villaTemplateOptions,
+  type FigureRenderAudio,
+  type FigureRenderFormSpan,
+  type FigureRenderPlanId,
+  type FigureRenderResponse,
   type FigureTag,
   type MusicXmlSentenceDraftRequest,
   type PatternDraft,
@@ -962,6 +981,8 @@ export function SentenceDraftPanel({
               </Text>
             </View>
 
+            {draftComplete ? <RenderPieceSection draft={draft} /> : null}
+
             <View style={styles.actionRow}>
               <ActionButton
                 label="Export bundle"
@@ -1016,6 +1037,478 @@ export function SentenceDraftPanel({
         ) : (
           <Text style={styles.hint}>No draft JSON yet.</Text>
         )
+      ) : null}
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------------- *
+ * Render Piece (Phase D)
+ * ------------------------------------------------------------------------- */
+
+const MAX_RENDER_AUDIO_POLLS = 160;
+
+function shortRenderHash(hash: string | null): string {
+  if (!hash) return '—';
+  return hash.replace(/^sha256:/i, '').slice(0, 10);
+}
+
+function waitForRenderPoll(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error('aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, Math.max(0, ms));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function downloadUrl(url: string, filename: string): boolean {
+  if (
+    Platform.OS === 'web' &&
+    typeof document !== 'undefined' &&
+    typeof URL !== 'undefined'
+  ) {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Render/Play/Export for a complete figure pool. Owns its own plan/form and
+ * render state so the parent's sentence preview state cannot be disturbed.
+ * Changing the draft, plan or form invalidates the render and any audio job.
+ */
+function RenderPieceSection({ draft }: { draft: PatternDraft }) {
+  const [plan, setPlan] = useState<FigureRenderPlanId>('auto_aaba');
+  const [span, setSpan] = useState<FigureRenderFormSpan>('1W');
+  const [movementIndex, setMovementIndex] = useState(
+    DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
+  );
+  const [render, setRender] = useState<FigureRenderResponse | null>(null);
+  const [audio, setAudio] = useState<FigureRenderAudio | null>(null);
+  const [renderBusy, setRenderBusy] = useState(false);
+  const [audioBusy, setAudioBusy] = useState(false);
+  const [error, setError] = useState<ErrorLine>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null);
+
+  const renderController = useRef<AbortController | null>(null);
+  const audioController = useRef<AbortController | null>(null);
+  const audioPlayer = useRef<HTMLAudioElement | null>(null);
+  const audioRun = useRef(0);
+
+  const draftKey = useMemo(() => figureRenderDraftKey(draft), [draft]);
+  // 1M movements need 104–108 source bars; the demo series pads to 128.
+  const series = useMemo(() => demoSeries(span === '1M' ? 128 : 64), [span]);
+
+  const stopAudio = useCallback(() => {
+    const current = audioPlayer.current;
+    audioPlayer.current = null;
+    if (current) current.pause();
+    setPlayingUrl(null);
+  }, []);
+
+  // Any input change invalidates a render/audio pair; never keep a stale WAV.
+  useEffect(() => {
+    renderController.current?.abort();
+    audioController.current?.abort();
+    renderController.current = null;
+    audioController.current = null;
+    audioRun.current += 1;
+    setRender(null);
+    setAudio(null);
+    setRenderBusy(false);
+    setAudioBusy(false);
+    setError(null);
+    setNote(null);
+    stopAudio();
+  }, [draftKey, plan, span, movementIndex, stopAudio]);
+
+  useEffect(
+    () => () => {
+      renderController.current?.abort();
+      audioController.current?.abort();
+      const current = audioPlayer.current;
+      audioPlayer.current = null;
+      if (current) current.pause();
+    },
+    [],
+  );
+
+  const toggleAudio = useCallback(
+    async (url: string | null | undefined) => {
+      if (!url) return;
+      if (Platform.OS !== 'web' || typeof Audio === 'undefined') {
+        setError({ text: 'Render audio playback is web-only in this pass.' });
+        return;
+      }
+      if (audioPlayer.current && playingUrl === url) {
+        stopAudio();
+        return;
+      }
+      stopAudio();
+      setError(null);
+      const next = new Audio(url);
+      audioPlayer.current = next;
+      setPlayingUrl(url);
+      next.onended = () => {
+        if (audioPlayer.current !== next) return;
+        audioPlayer.current = null;
+        setPlayingUrl(null);
+      };
+      next.onerror = () => {
+        if (audioPlayer.current !== next) return;
+        audioPlayer.current = null;
+        setPlayingUrl(null);
+        setError({ text: 'The browser could not play the rendered WAV.' });
+      };
+      try {
+        await next.play();
+      } catch (failure) {
+        next.pause();
+        if (audioPlayer.current === next) audioPlayer.current = null;
+        setPlayingUrl(null);
+        setError({ text: describeRequestFailure(failure) });
+      }
+    },
+    [playingUrl, stopAudio],
+  );
+
+  const renderNow = useCallback(async () => {
+    const built = buildFigureRenderRequest(draft, plan, series, {
+      form: span === '1M' ? { span, movementIndex } : { span },
+    });
+    if (!built.ok) {
+      setError({ text: built.error });
+      return;
+    }
+    renderController.current?.abort();
+    audioController.current?.abort();
+    audioRun.current += 1;
+    const controller = new AbortController();
+    renderController.current = controller;
+    stopAudio();
+    setRenderBusy(true);
+    setAudioBusy(false);
+    setError(null);
+    setNote(null);
+    setRender(null);
+    setAudio(null);
+    try {
+      const data = await renderFigurePiece(built.request, controller.signal);
+      if (controller.signal.aborted) return;
+      setRender(data);
+      setAudio(data.ok ? data.audio : null);
+      if (!data.ok) {
+        setError({
+          text: firstErrorLine(data.errors, 'Render Piece was rejected.'),
+        });
+      } else if (!data.renderHash) {
+        setError({ text: 'Render Piece returned no renderHash.' });
+      } else {
+        setNote(
+          `Rendered ${data.bars} bar${data.bars === 1 ? '' : 's'} · ${
+            data.notes
+          } notes · audio ${data.audio.status}.`,
+        );
+      }
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        setError({ text: describeRequestFailure(failure) });
+      }
+    } finally {
+      if (renderController.current === controller) {
+        renderController.current = null;
+        setRenderBusy(false);
+      }
+    }
+  }, [draft, movementIndex, plan, series, span, stopAudio]);
+
+  const play = useCallback(async () => {
+    const renderHash = render?.renderHash;
+    if (!renderHash) return;
+    if (audio?.status === 'ready' && audio.audioUrl) {
+      void toggleAudio(audio.audioUrl);
+      return;
+    }
+    if (audioBusy) return;
+    audioController.current?.abort();
+    const controller = new AbortController();
+    audioController.current = controller;
+    const run = audioRun.current + 1;
+    audioRun.current = run;
+    setAudioBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      let current: FigureRenderAudio | null = audio;
+      // A failed or unseen export gets one fresh job; a queued/running job is
+      // polled without submitting a duplicate.
+      if (!current?.jobId || current.status === 'failed') {
+        const accepted = await fetchFigureRenderAudio(renderHash, controller.signal);
+        if (run !== audioRun.current) return;
+        current = {
+          status: accepted.status,
+          jobId: accepted.jobId,
+          audioUrl: null,
+          audioHash: null,
+          durationSec: 0,
+          errors: [],
+          retryAfterSec: null,
+        };
+        setAudio(current);
+      }
+
+      let attempt = 0;
+      while (!current.audioUrl && current.status !== 'failed') {
+        if (!current.jobId) throw new Error('The audio job has no id to poll.');
+        if (attempt >= MAX_RENDER_AUDIO_POLLS) {
+          throw new Error('Audio is still rendering. Try Play again in a moment.');
+        }
+        await waitForRenderPoll(
+          nextJobPollDelayMs(attempt, current.retryAfterSec),
+          controller.signal,
+        );
+        if (run !== audioRun.current) return;
+        current = await fetchFigureAudioJob(
+          renderHash,
+          current.jobId,
+          controller.signal,
+        );
+        if (run !== audioRun.current) return;
+        setAudio(current);
+        attempt += 1;
+      }
+
+      if (current.status === 'failed') {
+        setError({
+          text: firstErrorLine(
+            current.errors,
+            'The production audio export failed.',
+          ),
+        });
+        return;
+      }
+      if (current.audioUrl) {
+        void toggleAudio(current.audioUrl);
+      } else {
+        setNote('Audio is ready; use Export WAV.');
+      }
+    } catch (failure) {
+      if (!controller.signal.aborted) {
+        setError({ text: describeRequestFailure(failure) });
+      }
+    } finally {
+      if (audioController.current === controller) {
+        audioController.current = null;
+        setAudioBusy(false);
+      }
+    }
+  }, [audio, audioBusy, render, toggleAudio]);
+
+  const exportFile = useCallback(
+    (url: string | null | undefined, filename: string) => {
+      if (!url) return;
+      if (downloadUrl(url, filename)) {
+        setNote(`Downloading ${filename}.`);
+        return;
+      }
+      setNote(url);
+    },
+    [],
+  );
+
+  const hashShort = render?.renderHash ? shortRenderHash(render.renderHash) : '';
+  const audioStatus = audio?.status ?? null;
+  const canPlay = Boolean(render?.renderHash) && !audioBusy;
+  const canExportMusicXml = Boolean(render?.musicxmlUrl);
+  const canExportWav =
+    audio?.status === 'ready' && Boolean(audio.audioUrl) && !audioBusy;
+
+  return (
+    <View style={styles.renderBox}>
+      <View style={styles.headerRow}>
+        <Text style={[type.section, styles.blockLabel]}>5 · Render piece</Text>
+        <Text style={styles.stepMeta}>FIGURES → PIECE → WAV</Text>
+      </View>
+      <Text style={styles.hint}>
+        Render the tagged pool with a plan and a 1D series. Nothing is published;
+        the SentenceSpec editor is not changed.
+      </Text>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.inputLabel}>Plan</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {FIGURE_RENDER_PLANS.map((option) => (
+            <Chip
+              key={`render-plan:${option.id}`}
+              label={`${option.label} · ${option.roles}`}
+              active={plan === option.id}
+              onPress={() => setPlan(option.id)}
+              accessibilityLabel={`Use render plan ${option.label}`}
+            />
+          ))}
+        </ScrollView>
+        <Text style={styles.fieldMeta}>
+          {FIGURE_RENDER_PLANS.find((option) => option.id === plan)?.hint ??
+            'Select a plan.'}{' '}
+          ABAB and Through are not implemented yet.
+        </Text>
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.inputLabel}>Form</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {FIGURE_RENDER_FORM_SPANS.map((option) => (
+            <Chip
+              key={`render-span:${option}`}
+              label={option}
+              active={span === option}
+              onPress={() => setSpan(option)}
+              accessibilityLabel={`Use form ${option}`}
+            />
+          ))}
+        </ScrollView>
+        {span === '1M' ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipRow}
+          >
+            {[0, 1, 2, 3].map((index) => (
+              <Chip
+                key={`render-movement:${index}`}
+                label={`Mvt ${index + 1}`}
+                active={movementIndex === index}
+                onPress={() => setMovementIndex(index)}
+                accessibilityLabel={`Use movement ${index + 1}`}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
+        <Text style={styles.fieldMeta}>
+          {span === '1M'
+            ? `Monthly form · movement index ${movementIndex}`
+            : 'Weekly form · 32 bars'}
+          {' · '}
+          {series.length} demo bars, no truncation.
+        </Text>
+      </View>
+
+      <View style={styles.seriesRow}>
+        <Text style={[styles.seriesChip, styles.seriesChipActive]}>
+          {DEMO_SERIES_LABEL}
+        </Text>
+        <Text style={styles.fieldMeta}>
+          {series.length} bars · synthetic closes + volume · symbol picker later
+        </Text>
+      </View>
+
+      <View style={styles.actionRow}>
+        <ActionButton
+          label="Render piece"
+          primary={!render}
+          onPress={() => void renderNow()}
+          disabled={renderBusy}
+          busy={renderBusy}
+          busyLabel="Rendering…"
+        />
+        <ActionButton
+          label={playingUrl ? 'Stop' : 'Play'}
+          onPress={() => void play()}
+          disabled={!canPlay}
+          busy={audioBusy}
+          busyLabel="Preparing audio…"
+        />
+        <ActionButton
+          label="Export MusicXML"
+          onPress={() =>
+            exportFile(render?.musicxmlUrl, `studio-piece-${hashShort}.musicxml`)
+          }
+          disabled={!canExportMusicXml}
+        />
+        <ActionButton
+          label="Export WAV"
+          onPress={() =>
+            exportFile(
+              audio?.audioUrl,
+              `studio-piece-${shortRenderHash(
+                audio?.audioHash ?? render?.renderHash ?? null,
+              )}.wav`,
+            )
+          }
+          disabled={!canExportWav}
+        />
+      </View>
+
+      {error ? (
+        <Text
+          selectable
+          numberOfLines={2}
+          accessibilityLabel={error.text}
+          style={styles.errorLine}
+        >
+          {error.text}
+        </Text>
+      ) : null}
+      {note ? <Text style={styles.noteLine}>{note}</Text> : null}
+
+      {render ? (
+        <View style={styles.renderResultBox}>
+          <View style={styles.resultHeader}>
+            <Text style={styles.resultTitle}>
+              {render.plan ?? plan} · {render.meter ?? draft.meter}
+            </Text>
+            <Text style={styles.resultBadge}>
+              {render.ok ? 'RENDERED' : 'REJECTED'}
+            </Text>
+          </View>
+          <Text style={styles.resultMeta} numberOfLines={2}>
+            hash {shortRenderHash(render.renderHash)} · {render.bars} bar
+            {render.bars === 1 ? '' : 's'} · {render.notes} note
+            {render.notes === 1 ? '' : 's'}
+            {audio?.durationSec ? ` · ${audio.durationSec.toFixed(2)} s` : ''}
+          </Text>
+          <Text style={styles.renderStatusText}>
+            {audioStatus
+              ? figureAudioStatusLabel(audioStatus, audio?.durationSec ?? 0)
+              : 'No audio job yet.'}
+          </Text>
+          {audio?.status === 'failed' && audio.errors.length ? (
+            <Text selectable numberOfLines={2} style={styles.warnText}>
+              {firstErrorLine(audio.errors, 'The production audio export failed.')}
+            </Text>
+          ) : null}
+          {render.warnings.map((warning, index) => (
+            <Text key={`render-warning:${index}`} style={styles.warnText}>
+              {warning}
+            </Text>
+          ))}
+        </View>
       ) : null}
     </View>
   );
@@ -1484,6 +1977,54 @@ const styles = StyleSheet.create({
     fontFamily: type.mono.fontFamily,
     fontSize: 11,
     lineHeight: 15,
+    fontWeight: '700',
+  },
+  renderBox: {
+    marginTop: 4,
+    padding: 9,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.panel,
+    gap: 6,
+  },
+  seriesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  seriesChip: {
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  seriesChipActive: {
+    color: palette.data,
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  renderResultBox: {
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(62, 224, 224, 0.35)',
+    backgroundColor: 'rgba(62, 224, 224, 0.06)',
+    gap: 4,
+  },
+  renderStatusText: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 13,
     fontWeight: '700',
   },
   sentenceRow: {

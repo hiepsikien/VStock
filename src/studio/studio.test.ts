@@ -179,6 +179,9 @@ import {
   type MusicXmlRoleLane,
 } from './musicxml';
 import {
+  DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
+  DEMO_SERIES_LABEL,
+  FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
   GENERIC_PATTERN_IDS,
   KEY_BODY_MISSING,
@@ -186,17 +189,27 @@ import {
   VILLA_RENDERER,
   appendPatternFigure,
   appendPatternSentence,
+  buildFigureRenderRequest,
   composerOptions,
   buildPatternDraftExport,
   buildSentenceDraftBody,
   createPatternDraft,
   createPatternFigure,
+  demoSeries,
   existingTemplateOptions,
+  figureAudioStatusLabel,
   figureBarsFromTextureSpec,
+  figureRenderAudioJobPath,
+  figureRenderAudioPath,
+  figureRenderDraftKey,
+  figureRenderMusicXmlPath,
+  figureRenderWavPath,
   figureTagError,
   genericPatternOptions,
   missingFigureTags,
   newPatternId,
+  normalizeFigureAudioJobResponse,
+  normalizeFigureRenderResponse,
   normalizePatternDraft,
   normalizeSentenceDraftResponse,
   patternDraftComplete,
@@ -3954,6 +3967,194 @@ const tagAt = (draft: PatternDraft, id: string, tag: FigureTag): boolean =>
 equal(tagAt(roundTrip, 'fig_outro_4', 'outro.long'), true);
 const duplicateFigure = appendPatternFigure(figureDraft, keyFigure);
 equal(duplicateFigure.ok, false);
+
+/* ------------------------------------------------------------------------- *
+ * Render Piece (Phase D)
+ * ------------------------------------------------------------------------- */
+
+const demo = demoSeries(64);
+equal(demo.length, 64);
+deepEqual(demoSeries(64), demo);
+equal(demoSeries().length, 64);
+equal(demoSeries(1).length, 1);
+equal(
+  demo.every((bar) => Number.isFinite(bar.close) && bar.volume >= 0),
+  true,
+);
+equal(DEMO_SERIES_LABEL, 'Demo 1D series');
+deepEqual(
+  FIGURE_RENDER_PLANS.map((option) => option.id),
+  ['auto_aaba', 'trio'],
+);
+equal(DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX, 2);
+
+const builtRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo);
+if (!builtRender.ok) throw new Error(builtRender.error);
+const renderRequest = builtRender.request;
+equal(renderRequest.pattern, 'villa_test');
+equal(renderRequest.meter, '2/4');
+equal(renderRequest.figures.length, 6);
+deepEqual(renderRequest.plan, { id: 'auto_aaba' });
+equal(renderRequest.series.kind, 'bars');
+equal(renderRequest.series.bars.length, 64);
+deepEqual(renderRequest.form, { span: '1W' });
+equal(renderRequest.options.includeDoors, true);
+equal(renderRequest.title, 'Test');
+const requestedKey = renderRequest.figures.find((figure) => figure.id === 'fig_key');
+if (!requestedKey) throw new Error('key figure should be in the request');
+deepEqual(requestedKey.tags, ['key']);
+equal(requestedKey.cellId, 'fig_key');
+equal(requestedKey.bars, 4);
+deepEqual(requestedKey.spec, keySpec);
+
+const monthly = buildFigureRenderRequest(
+  figureDraft,
+  'trio',
+  demoSeries(128),
+  { form: '1M' },
+);
+if (!monthly.ok) throw new Error(monthly.error);
+deepEqual(monthly.request.plan, { id: 'trio' });
+deepEqual(monthly.request.form, { span: '1M', movementIndex: 2 });
+const monthlyFirst = buildFigureRenderRequest(
+  figureDraft,
+  'trio',
+  demoSeries(128),
+  { form: { span: '1M', movementIndex: 0 }, includeDoors: false },
+);
+if (!monthlyFirst.ok) throw new Error(monthlyFirst.error);
+deepEqual(monthlyFirst.request.form, { span: '1M', movementIndex: 0 });
+equal(monthlyFirst.request.options.includeDoors, false);
+
+// Complete gate: a pool missing a required tag never builds a request.
+const onlyKeyDraft: PatternDraft = { ...figureDraft, figures: [keyFigure] };
+const blockedRender = buildFigureRenderRequest(onlyKeyDraft, 'auto_aaba', demo);
+equal(blockedRender.ok, false);
+if (blockedRender.ok) throw new Error('incomplete pool must not render');
+if (!blockedRender.error.includes('missing figure tags')) {
+  throw new Error('missing-tag error should be explicit');
+}
+equal(blockedRender.missing.includes('intro.short'), true);
+const emptySeries = buildFigureRenderRequest(figureDraft, 'auto_aaba', []);
+equal(emptySeries.ok, false);
+
+const fullHash = 'a'.repeat(64);
+const readyRender = normalizeFigureRenderResponse(
+  {
+    ok: true,
+    renderHash: `sha256:${fullHash}`,
+    musicxmlUrl: `/v1/studio/figure/render/${fullHash}.musicxml`,
+    meter: '2/4',
+    bars: 32,
+    notes: 204,
+    plan: 'auto_aaba',
+    warnings: ['B fallback'],
+    audio: {
+      status: 'ready',
+      audioUrl: `/v1/studio/figure/render/${fullHash}.wav`,
+      audioHash: `sha256:${fullHash}`,
+      durationSec: 12.5,
+    },
+  },
+  'https://api.test',
+);
+equal(readyRender.ok, true);
+equal(
+  readyRender.musicxmlUrl,
+  `https://api.test/v1/studio/figure/render/${fullHash}.musicxml`,
+);
+equal(readyRender.audio.status, 'ready');
+equal(
+  readyRender.audio.audioUrl,
+  `https://api.test/v1/studio/figure/render/${fullHash}.wav`,
+);
+equal(readyRender.audio.durationSec, 12.5);
+deepEqual(readyRender.warnings, ['B fallback']);
+
+const queuedRender = normalizeFigureRenderResponse(
+  {
+    ok: true,
+    renderHash: `sha256:${fullHash}`,
+    audio: { status: 'queued', jobId: 'job_1' },
+  },
+  'https://api.test',
+);
+equal(queuedRender.audio.status, 'queued');
+equal(queuedRender.audio.jobId, 'job_1');
+equal(queuedRender.bars, 0);
+
+const failedRender = normalizeFigureRenderResponse(
+  {
+    ok: false,
+    errors: [{ path: 'figures', message: 'missing figure tags: contrast' }],
+    audio: {
+      status: 'unavailable',
+      jobId: 'job_2',
+      errors: [
+        { path: 'audio', code: 'audio_failed', message: 'musescore missing' },
+      ],
+      retryAfter: 7,
+    },
+  },
+  'https://api.test',
+);
+equal(failedRender.ok, false);
+equal(failedRender.audio.status, 'failed');
+equal(failedRender.audio.errors[0]?.code, 'audio_failed');
+equal(failedRender.audio.retryAfterSec, 7);
+equal(failedRender.errors[0]?.path, 'figures');
+
+const readyJob = normalizeFigureAudioJobResponse(
+  {
+    ok: true,
+    renderHash: `sha256:${fullHash}`,
+    jobId: 'job_1',
+    status: 'ready',
+    audioUrl: `/v1/studio/figure/render/${fullHash}.wav`,
+    audioHash: `sha256:${fullHash}`,
+    durationSec: 32.4,
+  },
+  'https://api.test',
+);
+equal(readyJob.status, 'ready');
+equal(
+  readyJob.audioUrl,
+  `https://api.test/v1/studio/figure/render/${fullHash}.wav`,
+);
+equal(readyJob.durationSec, 32.4);
+const runningJob = normalizeFigureAudioJobResponse(
+  { jobId: 'job_1', status: 'running' },
+  'https://api.test',
+);
+equal(runningJob.status, 'running');
+
+equal(
+  figureRenderMusicXmlPath(`sha256:${fullHash}`),
+  `/v1/studio/figure/render/${fullHash}.musicxml`,
+);
+equal(
+  figureRenderWavPath(fullHash),
+  `/v1/studio/figure/render/${fullHash}.wav`,
+);
+equal(
+  figureRenderAudioPath(`sha256:${fullHash}`),
+  `/v1/studio/figure/render/${fullHash}/audio`,
+);
+equal(
+  figureRenderAudioJobPath(fullHash, 'job 1'),
+  `/v1/studio/figure/render/${fullHash}/audio/job%201`,
+);
+
+const renderKey = figureRenderDraftKey(figureDraft);
+equal(renderKey, figureRenderDraftKey({ ...figureDraft }));
+if (figureRenderDraftKey(untagged) === renderKey) {
+  throw new Error('retagging a figure must invalidate the render key');
+}
+
+equal(figureAudioStatusLabel('queued'), 'Audio queued');
+equal(figureAudioStatusLabel('running'), 'Rendering audio…');
+equal(figureAudioStatusLabel('ready', 32.4), 'Audio ready · 32.40 s');
+equal(figureAudioStatusLabel('failed'), 'Audio failed');
 
 type FakeStore = {
   value: string | null;

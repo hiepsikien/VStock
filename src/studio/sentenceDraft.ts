@@ -919,3 +919,510 @@ export function patternDraftLabel(draft: PatternDraft): string {
   const count = draft.sentences.length;
   return `${draft.id} · ${draft.meter} · ${count} sentence${count === 1 ? '' : 's'}`;
 }
+
+/* ------------------------------------------------------------------------- *
+ * Render Piece (Phase D)
+ *
+ * `POST /v1/studio/figure/render` takes the tagged figure pool, a plan id, a
+ * resolved 1D bar series and a form. MusicXML comes back immediately; audio is
+ * an async production job:
+ *
+ *   POST /v1/studio/figure/render                     -> RenderResponse
+ *   POST /v1/studio/figure/render/{renderHash}/audio   -> 202 { jobId }
+ *   GET  /v1/studio/figure/render/{renderHash}/audio/{jobId}
+ *
+ * The UI uses this module for the request body and response normalization; it
+ * never publishes and never edits the SentenceSpec editor.
+ * ------------------------------------------------------------------------- */
+
+/** Plan ids implemented by `sentence_plan.py` today. */
+export type FigureRenderPlanId = 'auto_aaba' | 'trio';
+
+export type FigureRenderPlanOption = {
+  id: FigureRenderPlanId;
+  label: string;
+  /** Role pattern, e.g. `A A B close`. */
+  roles: string;
+  hint: string;
+};
+
+/**
+ * The picker is data, not hardcoded ABA branches. ABAB/through stay out until
+ * the backend implements them (docs §5).
+ */
+export const FIGURE_RENDER_PLANS: readonly FigureRenderPlanOption[] = [
+  {
+    id: 'auto_aaba',
+    label: 'AABA',
+    roles: 'A A B close',
+    hint: 'Key body, contrast, cadence close',
+  },
+  {
+    id: 'trio',
+    label: 'Trio',
+    roles: 'A B A',
+    hint: 'Key body, contrast, key return',
+  },
+];
+
+export const FIGURE_RENDER_PLAN_IDS: readonly FigureRenderPlanId[] =
+  FIGURE_RENDER_PLANS.map((option) => option.id);
+
+/** Documented but not implemented yet; never rendered by this UI. */
+export const FUTURE_FIGURE_RENDER_PLAN_IDS = ['abab', 'through'] as const;
+
+export function isFigureRenderPlanId(value: unknown): value is FigureRenderPlanId {
+  const id = text(value);
+  return id != null && (FIGURE_RENDER_PLAN_IDS as readonly string[]).includes(id);
+}
+
+export type FigureRenderFormSpan = '1W' | '1M';
+
+export const FIGURE_RENDER_FORM_SPANS: readonly FigureRenderFormSpan[] = ['1W', '1M'];
+
+/** `1M` defaults to movement III (index 2), per the plan doc. */
+export const DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX = 2;
+
+export type FigureRenderBar = {
+  close: number;
+  volume: number;
+};
+
+export type FigureRenderFigure = {
+  id: string;
+  cellId: string;
+  bars: number;
+  tags: string[];
+  spec: Record<string, unknown>;
+};
+
+export type FigureRenderForm = {
+  span: FigureRenderFormSpan;
+  /** Only sent for `1M`; the backend defaults to movement index 2 too. */
+  movementIndex?: number;
+};
+
+export type FigureRenderRequest = {
+  pattern: string;
+  meter: string;
+  figures: FigureRenderFigure[];
+  plan: { id: FigureRenderPlanId };
+  series: { kind: 'bars'; bars: FigureRenderBar[] };
+  form: FigureRenderForm;
+  /** Optional; falls back to the draft label. */
+  title?: string;
+  options: { includeDoors: boolean };
+};
+
+export type FigureRenderOptions = {
+  /** Defaults to the draft id. */
+  pattern?: string;
+  /** Defaults to the draft meter. */
+  meter?: string;
+  includeDoors?: boolean;
+  /** Defaults to the draft label; an empty value omits the field. */
+  title?: string | null;
+  /** Defaults to `{ span: "1W" }`. */
+  form?: FigureRenderFormSpan | FigureRenderForm;
+};
+
+export type FigureRenderBuildResult =
+  | { ok: true; request: FigureRenderRequest }
+  | { ok: false; error: string; missing: FigureMissingTag[] };
+
+/** Backend limit (`_MAX_SERIES_BARS`); never truncate to fit. */
+export const MAX_FIGURE_RENDER_SERIES_BARS = 4096;
+
+function buildError(
+  error: string,
+  missing: FigureMissingTag[] = [],
+): FigureRenderBuildResult {
+  return { ok: false, error, missing };
+}
+
+function normalizeRenderBars(
+  series: readonly FigureRenderBar[],
+): { ok: true; bars: FigureRenderBar[] } | { ok: false; error: string } {
+  if (!Array.isArray(series) || series.length === 0) {
+    return { ok: false, error: 'The 1D series needs at least one bar.' };
+  }
+  if (series.length > MAX_FIGURE_RENDER_SERIES_BARS) {
+    return {
+      ok: false,
+      error: `The 1D series has ${series.length} bars; the backend accepts at most ${MAX_FIGURE_RENDER_SERIES_BARS}.`,
+    };
+  }
+  const bars: FigureRenderBar[] = [];
+  for (let index = 0; index < series.length; index += 1) {
+    const bar = series[index];
+    if (!bar || !Number.isFinite(bar.close)) {
+      return { ok: false, error: `series.bars[${index}].close must be a finite number.` };
+    }
+    if (!Number.isFinite(bar.volume) || bar.volume < 0) {
+      return {
+        ok: false,
+        error: `series.bars[${index}].volume must be a finite number >= 0.`,
+      };
+    }
+    bars.push({ close: bar.close, volume: bar.volume });
+  }
+  return { ok: true, bars };
+}
+
+/**
+ * Build the Render Piece request body. Sends the whole series and lets the
+ * backend answer 400 when it is shorter than the form (W9: no silent truncate
+ * or repeat). Returns an error value instead of throwing when the pool is
+ * missing a required tag.
+ */
+export function buildFigureRenderRequest(
+  draft: PatternDraft,
+  planId: FigureRenderPlanId,
+  series: readonly FigureRenderBar[],
+  options: FigureRenderOptions = {},
+): FigureRenderBuildResult {
+  const missing = missingFigureTags(draft);
+  if (missing.length > 0) {
+    return buildError(`missing figure tags: ${missing.join(', ')}`, missing);
+  }
+  if (!isFigureRenderPlanId(planId)) {
+    return buildError(
+      `unknown plan ${String(planId)}; expected ${FIGURE_RENDER_PLAN_IDS.join(', ')}`,
+    );
+  }
+
+  const pattern = text(options.pattern) ?? text(draft.id);
+  if (!pattern) return buildError('pattern must be a non-empty string');
+  const meter = text(options.meter) ?? text(draft.meter);
+  if (!meter) return buildError('meter must be a non-empty string');
+
+  const normalized = normalizeRenderBars(series);
+  if (!normalized.ok) return buildError(normalized.error);
+
+  const rawForm = options.form ?? '1W';
+  const span = typeof rawForm === 'string' ? rawForm : rawForm?.span;
+  if (span !== '1W' && span !== '1M') {
+    return buildError(`unknown form span ${String(span)}; expected 1W or 1M`);
+  }
+  const form: FigureRenderForm = { span };
+  if (span === '1M') {
+    const requested =
+      typeof rawForm === 'object' && rawForm != null ? rawForm.movementIndex : undefined;
+    const movementIndex =
+      typeof requested === 'number' && Number.isInteger(requested)
+        ? requested
+        : DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX;
+    if (movementIndex < 0 || movementIndex > 3) {
+      return buildError('form.movementIndex must be an integer in 0..3 for span 1M');
+    }
+    form.movementIndex = movementIndex;
+  }
+
+  const title = text(options.title) ?? text(draft.label);
+  const request: FigureRenderRequest = {
+    pattern,
+    meter,
+    figures: patternDraftFigures(draft).map((figure) => ({
+      id: figure.id,
+      cellId: figure.cellId,
+      bars: figure.bars,
+      tags: [...figure.tags],
+      spec: figure.spec,
+    })),
+    plan: { id: planId },
+    series: { kind: 'bars', bars: normalized.bars },
+    form,
+    options: { includeDoors: options.includeDoors ?? true },
+    ...(title ? { title } : {}),
+  };
+  return { ok: true, request };
+}
+
+/** Stable JSON signature used to invalidate a rendered piece. */
+export function figureRenderDraftKey(draft: PatternDraft): string {
+  return JSON.stringify({
+    id: draft.id,
+    label: draft.label,
+    meter: draft.meter,
+    figures: patternDraftFigures(draft).map((figure) => ({
+      id: figure.id,
+      cellId: figure.cellId,
+      bars: figure.bars,
+      tags: figure.tags,
+      spec: figure.spec,
+    })),
+  });
+}
+
+export const DEMO_SERIES_LABEL = 'Demo 1D series';
+
+/**
+ * Deterministic synthetic 1D series for the MVP UI. A symbol/date picker will
+ * replace it later; today it is clearly labeled demo data and never touches
+ * the network or the repo.
+ *
+ * 64 bars is enough for `1W`; the UI requests more for `1M`.
+ */
+export function demoSeries(bars = 64): FigureRenderBar[] {
+  const count =
+    typeof bars === 'number' && Number.isFinite(bars) ? Math.max(1, Math.trunc(bars)) : 64;
+  const series: FigureRenderBar[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const t = count === 1 ? 0 : index / (count - 1);
+    // Smooth ramp plus two full sine cycles: deterministic and bounded.
+    const close = 100 + 18 * t + 24 * Math.sin(t * Math.PI * 6);
+    const volume = 180 + 90 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
+    series.push({
+      close: Math.round(close * 1000) / 1000,
+      volume: Math.round(volume),
+    });
+  }
+  return series;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Render Piece responses
+ * ------------------------------------------------------------------------- */
+
+export type FigureRenderAudioStatus = 'queued' | 'running' | 'ready' | 'failed';
+
+export type FigureRenderAudioError = {
+  path: string;
+  code: string;
+  message: string;
+};
+
+export type FigureRenderAudio = {
+  status: FigureRenderAudioStatus;
+  jobId: string | null;
+  /** Resolved against the API base when one was supplied. */
+  audioUrl: string | null;
+  audioHash: string | null;
+  durationSec: number;
+  errors: FigureRenderAudioError[];
+  retryAfterSec: number | null;
+};
+
+export type FigureRenderResponse = {
+  ok: boolean;
+  renderHash: string | null;
+  musicxmlUrl: string | null;
+  meter: string | null;
+  bars: number;
+  notes: number;
+  plan: string | null;
+  warnings: string[];
+  errors: StudioError[];
+  audio: FigureRenderAudio;
+};
+
+export type FigureAudioAccepted = {
+  jobId: string;
+  status: FigureRenderAudioStatus;
+};
+
+export type FigureAudioJob = FigureRenderAudio & {
+  renderHash: string | null;
+  durationSec: number;
+};
+
+function countValue(value: unknown): number {
+  const number = finite(value);
+  return number == null || number < 0 ? 0 : Math.trunc(number);
+}
+
+function retryAfterSeconds(value: unknown): number | null {
+  const number = finite(value);
+  return number == null || number < 0 ? null : Math.trunc(number);
+}
+
+function normalizeAudioStatus(
+  value: unknown,
+  fallback: FigureRenderAudioStatus,
+): FigureRenderAudioStatus {
+  const status = text(value)?.toLowerCase();
+  switch (status) {
+    case 'queued':
+    case 'pending':
+      return 'queued';
+    case 'running':
+    case 'rendering':
+      return 'running';
+    case 'ready':
+    case 'ok':
+    case 'done':
+      return 'ready';
+    case 'failed':
+    case 'failure':
+    case 'error':
+    case 'unavailable':
+      return 'failed';
+    default:
+      return fallback;
+  }
+}
+
+function normalizeAudioErrors(value: unknown): FigureRenderAudioError[] {
+  if (!Array.isArray(value)) {
+    const single = text(value);
+    return single
+      ? [{ path: 'audio', code: 'audio_failed', message: single }]
+      : [];
+  }
+  const errors: FigureRenderAudioError[] = [];
+  for (const item of value) {
+    if (isRecord(item)) {
+      const code = text(item.code) ?? 'audio_failed';
+      errors.push({
+        path: text(item.path) ?? 'audio',
+        code,
+        message: text(item.message) ?? code,
+      });
+    } else {
+      const message = text(item);
+      if (message) errors.push({ path: 'audio', code: 'audio_failed', message });
+    }
+  }
+  return errors;
+}
+
+/** Tolerant `audio` block normalizer for both render and job responses. */
+export function normalizeFigureRenderAudio(
+  value: unknown,
+  baseUrl?: string | null,
+): FigureRenderAudio {
+  const raw = isRecord(value) ? value : {};
+  const audioUrl = resolveAudioUrl(baseUrl ?? '', raw.audioUrl ?? raw.audio_url);
+  const errors = normalizeAudioErrors(raw.errors);
+  const fallback: FigureRenderAudioStatus = audioUrl
+    ? 'ready'
+    : errors.length > 0
+      ? 'failed'
+      : 'queued';
+  return {
+    status: normalizeAudioStatus(raw.status, fallback),
+    jobId: text(raw.jobId) ?? text(raw.job_id),
+    audioUrl,
+    audioHash: text(raw.audioHash) ?? text(raw.audio_hash),
+    durationSec: nonNegative(raw.durationSec ?? raw.duration_sec),
+    errors,
+    retryAfterSec: retryAfterSeconds(
+      raw.retryAfter ?? raw.retryAfterSec ?? raw.retry_after,
+    ),
+  };
+}
+
+/** `POST /v1/studio/figure/render` normalizer. */
+export function normalizeFigureRenderResponse(
+  value: unknown,
+  baseUrl?: string | null,
+): FigureRenderResponse {
+  if (!isRecord(value)) {
+    throw new Error('Studio render API returned a non-object response.');
+  }
+  const errors = normalizeErrors(value);
+  const renderHash = text(value.renderHash) ?? text(value.render_hash);
+  return {
+    ok:
+      typeof value.ok === 'boolean'
+        ? value.ok
+        : Boolean(renderHash) && errors.length === 0,
+    renderHash,
+    musicxmlUrl: resolveAudioUrl(
+      baseUrl ?? '',
+      value.musicxmlUrl ?? value.musicxml_url,
+    ),
+    meter: text(value.meter),
+    bars: countValue(value.bars),
+    notes: countValue(value.notes),
+    plan: text(value.plan),
+    warnings: warningList(value.warnings),
+    errors,
+    audio: normalizeFigureRenderAudio(value.audio, baseUrl),
+  };
+}
+
+/** `POST .../{renderHash}/audio` (202) normalizer. */
+export function normalizeFigureAudioAccepted(value: unknown): FigureAudioAccepted {
+  if (!isRecord(value)) {
+    throw new Error('Studio render audio API returned a non-object response.');
+  }
+  const jobId = text(value.jobId) ?? text(value.job_id);
+  if (!jobId) {
+    // 429/400 answers arrive as `{ ok: false, errors }`; keep their path.
+    const first = normalizeErrors(value)[0];
+    if (first) {
+      throw new Error(
+        `${first.path && first.path !== '$' ? `${first.path}: ` : ''}${first.message}`,
+      );
+    }
+    throw new Error('Studio render audio API did not return a job id.');
+  }
+  return {
+    jobId,
+    status: normalizeAudioStatus(value.status, 'queued'),
+  };
+}
+
+/** `GET .../{renderHash}/audio/{jobId}` poll normalizer. */
+export function normalizeFigureAudioJobResponse(
+  value: unknown,
+  baseUrl?: string | null,
+): FigureAudioJob {
+  if (!isRecord(value)) {
+    throw new Error('Studio render audio job API returned a non-object response.');
+  }
+  const audio = normalizeFigureRenderAudio(value, baseUrl);
+  const jobId = audio.jobId;
+  if (!jobId) {
+    throw new Error('Studio render audio job API did not return a job id.');
+  }
+  return {
+    ...audio,
+    jobId,
+    renderHash: text(value.renderHash) ?? text(value.render_hash),
+    durationSec: nonNegative(value.durationSec ?? value.duration_sec),
+  };
+}
+
+/** Compact UI label for the render audio lifecycle. */
+export function figureAudioStatusLabel(
+  status: FigureRenderAudioStatus,
+  durationSec = 0,
+): string {
+  switch (status) {
+    case 'queued':
+      return 'Audio queued';
+    case 'running':
+      return 'Rendering audio…';
+    case 'ready':
+      return durationSec > 0
+        ? `Audio ready · ${durationSec.toFixed(2)} s`
+        : 'Audio ready';
+    case 'failed':
+      return 'Audio failed';
+  }
+}
+
+/** Relative render routes; `api.ts` prepends the API base. */
+export const STUDIO_RENDER_PREFIX = '/v1/studio/figure';
+
+function renderHashSegment(value: string): string {
+  return encodeURIComponent(value.trim().replace(/^sha256:/i, ''));
+}
+
+export function figureRenderMusicXmlPath(renderHash: string): string {
+  return `${STUDIO_RENDER_PREFIX}/render/${renderHashSegment(renderHash)}.musicxml`;
+}
+
+export function figureRenderWavPath(audioHash: string): string {
+  return `${STUDIO_RENDER_PREFIX}/render/${renderHashSegment(audioHash)}.wav`;
+}
+
+export function figureRenderAudioPath(renderHash: string): string {
+  return `${STUDIO_RENDER_PREFIX}/render/${renderHashSegment(renderHash)}/audio`;
+}
+
+export function figureRenderAudioJobPath(renderHash: string, jobId: string): string {
+  return `${figureRenderAudioPath(renderHash)}/${encodeURIComponent(jobId.trim())}`;
+}

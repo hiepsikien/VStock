@@ -10,6 +10,7 @@ import itertools
 import math
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from app.sonify.chords import C, Chord
 from app.sonify.form import active_meter
@@ -48,6 +49,9 @@ from app.sonify.plan_rules_barrios import (
 )
 from app.sonify.plan_rules_classic import ClassicPhraseInputs, classic_pattern
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
+
+if TYPE_CHECKING:
+    from app.sonify.studio_piece import StudioPiece
 
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
 _OPENS = (40, 45, 50, 55, 59, 64)
@@ -3449,6 +3453,7 @@ def render_patterned_voices(
     regime_at: dict | None = None,
     movement_index: int | None = None,
     movement_span: str | None = None,
+    studio_piece: "StudioPiece | None" = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -3513,6 +3518,26 @@ def render_patterned_voices(
     micro_velocity_token = begin_occurrences() if micro_velocity_writers else None
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
+    # A StudioPiece owns every bar. It bypasses the pattern/selection/gate path
+    # and writes the authored cells straight into the shared tail. Default
+    # None leaves the historical path untouched.
+    if studio_piece is not None:
+        from app.sonify.studio_piece import render_studio_arrangement
+
+        lead, support, low = render_studio_arrangement(ctx, studio_piece)
+        studio_patterns = [studio_piece.pattern] * ctx.bars
+        return _finish_voices(
+            ctx,
+            studio_patterns,
+            lead,
+            support,
+            low,
+            levels=levels,
+            micro_velocity_writers=micro_velocity_writers,
+            micro_velocity_token=micro_velocity_token,
+            preludio_bass=False,
+            studio_mode=True,
+        )
     # Feature-gated Villa sentence, Suite movements, and Brouwer A-B-A. Off by
     # default, so the existing bar loop below is byte-identical. Each gate
     # returns raw bar voices only for a whole movement it can cover; the shared
@@ -4095,6 +4120,7 @@ def _finish_voices(
     lowered_eighths: set[int] | None = None,
     figure_at: dict | None = None,
     preludio_bass: bool = True,
+    studio_mode: bool = False,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     """The shared post-wave tail: bells, transitions, scale, wave, pinned, fill.
 
@@ -4103,6 +4129,14 @@ def _finish_voices(
     False for a sentence whose per-bar writer already emitted the ringing
     Preludio pedal (the Barrios period); every other caller keeps the historical
     movement-wide append.
+
+    ``studio_mode`` is for a :class:`app.sonify.studio_piece.StudioPiece`: the
+    authored cells already own every note. It skips the optional body passes
+    that would add or overwrite notes (Preludio bass, campanella, scale
+    passages, bells, fanfares, boundary transitions/pickups, caesuras, Torroba
+    contour rewrites, and the final rest fill). It still runs the structural
+    overlap/repair and the guitar wave/dynamics, so the score is shaped and
+    humanize-ready without drifting from the authored voices.
     """
     musical_bars = ctx.bars
     epb = ctx.epb
@@ -4115,7 +4149,7 @@ def _finish_voices(
     lowered_eighths = set() if lowered_eighths is None else lowered_eighths
     figure_at = {} if figure_at is None else figure_at
     # Preludio bass rings for two bars, counted from each contiguous region.
-    if preludio_bass:
+    if preludio_bass and not studio_mode:
         low.extend(_preludio_bass(ctx, patterns))
     ringing = {
         bar
@@ -4131,24 +4165,30 @@ def _finish_voices(
             "brouwer_etude",
         }
     }
-    if ringing:
+    if ringing and not studio_mode:
         support = _apply_campanella(ctx, support, lead, ringing, low)
     from app.sonify.guitar_scale_passages import (
+        ScalePlan,
         apply_scale_passages,
         clear_scale_slurs,
         sounding_swarm_eighths,
     )
 
     # Passages are chosen from the price line, then they overwrite only their eighths.
-    if ctx.ensemble == "torroba":
-        lowered_melody = list(ctx.melody)
-        ctx.melody = list(original_melody)
-    lead, support, low, scale_plan = apply_scale_passages(ctx, patterns, lead, support, low)
-    if ctx.ensemble == "torroba":
-        for eighth in scale_plan.scale_eighths:
-            if 0 <= eighth < len(original_melody):
-                lowered_melody[eighth] = original_melody[eighth]
-        ctx.melody = lowered_melody
+    if studio_mode:
+        # Authored cells never receive a price-line passage. An empty plan keeps
+        # the later hairpin/restamp seams working without touching a note.
+        scale_plan = ScalePlan(0, 0, 0, 0, (), (), (), 0)
+    else:
+        if ctx.ensemble == "torroba":
+            lowered_melody = list(ctx.melody)
+            ctx.melody = list(original_melody)
+        lead, support, low, scale_plan = apply_scale_passages(ctx, patterns, lead, support, low)
+        if ctx.ensemble == "torroba":
+            for eighth in scale_plan.scale_eighths:
+                if 0 <= eighth < len(original_melody):
+                    lowered_melody[eighth] = original_melody[eighth]
+            ctx.melody = lowered_melody
     scale_eighths = set(scale_plan.scale_eighths)
     long_scale_eighths = {
         eighth
@@ -4165,7 +4205,7 @@ def _finish_voices(
         last_bar = max(phrase.end - 1, phrase.start) // epb
         if any(bar in perpetual_bars for bar in range(first_bar, last_bar + 1)):
             perpetual_indexes.add(index)
-    if not _framed(ctx):
+    if not studio_mode and not _framed(ctx):
         for index, phrase in enumerate(phrases):
             following = None
             for later in range(index + 1, len(patterns)):
@@ -4202,12 +4242,17 @@ def _finish_voices(
             reverse=True,
         )
         bell_bars = set(ranked_bells[:2])
-    bell_bars -= {eighth // epb for eighth in scale_eighths}
-    lead, support = _insert_bells(ctx, lead, support, bell_bars)
-    for bar in _fanfare_bars(ctx, levels):
-        lead, support, low = _apply_fanfare(ctx, lead, support, low, bar)
+    if not studio_mode:
+        bell_bars -= {eighth // epb for eighth in scale_eighths}
+        lead, support = _insert_bells(ctx, lead, support, bell_bars)
+        for bar in _fanfare_bars(ctx, levels):
+            lead, support, low = _apply_fanfare(ctx, lead, support, low, bar)
     relaxed: set[int] = set()
-    if _framed(ctx):
+    if studio_mode:
+        # Boundary pickups, frame paints, and transitions rewrite the last
+        # eighth of a bar. An authored cell keeps its own ending.
+        pass
+    elif _framed(ctx):
         lead, support, low = _strip_pedal(ctx, lead, support, low)
         lead, support, low = _paint_frames(ctx, patterns, lead, support, low)
         lead, support, low, relaxed = _smooth_boundaries(
@@ -4217,21 +4262,24 @@ def _finish_voices(
         lead, support, low = _transitions(
             ctx, patterns, levels, lead, support, low, scale_eighths, figure_bars=set(figure_at)
         )
-    for eighth in _caesura_eighths(ctx, levels):
-        if eighth in scale_eighths:
-            continue
-        lead = _silence(lead, eighth, epb)
-        support = _silence(support, eighth, epb)
-        low = _silence(low, eighth, epb)
+    if not studio_mode:
+        for eighth in _caesura_eighths(ctx, levels):
+            if eighth in scale_eighths:
+                continue
+            lead = _silence(lead, eighth, epb)
+            support = _silence(support, eighth, epb)
+            low = _silence(low, eighth, epb)
     lead, support, low = _repair(ctx, lead, support, low)
-    from app.sonify.guitar_torroba import apply_torroba_fan_ring
+    if not studio_mode:
+        from app.sonify.guitar_torroba import apply_torroba_fan_ring
 
-    lead, support, low = apply_torroba_fan_ring(ctx, lead, support, low, patterns)
-    # Downbeat pickups belong to the previous bar. Frames have already replaced
-    # a pedal hold; `_resolve` shortens whatever lead note still covers them.
-    from app.sonify.guitar_torroba import apply_sonatina_downbeats
+        lead, support, low = apply_torroba_fan_ring(ctx, lead, support, low, patterns)
+        # Downbeat pickups belong to the previous bar. Frames have already
+        # replaced a pedal hold; `_resolve` shortens whatever lead note still
+        # covers them.
+        from app.sonify.guitar_torroba import apply_sonatina_downbeats
 
-    lead, support = apply_sonatina_downbeats(ctx, lead, support, patterns, scale_eighths)
+        lead, support = apply_sonatina_downbeats(ctx, lead, support, patterns, scale_eighths)
     lead = _resolve(lead, epb, 1)
     support = _resolve_voices(support, epb, 2)
     low = _resolve(low, epb, 3)
@@ -4263,7 +4311,8 @@ def _finish_voices(
     figure_bars = set(figure_at)
     if figure_bars:
         plucked = (plucked or set()) | figure_bars
-    lead = _slur(lead, phrases, skip_bars=plucked)
+    if not studio_mode:
+        lead = _slur(lead, phrases, skip_bars=plucked)
     # Boundary pickups and caesuras already ran against passage eighths only.
     # Swarm eighths join the slur and dynamics sets now, and stay out of bell_bars.
     protected_eighths = set(scale_eighths) | sounding_swarm_eighths(ctx, patterns, scale_eighths)
@@ -4271,15 +4320,16 @@ def _finish_voices(
     lead, support, low = _shape_dynamics(
         ctx, lead, support, low, relaxed, patterns, protected_eighths
     )
-    from app.sonify.guitar_torroba import (
-        apply_castillo_first_a_contour,
-        apply_juglar_thumb,
-        apply_torroba_sung_arch,
-    )
+    if not studio_mode:
+        from app.sonify.guitar_torroba import (
+            apply_castillo_first_a_contour,
+            apply_juglar_thumb,
+            apply_torroba_sung_arch,
+        )
 
-    lead = apply_torroba_sung_arch(ctx, lead, patterns)
-    lead = apply_castillo_first_a_contour(ctx, lead, patterns)
-    low = apply_juglar_thumb(ctx, lead, low, patterns)
+        lead = apply_torroba_sung_arch(ctx, lead, patterns)
+        lead = apply_castillo_first_a_contour(ctx, lead, patterns)
+        low = apply_juglar_thumb(ctx, lead, low, patterns)
     written_lead = list(lead)
     from app.sonify.guitar_wave import apply_guitar_wave
 
@@ -4321,6 +4371,16 @@ def _finish_voices(
     # `divisions = 4` cannot overwrite 12.
     if "etude11" in patterns or _needs_twelfths([*lead, *support, *low]):
         divisions = 12
+    if studio_mode:
+        # No rest fill: the authored cell is the complete voice. Adding rest
+        # events here would make the Studio score differ from the cell the user
+        # auditioned, and the MusicXML writer already handles gaps.
+        filled_lead = _ScaleLead(list(lead))
+        filled_lead.scale_eighths = tuple(sorted(scale_eighths))
+        filled_lead.long_scale_eighths = tuple(sorted(long_scale_eighths))
+        _TRACE_LINE.set(list(ctx.melody))
+        _TRACE_PRICE_LINE.set(list(original_melody))
+        return filled_lead, list(support), list(low), divisions
     filled_lead = _ScaleLead(_fill(lead, musical_bars, epb, 1))
     filled_lead.scale_eighths = tuple(sorted(scale_eighths))
     filled_lead.long_scale_eighths = tuple(sorted(long_scale_eighths))

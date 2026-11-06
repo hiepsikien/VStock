@@ -205,6 +205,71 @@ def test_promote_reads_existing_texture_cells_for_plain_figures() -> None:
     assert set(plan.cells) == {figure.cell_id for figure, _texture in pool}
 
 
+def _pool_with_optional() -> list[tuple[PatternFigure, TextureSpec]]:
+    return [
+        *_pool(),
+        (
+            _figure("fig_b", "cell_b", 4, ("contrast",)),
+            _texture(4, id="cell_b"),
+        ),
+        (
+            _figure("fig_close", "cell_close", 2, ("close",)),
+            _texture(2, id="cell_close"),
+        ),
+    ]
+
+
+def test_promote_accepts_optional_contrast_and_close() -> None:
+    plan = promote_figures(PATTERN, METER, _pool_with_optional())
+
+    assert set(plan.tags) == {
+        "key",
+        "intro.short",
+        "intro.long",
+        "outro.short",
+        "outro.long",
+        "contrast",
+        "close",
+    }
+    assert plan.tags["contrast"].cell_id == "cell_b"
+    assert plan.tags["close"].cell_id == "cell_close"
+    assert plan.cell_ids["contrast"] == "cell_b"
+    assert plan.cell_ids["close"] == "cell_close"
+    assert {"cell_b", "cell_close"} <= set(plan.cells)
+    # The body sentence still derives from `key`, not from optional material.
+    assert plan.body.slots == (Slot(0, 4, cell="cell_key"),)
+
+
+def test_promote_rejects_a_duplicate_optional_tag() -> None:
+    pool = _pool_with_optional()
+    pool.append(
+        (
+            _figure("fig_b2", "cell_b2", 4, ("contrast",)),
+            _texture(4, id="cell_b2"),
+        )
+    )
+    with pytest.raises(ValueError, match="claimed by more than one figure"):
+        promote_figures(PATTERN, METER, pool)
+
+
+def test_promote_rejects_an_optional_figure_that_is_too_long() -> None:
+    pool = _pool_with_optional()
+    pool.append(
+        (
+            _figure("fig_close5", "cell_close5", 5, ("close",)),
+            _texture(5, id="cell_close5"),
+        )
+    )
+    with pytest.raises(ValueError, match="1-4 bars"):
+        promote_figures(PATTERN, METER, pool)
+
+
+def test_promote_still_rejects_a_missing_required_tag_with_optional_present() -> None:
+    pool = [item for item in _pool_with_optional() if item[0].id != "fig_out4"]
+    with pytest.raises(ValueError, match="missing figure tags: outro.long"):
+        promote_figures(PATTERN, METER, pool)
+
+
 # ---------------------------------------------------------------------------
 # id vs cellId
 # ---------------------------------------------------------------------------

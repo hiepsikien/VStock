@@ -34,13 +34,15 @@ def _figure(
     )
 
 
-def test_tag_vocabulary_is_the_five_roles() -> None:
+def test_tag_vocabulary_is_five_required_plus_two_optional_roles() -> None:
     assert FIGURE_TAGS == {
         "key",
         "intro.short",
         "intro.long",
         "outro.short",
         "outro.long",
+        "contrast",
+        "close",
     }
     assert REQUIRED_FIGURE_TAGS == (
         "key",
@@ -48,6 +50,43 @@ def test_tag_vocabulary_is_the_five_roles() -> None:
         "intro.long",
         "outro.short",
         "outro.long",
+    )
+
+
+def test_optional_body_tags_accept_one_to_four_bars() -> None:
+    for bars in (1, 2, 3, 4):
+        assert figure_tag_errors(("contrast",), bars) == ()
+        assert figure_tag_errors(("close",), bars) == ()
+        validate_figure_tags(("contrast", "close"), bars)
+
+
+def test_optional_body_tags_reject_more_than_four_bars() -> None:
+    errors = figure_tag_errors(("contrast",), 5)
+    assert any("1-4 bars" in error for error in errors)
+    with pytest.raises(ValueError, match="1-4 bars"):
+        validate_figure_tags(("close",), 5)
+
+
+def test_optional_tags_do_not_make_a_pool_incomplete() -> None:
+    figures = (
+        _figure("fig_key", bars=4, tags=("key",)),
+        _figure("fig_intro2", bars=2, tags=("intro.short",)),
+        _figure("fig_intro4", bars=4, tags=("intro.long",)),
+        _figure("fig_outro2", bars=2, tags=("outro.short",)),
+        _figure("fig_outro4", bars=4, tags=("outro.long",)),
+    )
+    assert missing_figure_tags(figures) == ()
+    assert "contrast" not in missing_figure_tags(figures)
+    assert "close" not in missing_figure_tags(figures)
+
+
+def test_optional_tag_cannot_have_two_owners() -> None:
+    first = _figure("fig_b1", bars=4, tags=("contrast",))
+    second = _figure("fig_b2", bars=2, tags=("contrast",))
+    errors = validate_figures((first, second))
+    assert any(
+        "'contrast' is claimed by more than one figure" in error
+        for error in errors
     )
 
 

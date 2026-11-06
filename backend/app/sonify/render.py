@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 import math
+from typing import TYPE_CHECKING
 
 from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
 from app.sonify.ensemble import fit_ensemble, tune_register
@@ -71,6 +72,9 @@ from app.sonify.model import (
     Variant,
     WedgeEvent,
 )
+if TYPE_CHECKING:
+    from app.sonify.studio_piece import StudioPiece
+
 from app.sonify.phrasing import (
     BREAKOUT,
     MIN_RISE,
@@ -922,6 +926,7 @@ def render(
     gap_leads: Sequence[str | None] | None = None,
     movement_index: int | None = None,
     movement_span: str | None = None,
+    studio_piece: "StudioPiece | None" = None,
 ) -> Score:
     """Compose in C, with register bounds shifted for `key` before any note is placed.
 
@@ -963,6 +968,7 @@ def render(
             gap_leads=gap_leads,
             movement_index=movement_index,
             movement_span=movement_span,
+            studio_piece=studio_piece,
         )
     return score
 
@@ -997,6 +1003,7 @@ def _compose(
     gap_leads: Sequence[str | None] | None = None,
     movement_index: int | None = None,
     movement_span: str | None = None,
+    studio_piece: "StudioPiece | None" = None,
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -1433,6 +1440,7 @@ def _compose(
                 movement_index=movement_index,
                 movement_span=movement_span,
                 price_eighths=price_eighths,
+                studio_piece=studio_piece,
             )
             # The guitar score grows this parameter. Pass it when the call can
             # take it; do not drop a later error that mentions the same name.

@@ -55,8 +55,20 @@ import {
   type MusicXmlPassage,
 } from './musicxml';
 import {
+  STUDIO_RENDER_PREFIX,
   buildSentenceDraftBody,
+  figureRenderAudioJobPath,
+  figureRenderAudioPath,
+  figureRenderMusicXmlPath,
+  figureRenderWavPath,
+  normalizeFigureAudioAccepted,
+  normalizeFigureAudioJobResponse,
+  normalizeFigureRenderResponse,
   normalizeSentenceDraftResponse,
+  type FigureAudioAccepted,
+  type FigureAudioJob,
+  type FigureRenderRequest,
+  type FigureRenderResponse,
   type MusicXmlSentenceDraftRequest,
   type SentenceDraftResponse,
 } from './sentenceDraft';
@@ -71,6 +83,18 @@ export type {
 } from './musicxml';
 
 export type {
+  FigureAudioAccepted,
+  FigureAudioJob,
+  FigureRenderAudio,
+  FigureRenderAudioError,
+  FigureRenderAudioStatus,
+  FigureRenderBar,
+  FigureRenderForm,
+  FigureRenderFormSpan,
+  FigureRenderPlanId,
+  FigureRenderPlanOption,
+  FigureRenderRequest,
+  FigureRenderResponse,
   MusicXmlSentenceDraftRequest,
   PatternDraft,
   PatternDraftMeta,
@@ -187,6 +211,33 @@ export function studioMusicXmlPassageUrl(id: string): string {
 /** Sprint C: one passage -> one sentence draft (spec + fixture + preview). */
 export function studioMusicXmlSentenceDraftUrl(id: string): string {
   return `${studioMusicXmlImportUrl(id)}/sentence-draft`;
+}
+
+/**
+ * Phase D: Render Piece (MusicXML + async production WAV). The relative paths
+ * live in `sentenceDraft.ts` so they stay testable without Expo imports.
+ */
+export function studioFigureRenderUrl(): string {
+  return `${getApiBaseUrl()}${STUDIO_RENDER_PREFIX}/render`;
+}
+
+export function studioFigureRenderMusicXmlUrl(renderHash: string): string {
+  return `${getApiBaseUrl()}${figureRenderMusicXmlPath(renderHash)}`;
+}
+
+export function studioFigureRenderWavUrl(audioHash: string): string {
+  return `${getApiBaseUrl()}${figureRenderWavPath(audioHash)}`;
+}
+
+export function studioFigureRenderAudioUrl(renderHash: string): string {
+  return `${getApiBaseUrl()}${figureRenderAudioPath(renderHash)}`;
+}
+
+export function studioFigureRenderAudioJobUrl(
+  renderHash: string,
+  jobId: string,
+): string {
+  return `${getApiBaseUrl()}${figureRenderAudioJobPath(renderHash, jobId)}`;
 }
 
 /** Roll back to a published version by creating a new version from its payload. */
@@ -658,5 +709,47 @@ export async function fetchPublishedSpec(
 ): Promise<StudioPublishedSpecDetail> {
   return normalizePublishedSpecResponse(
     await getStudio(studioSentenceSpecUrl(id), signal),
+  );
+}
+
+/**
+ * Render one Studio Piece: tagged figures + plan + bars + form.
+ *
+ * MusicXML is created synchronously; production audio is a separate async job
+ * (`fetchFigureRenderAudio`). Validation failures come back as
+ * `{ ok: false, errors: [{ path, message }] }`, not as thrown errors.
+ */
+export async function renderFigurePiece(
+  request: FigureRenderRequest,
+  signal?: AbortSignal,
+): Promise<FigureRenderResponse> {
+  return normalizeFigureRenderResponse(
+    await postStudioUrl(studioFigureRenderUrl(), request, signal),
+    getApiBaseUrl(),
+  );
+}
+
+/**
+ * Enqueue (or deduplicate) the production WAV export for a rendered piece.
+ * Returns the 202 job id; poll it with `fetchFigureAudioJob`.
+ */
+export async function fetchFigureRenderAudio(
+  renderHash: string,
+  signal?: AbortSignal,
+): Promise<FigureAudioAccepted> {
+  return normalizeFigureAudioAccepted(
+    await postStudioUrl(studioFigureRenderAudioUrl(renderHash), {}, signal),
+  );
+}
+
+/** One audio-job poll: queued/running/ready/failed plus the WAV URL. */
+export async function fetchFigureAudioJob(
+  renderHash: string,
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<FigureAudioJob> {
+  return normalizeFigureAudioJobResponse(
+    await getStudio(studioFigureRenderAudioJobUrl(renderHash, jobId), signal),
+    getApiBaseUrl(),
   );
 }

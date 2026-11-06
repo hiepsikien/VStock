@@ -1,6 +1,7 @@
 """Pure promote plan for a tagged Studio figure pool (Phase 4).
 
-:func:`promote_figures` validates a complete five-tag pool and returns a
+:func:`promote_figures` validates a complete five-required-tag pool (optional
+``contrast``/``close`` figures may also be present) and returns a
 :class:`PromotionPlan`: the derived body ``SentenceSpec``, the compiled door
 callable, the cell map, and the tag map. It is deliberately pure: nothing is
 written to ``TEXTURE_CELLS``, ``SENTENCE_SPECS``, or the door registry.
@@ -281,9 +282,11 @@ def promote_figures(
     texture explicitly is the intended promote path; the registry read keeps
     already-authored code cells usable.
 
-    Raises ``ValueError`` unless all five tags are present exactly once, every
-    figure has a non-empty ``cell_id``, and the body sentence is derivable from
-    the key figure. It never registers anything.
+    Raises ``ValueError`` unless all five required tags are present exactly
+    once, every figure has a non-empty ``cell_id``, and the body sentence is
+    derivable from the key figure. Optional ``contrast``/``close`` figures may
+    be present, must be unambiguous, and never replace a required tag. It never
+    registers anything.
     """
     pattern = _non_empty_string(pattern, "pattern")
     meter = _non_empty_string(meter, "meter")
@@ -315,9 +318,15 @@ def promote_figures(
                 tags[tag] = figure
 
     # `validate_figures` rejects duplicate owners and `missing` is empty, so
-    # every required tag is present exactly once here.
-    if set(tags) != set(REQUIRED_FIGURE_TAGS):
-        raise ValueError("figure pool must cover exactly the five required tags")
+    # every required tag is present exactly once here. Optional tags may be
+    # absent; when present they only extend the tag map.
+    absent_required = [
+        tag for tag in REQUIRED_FIGURE_TAGS if tag not in tags
+    ]
+    if absent_required:
+        raise ValueError(
+            "missing figure tags: " + ", ".join(absent_required)
+        )
 
     # A slot names a cell, never a figure id. Rejecting this early keeps a
     # draft that confused the two from silently deriving a second body.

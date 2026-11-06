@@ -5,6 +5,11 @@ plus a local ``cellId``, a bar count, and zero or more role tags. The tags are
 metadata: the production body is still a ``SentenceSpec`` that tiles the
 figure's cell.
 
+Five tags are required for promotion (``key`` and the four door frames). Two
+more are optional body material (``contrast`` for the B phrase and ``close``
+for the final phrase); a pool without them is still complete and later phases
+fall back to ``key`` with a warning.
+
 This module owns the tag vocabulary and the one-way derivation from the
 ``key`` tag to a body sentence. It imports no renderer and mutates nothing:
 every helper is pure, so Studio preview/export can use the same rules the
@@ -21,6 +26,7 @@ from app.sonify.sentence_specs import Select, SentenceSpec, Slot, Span
 __all__ = [
     "FIGURE_TAGS",
     "KEY_BODY_MISSING",
+    "OPTIONAL_FIGURE_TAGS",
     "REQUIRED_FIGURE_TAGS",
     "PatternFigure",
     "body_sentence_errors",
@@ -31,9 +37,6 @@ __all__ = [
     "validate_figures",
 ]
 
-FIGURE_TAGS = frozenset(
-    {"key", "intro.short", "intro.long", "outro.short", "outro.long"}
-)
 REQUIRED_FIGURE_TAGS = (
     "key",
     "intro.short",
@@ -41,15 +44,22 @@ REQUIRED_FIGURE_TAGS = (
     "outro.short",
     "outro.long",
 )
+#: Body material a plan may use but a complete five-tag pool need not have.
+OPTIONAL_FIGURE_TAGS = frozenset({"contrast", "close"})
+FIGURE_TAGS = frozenset(REQUIRED_FIGURE_TAGS) | OPTIONAL_FIGURE_TAGS
 #: `missing[]` uses this when the key figure is absent or unusable, per §3.5.
 KEY_BODY_MISSING = "key.body"
 
 #: Short scripts are 2 bars, long scripts are 4. `key` may be any length >= 1.
-_TAG_BARS = {
+#: A tuple is an inclusive ``(min, max)`` range: `contrast`/`close` are body
+#: phrases, so any 1-4 bar figure is legal.
+_TAG_BARS: dict[str, int | tuple[int, int]] = {
     "intro.short": 2,
     "intro.long": 4,
     "outro.short": 2,
     "outro.long": 4,
+    "contrast": (1, 4),
+    "close": (1, 4),
 }
 
 
@@ -75,6 +85,7 @@ def figure_tag_errors(tags: Sequence[str], bars: int) -> tuple[str, ...]:
     * ``key`` needs at least one bar;
     * ``intro/outro.short`` needs exactly 2 bars;
     * ``intro/outro.long`` needs exactly 4 bars;
+    * ``contrast``/``close`` need 1-4 bars;
     * a multi-tag figure must satisfy every tag it carries;
     * a tag may appear only once on one figure.
     """
@@ -91,7 +102,17 @@ def figure_tag_errors(tags: Sequence[str], bars: int) -> tuple[str, ...]:
             continue
         seen.add(tag)
         expected = _TAG_BARS.get(tag)
-        if expected is not None and bars != expected:
+        if isinstance(expected, tuple):
+            low, high = expected
+            if (
+                isinstance(bars, int)
+                and not isinstance(bars, bool)
+                and not low <= bars <= high
+            ):
+                errors.append(
+                    f"tag {tag!r} needs {low}-{high} bars, got {bars}"
+                )
+        elif expected is not None and bars != expected:
             errors.append(
                 f"tag {tag!r} needs {expected} bars, got {bars}"
             )
@@ -106,7 +127,11 @@ def validate_figure_tags(tags: Sequence[str], bars: int) -> None:
 
 
 def validate_figures(figures: Sequence[PatternFigure]) -> tuple[str, ...]:
-    """Cross-figure rules: per-figure tags plus one owner per tag (MVP)."""
+    """Cross-figure rules: per-figure tags plus one owner per tag (MVP).
+
+    The one-owner rule covers **every** known tag, required or optional: two
+    figures claiming ``contrast`` are as ambiguous as two claiming ``key``.
+    """
     errors: list[str] = []
     owners: dict[str, list[str]] = {}
     for figure in figures:
@@ -118,8 +143,8 @@ def validate_figures(figures: Sequence[PatternFigure]) -> tuple[str, ...]:
         for tag in figure.tags:
             if tag in FIGURE_TAGS:
                 owners.setdefault(tag, []).append(figure.id)
-    for tag in REQUIRED_FIGURE_TAGS:
-        if len(owners.get(tag, ())) > 1:
+    for tag in sorted(owners):
+        if len(owners[tag]) > 1:
             errors.append(
                 f"tag {tag!r} is claimed by more than one figure: "
                 f"{sorted(owners[tag])}"
@@ -152,6 +177,10 @@ def missing_figure_tags(
     it is reported as missing. A missing or unusable key report is
     ``"key.body"`` rather than ``"key"``, because the completeness question is
     whether the body sentence is derivable, not whether a label exists.
+
+    Optional tags (``contrast``/``close``) are deliberately not reported: a
+    five-tag pool is complete, and the arrangement builder warns and falls back
+    to ``key`` when they are absent.
     """
     owners = _valid_owners(figures)
     missing: list[str] = []
