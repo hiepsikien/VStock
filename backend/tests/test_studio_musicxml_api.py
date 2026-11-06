@@ -186,6 +186,24 @@ def _meter_change_fixture() -> bytes:
     ).encode("utf-8")
 
 
+def _mixed_meter_fixture() -> bytes:
+    """Bar 1 is a full 2/4; bar 2 changes to a full 3/4."""
+    return (
+        '<score-partwise version="4.0"><part-list>'
+        '<score-part id="P1"><part-name>Guitar</part-name></score-part>'
+        '</part-list><part id="P1">'
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        '<time><beats>2</beats><beat-type>4</beat-type></time></attributes>'
+        '<note><pitch><step>E</step><octave>4</octave></pitch>'
+        '<duration>2</duration><voice>1</voice></note></measure>'
+        '<measure number="2"><attributes><time><beats>3</beats>'
+        '<beat-type>4</beat-type></time></attributes>'
+        '<note><pitch><step>G</step><octave>4</octave></pitch>'
+        '<duration>3</duration><voice>1</voice></note></measure>'
+        '</part></score-partwise>'
+    ).encode("utf-8")
+
+
 def _waltz_fixture() -> bytes:
     """Three clean 3/4 bars: one dotted-half note per bar (3 quarter beats)."""
     measures = []
@@ -585,10 +603,10 @@ def test_summary_reports_per_measure_meters_and_one_based_changes() -> None:
     uploaded = _upload(client, _meter_change_fixture()).json()
     summary = uploaded["summary"]
 
-    assert summary["meter"] == "1/4"
+    assert summary["meter"] == "2/4"
     assert summary["measureCount"] == 5
-    assert summary["measureMeters"] == ["1/4", "2/4", "2/4", "2/4", "2/4"]
-    assert summary["meterChanges"] == [{"bar": 2, "meter": "2/4"}]
+    assert summary["measureMeters"] == ["2/4"] * 5
+    assert summary["meterChanges"] == []
     assert summary["meterSupported"] is True
 
 
@@ -623,22 +641,23 @@ def test_one_four_pickup_passage_builds_spec_and_audio() -> None:
 
     body = _passage(client, import_id, barStart=1, barEnd=1).json()
     assert body["ok"] is True, body["errors"]
-    assert body["meter"] == "1/4"
-    assert body["beatsPerBar"] == 1
+    assert body["meter"] == "2/4"
+    assert body["beatsPerBar"] == 2
     assert _AUDIO_URL.match(body["audioUrl"] or "")
-    # One 1/4 bar at 96 BPM plus the 0.5 s tail.
-    assert body["durationSec"] == pytest.approx(1.125, abs=0.05)
+    # The pickup is beat 2; a whole 2/4 bar at 96 BPM + the 0.5 s tail.
+    assert body["durationSec"] == pytest.approx(1.75, abs=0.05)
 
     variant = body["spec"]["meter_variants"][0]
-    assert variant["meter"]["id"] == "1/4"
-    assert variant["meter"]["beats"] == 1
-    assert variant["meter"]["eighths_per_bar"] == 2
+    assert variant["meter"]["id"] == "2/4"
+    assert variant["meter"]["beats"] == 2
+    assert variant["meter"]["eighths_per_bar"] == 4
     assert {event["bar"] for event in body["spec"]["authored"]["events"]} == {0}
+    assert {event["beat"] for event in body["spec"]["authored"]["events"]} == {1.0}
 
 
 def test_mixed_meter_range_is_rejected_honestly() -> None:
     client = _client()
-    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+    import_id = _upload(client, _mixed_meter_fixture()).json()["importId"]
 
     response = _passage(client, import_id, barStart=1, barEnd=2)
     assert response.status_code == 200
@@ -651,7 +670,7 @@ def test_mixed_meter_range_is_rejected_honestly() -> None:
     assert body["beatsPerBar"] is None
     assert [error["path"] for error in body["errors"]] == ["meter"]
     message = body["errors"][0]["message"]
-    assert "1/4" in message and "2/4" in message
+    assert "2/4" in message and "3/4" in message
     assert "constant meter" in message
 
 
@@ -897,15 +916,15 @@ def test_beat_offsets_are_validated() -> None:
 
 def test_beat_ranges_reject_a_mixed_meter() -> None:
     client = _client()
-    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+    import_id = _upload(client, _mixed_meter_fixture()).json()["importId"]
 
     body = _passage(
         client, import_id, barStart=1, beatStart=0, barEnd=2, beatEnd=1
     ).json()
     assert body["ok"] is False
     assert [error["path"] for error in body["errors"]] == ["meter"]
-    assert "1/4" in body["errors"][0]["message"]
     assert "2/4" in body["errors"][0]["message"]
+    assert "3/4" in body["errors"][0]["message"]
     assert body["spec"] is None
     assert body["notes"] == []
     assert body["audioUrl"] is None
@@ -916,7 +935,7 @@ def test_beat_ranges_reject_a_mixed_meter() -> None:
         client, import_id, barStart=1, beatStart=0, barEnd=2, beatEnd=0
     ).json()
     assert boundary["ok"] is True, boundary["errors"]
-    assert boundary["meter"] == "1/4"
+    assert boundary["meter"] == "2/4"
     assert {note["bar"] for note in boundary["notes"]} == {0}
 
 
@@ -980,18 +999,18 @@ def test_two_four_beat_range_still_works() -> None:
     assert body["durationSec"] == pytest.approx(3 * 0.625 + 0.5, abs=0.05)
 
 
-def test_one_four_beat_range_still_works() -> None:
+def test_pickup_beat_range_still_works() -> None:
     client = _client()
     import_id = _upload(client, _meter_change_fixture()).json()["importId"]
 
     body = _passage(
-        client, import_id, barStart=1, beatStart=0.25, barEnd=1, beatEnd=0.75
+        client, import_id, barStart=1, beatStart=1, barEnd=1, beatEnd=2
     ).json()
     assert body["ok"] is True, body["errors"]
-    assert body["meter"] == "1/4"
-    assert body["beatsPerBar"] == 1
+    assert body["meter"] == "2/4"
+    assert body["beatsPerBar"] == 2
     assert _AUDIO_URL.match(body["audioUrl"] or "")
-    assert _note_map(body) == {(0, 0.0, 52): 0.5}
+    assert {note["bar"] for note in body["notes"]} == {0}
     assert body["durationSec"] > 0.0
 
 

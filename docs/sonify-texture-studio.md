@@ -260,7 +260,7 @@ Draft không phải runtime. Checklist tối thiểu:
 - `2/4` không có committed Villa template; backend tự tạo template một-bar `villa_2_4_arpeggio` cho draft.
 - Beat offset bị quantize về **whole bar**; tie ở biên partial-bar không được biểu diễn.
 - `MAX_PLAN_BARS = 64` (dài hơn → lỗi); `MAX_RENDER_BARS = 16` (dài hơn → warning, chỉ render 16 bar đầu).
-- Pickup/implicit measure dùng **full meter length**; độ dài pickup thật chưa giữ (có warning).
+- Pickup 1/4 mở đầu trước body 2/4 được chuẩn hoá thành **2/4**, note shift sang beat 2; đây là anacrusis, không phải meter change 1/4→2/4. Measure cuối thiếu beat vẫn giữ meter khai báo và có warning; độ dài measure thật chưa lưu.
 - Tie được merge trong spec/audio nhưng **không vẽ connector** trong matrix.
 - Family override không mở pattern mới cho production: `dispatch.family_for(new_id)` vẫn `None` cho tới khi promote.
 - Import/passage/draft quota là in-memory: restart mất record.

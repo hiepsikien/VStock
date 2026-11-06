@@ -389,7 +389,7 @@ Dùng tên canonical của registry:
 | **Schottish-Choro** | `4/4` | `villa_schottish_choro` | `suite_schottish_arpeggio_abab` |
 
 Nếu file Scottish thực tế là `1/4 → 2/4`:
-- không dùng template `4/4`;
+- parser coi bar 1 là **pickup 2/4**, shift note sang beat 2, nên summary/meterChanges không còn 1/4;
 - backend tạo template một-bar `villa_2_4_arpeggio` (Villa figure) khi để Auto;
 - UI cho phép 2/4 với cảnh báo template mặc định.
 

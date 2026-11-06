@@ -391,12 +391,11 @@ def _meter_change_score() -> bytes:
 def test_measure_meters_change_and_inherit() -> None:
     score = parse_musicxml(_meter_change_score())
 
-    assert score.meter == "1/4"
-    assert score.measure_meters == ("1/4", "2/4", "2/4")
-    assert score_summary(score)["measureMeters"] == ["1/4", "2/4", "2/4"]
-    assert any(
-        "meter changes from 1/4 to 2/4" in warning for warning in score.warnings
-    )
+    assert score.meter == "2/4"
+    assert score.measure_meters == ("2/4", "2/4", "2/4")
+    assert score_summary(score)["measureMeters"] == ["2/4", "2/4", "2/4"]
+    assert any("pickup" in warning for warning in score.warnings)
+    assert any(note.bar == 0 and note.beat == 1.0 for note in score.notes)
 
 
 def test_missing_time_fills_every_measure_with_assumed_meter() -> None:

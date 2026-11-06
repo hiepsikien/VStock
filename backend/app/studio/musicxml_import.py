@@ -35,7 +35,7 @@ import hashlib
 import math
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -208,10 +208,15 @@ def parse_musicxml(
         )
     parser.parse_part(parts[0])
 
-    meter = parser.meter
+    if parser.meter is None:
+        parser.warn("no time signature found; assumed 4/4")
+    meters = list(_resolved_measure_meters(parser.measure_meters))
+    notes = _normalise_incomplete_edges(
+        parser.notes, meters, parser.measure_count, parser.warn
+    )
+    meter = meters[0] if meters else parser.meter
     if meter is None:
         meter = "4/4"
-        parser.warn("no time signature found; assumed 4/4")
     if not parser.key_seen:
         parser.warn("no key signature found; assumed C major")
 
@@ -224,7 +229,7 @@ def parse_musicxml(
             f"semitones but guitar_transpose={guitar_transpose:+d} was used"
         )
 
-    notes = tuple(sorted(parser.notes, key=_note_sort_key))
+    notes = tuple(sorted(notes, key=_note_sort_key))
     digest = source_hash
     return ImportedScore(
         id=f"musicxml:{digest[:16]}",
@@ -239,7 +244,7 @@ def parse_musicxml(
         part_count=len(parts),
         notes=notes,
         warnings=parser.warnings.as_tuple(),
-        measure_meters=_resolved_measure_meters(parser.measure_meters),
+        measure_meters=tuple(meters),
     )
 
 
@@ -324,6 +329,92 @@ def score_summary(score: ImportedScore) -> dict[str, Any]:
         "slurStops": sum(1 for note in score.notes if note.slur_stop),
         "warnings": list(score.warnings),
     }
+
+
+def _meter_quarter_length(meter: str) -> float | None:
+    if "/" not in meter:
+        return None
+    numerator, _, denominator = meter.partition("/")
+    try:
+        beats = int(numerator)
+        beat_type = int(denominator)
+    except ValueError:
+        return None
+    if beats <= 0 or beat_type <= 0:
+        return None
+    return beats * 4 / beat_type
+
+
+def _measure_lengths(notes: list[ImportedNote], count: int) -> list[float]:
+    lengths = [0.0] * count
+    for note in notes:
+        if 0 <= note.bar < count:
+            lengths[note.bar] = max(
+                lengths[note.bar], note.beat + max(0.0, note.duration)
+            )
+    return lengths
+
+
+def _normalise_incomplete_edges(
+    notes: list[ImportedNote],
+    meters: list[str],
+    count: int,
+    warn: Callable[[str], None],
+) -> list[ImportedNote]:
+    """Turn the common 1/4 pickup into 2/4 and keep a short tail in its meter.
+
+    MusicXML often writes an anacrusis as a literal 1/4 measure before a 2/4
+    body. The printed meter is not the piece's meter; the pickup is beat 2 of
+    the first 2/4 bar. Shift those notes to beat 2 so a whole passage can select
+    bar 1 without a spurious 1/4/2/4 mix.
+    """
+    if count < 2 or len(meters) != count:
+        return notes
+    lengths = _measure_lengths(notes, count)
+    first_len = lengths[0]
+    last_len = lengths[-1]
+    first_meter = meters[0]
+    next_meter = meters[1]
+    if (
+        first_meter == "1/4"
+        and next_meter == "2/4"
+        and first_len < 2.0 - 1e-9
+    ):
+        shift = 2.0 - first_len
+        notes = [
+            replace(note, beat=note.beat + shift) if note.bar == 0 else note
+            for note in notes
+        ]
+        meters[0] = "2/4"
+        warn(
+            "measure 1: incomplete 1/4 pickup treated as beat 2 of 2/4; "
+            f"notes shifted by {shift:g} beat(s)"
+        )
+
+    last_meter = meters[-1]
+    previous_meter = meters[-2]
+    previous_len = _meter_quarter_length(previous_meter)
+    last_declared_len = _meter_quarter_length(last_meter)
+    if (
+        last_meter == "1/4"
+        and previous_meter == "2/4"
+        and previous_len is not None
+        and last_len < previous_len - 1e-9
+    ):
+        meters[-1] = previous_meter
+        warn(
+            f"measure {count}: incomplete final 1/4 measure kept in 2/4 "
+            "(notes are not shifted)"
+        )
+    elif (
+        last_declared_len is not None
+        and last_len < last_declared_len - 1e-9
+    ):
+        warn(
+            f"measure {count}: incomplete final measure uses the full "
+            f"{last_meter} layout (notes are not shifted)"
+        )
+    return notes
 
 
 def _summary_measure_meters(score: ImportedScore) -> list[str]:
@@ -580,8 +671,7 @@ class _Parser:
         elif meter != self.current_meter:
             self.warn(
                 f"{self._measure()}: meter changes from {self.current_meter} "
-                f"to {meter}; the summary keeps {self.meter} as its first "
-                "meter and records the per-measure values"
+                f"to {meter}; per-measure values follow the change"
             )
         self.current_meter = meter
         if self.bar < len(self.measure_meters):
