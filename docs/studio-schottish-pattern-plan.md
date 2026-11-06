@@ -436,3 +436,120 @@ MVP: có thể chỉ log/plan quota, chưa cần ép; Phase sau mới enforce.
 4. Quota: **70% ±10%**, mềm, không cắt cadence/B.
 5. Preset trước; user-authorable sau.
 6. Key figure Bước 4: chọn bar 2 hoặc 3 của Scottish; ưu tiên rhythm fidelity, dùng `TextureSpec` hiện có.
+
+---
+
+## 13. Variants và Studio selection
+
+Đúng: sau này có thể có nhiều **variants**, và Studio có thể cho user chọn. Nhưng cần phân biệt 3 tầng variant.
+
+### 13.1. SentenceSpec variant
+
+Một câu cụ thể trong pattern/meter:
+
+```text
+schottish_a
+schottish_b
+schottish_close
+```
+
+Khác nhau ở:
+
+- figure/key figure;
+- rhythm;
+- slot layout;
+- select length/n/closes/rise.
+
+Registry hiện đã hỗ trợ nhiều spec:
+
+```python
+SENTENCE_SPECS[("suite_schottish", "4/4")] = (a, b, close)
+```
+
+Nhưng `SuiteGate` hiện chỉ một spec; phải mở thành tuple/plan nhiều spec.
+
+### 13.2. Plan variant
+
+Cách ghép sentence theo phrase:
+
+```text
+AABA
+ABAB
+A A B close
+through-composed
+key-figure-dominant (quota)
+```
+
+Plan variant quyết định:
+
+- phrase nào A/B/close;
+- B ở bridge/trio hay middle;
+- phrase cuối cadence;
+- quota sentence/key figure.
+
+Đây là tầng cần thêm mới — hiện `SuiteGate` hardcode one plan.
+
+### 13.3. Key figure variant
+
+Cùng pattern nhưng key figure khác:
+
+```text
+schottish_arpeggio_key
+schottish_rhythm_key
+```
+
+Dùng `TextureSpec`/`PitchRef`; không tạo schema mới.
+
+### 13.4. Studio UX
+
+Khi variants có:
+
+1. User chọn pattern + meter.
+2. Studio hiện **variant picker**:
+   - Sentence variant (A/B/close);
+   - Plan variant (AABA/ABAB/...);
+   - Key figure;
+   - quota.
+3. Preview/audio từng variant.
+4. Export/publish variant đã chọn.
+5. Không auto-apply vào SentenceSpec editor.
+
+### 13.5. Composer behavior
+
+- Composer mặc định vẫn auto-select theo plan rules.
+- Studio variant là **authoring/preview**; chỉ thành production khi:
+  - promote code/registry; hoặc
+  - có explicit variant override được thiết kế (chưa có).
+- Không để Studio selection mutate global registry/composer ngoài flag.
+
+### 13.6. API/registry cần thêm
+
+- `GET /v1/studio/sentence/variants?pattern=&meter=` → danh sách variant + plan policy.
+- Draft request thêm `variantId` / `planId`.
+- `SentenceSpec` vẫn là schema lõi; `PlanVariant` là data mới:
+
+```json
+{
+  "id": "schottish_aaba",
+  "pattern": "suite_schottish",
+  "meter": "4/4",
+  "phrases": ["A", "A", "B", "close"],
+  "sentenceByRole": {
+    "A": "schottish_a",
+    "B": "schottish_b",
+    "close": "schottish_close"
+  },
+  "quota": 0.7
+}
+```
+
+- Plan variant default = composer auto; Studio only overrides for preview/export after promotion.
+
+### 13.7. Acceptance
+
+- Nhiều `SentenceSpec` cùng pattern/meter register được.
+- `SuiteGate`/plan chọn theo phrase, không first-match mù.
+- Studio hiện variants, preview từng cái.
+- Chọn variant không đổi composer runtime.
+- Flag off byte-identical.
+- Phrase cuối luôn close/cadence; B không bị cắt.
