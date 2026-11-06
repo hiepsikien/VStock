@@ -1,332 +1,317 @@
-# Kế hoạch: đưa pattern + sentences mới vào composer
+# Kế hoạch revised: pattern + sentences mới cho composer
 
-Trạng thái: đề xuất, chưa triển khai.
+Trạng thái: revised sau review kỹ thuật, chưa triển khai.
 Phạm vi: `release/studio-v2.1`; `main` không đổi.
-Mục tiêu trước mắt: pattern **Schottish-Choro 2/4** dùng key figure 1 bar + sentences AABA, có flag production.
+Mục tiêu cuối: composer render được một bản Schottish-Choro nghe coherent, không chỉ một pattern flag-on.
 
 ---
 
-## 1. Kết luận kiểm tra code
+## 0. Các điểm review đã chấp nhận
 
-### 1.1. Key figure 1 bar
-
-Hiện tại:
-
-- `villa_pattern` có base renderer `_render_villa_bar`, không phải key figure do user chọn.
-- `VILLA_ARPEGGIO` là figure 1 bar có sẵn; sau RC6 đã hỗ trợ `2/4`.
-- New-pattern draft trả `rhythmTemplate` preview-only; **chưa** được đăng ký thành figure production.
-
-Vì vậy chưa thể “chọn 1 bar bất kỳ làm key figure và loop” trong composer.
-
-### 1.2. Thuật toán sentences
-
-Không có rule **70% sentence / 30% còn lại** trong code.
-
-Đang có:
-
-- `plan_sentence()` / `plan_slots()`:
-  - chọn `SentenceSpec` theo `length_min/max`, `n_parity`, `closes`, `rise_min`;
-  - tile slots theo `span.tile`;
-  - không có tỉ lệ 70/30.
-- `guitar_scale_passages.py` có **30% body budget** cho scale passage, không liên quan sentence.
-
-Nếu muốn 70/30 phải định nghĩa rule mới; không nên giả định nó đã có.
-
-### 1.3. Đưa pattern mới vào composer
-
-Composer chỉ đọc:
-
-- `_select_body` / plan rules;
-- `SENTENCE_SPECS` đã register;
-- pattern renderer code;
-- production flag.
-
-Preview/export draft **không đủ**. Cần code + registration + flag + tests.
+| Feedback | Xử lý trong plan |
+|---|---|
+| `2/4` chưa đi vào composer runtime | **Không** làm native 2/4 ở Phase 1; dùng 4/4 fold hiện có. Native 2/4 là phase riêng sau khi có FormSpec/span path |
+| AABA 4 bar chỉ là ostinato | Phase 1 chỉ là foundation; Phase 2 làm phrase-level AABA/cadence |
+| `VILLA_CHORD_MELODY` lỗi 2/4 | Nếu native 2/4: sửa `_chord_grid` + test no-overflow. Phase 1 fold 4/4 không dùng lỗi này |
+| Pattern id/title trùng | Không tạo `suite_schottish_2_4` ngay; dùng `suite_schottish` + meter variant khi native |
+| Thiếu wiring registry/doors/wave | Thêm checklist đầy đủ §4 |
+| Studio preview/dispatch chưa nối | Thêm phase Studio preview/export + whitelist/family |
+| Không có 70/30 | Xác nhận **không tồn tại**; chỉ làm nếu chốt rule âm nhạc |
+| Schema `KeyFigureSpec` song song | Dùng `TextureSpec`/`PitchRef` hiện có, không tạo schema mới |
 
 ---
 
-## 2. Hướng triển khai
+## 1. Quyết định kiến trúc
 
-### Bước A — production trước, key figure có sẵn
+### Phase 1 — production foundation: 4/4 fold
 
-Tạo pattern native 2/4:
-
-```text
-pattern id: suite_schottish_2_4
-meter:      2/4
-title:      Schottish-Choro
-key figure: VILLA_ARPEGGIO      (1 bar)
-contrast:   VILLA_CHORD_MELODY  (1 bar)
-sentence:   AABA
-```
-
-Sentence:
+Dùng pattern hiện có:
 
 ```text
-A = VILLA_ARPEGGIO
-B = VILLA_CHORD_MELODY
+suite_schottish
+meter 4/4 (fold from 2/4)
 ```
 
-`AABA` tile 4 bar, lặp/truncate theo phrase length.
+Lý do:
 
-Ưu điểm:
+- `METER_24` có trong `form.py` nhưng **chưa có FormSpec/span production path**.
+- `span._guitar_meter()` chỉ đổi `3/4 ↔ 6/8`; không tạo `2/4`.
+- Thêm native 2/4 lúc này sẽ là dead path: `SuiteGate.eligible(ctx.kind=="2/4")` không bao giờ đúng trong composer thật.
 
-- dùng `SuiteGate` sẵn có;
-- không cần runtime mới;
-- composer có pattern thật;
-- flag default off, rollback an toàn.
+Phase 1 **không phải bản final**. Nó để:
 
-Hạn chế:
+- nối đúng pipeline production;
+- có flag/digest/tests;
+- nghe thử texture;
+- tạo nền cho phrase-level AABA.
 
-- key figure là arpeggio có sẵn, **không** phải đúng rhythm bar người dùng chọn;
-- chưa có 70/30;
-- chưa phải transcription của bản gốc.
+### Phase 2 — musical form
 
-### Bước B — key figure tùy ý từ passage
+- AABA phải là **câu 16 bar** hoặc **phrase-level plan**, không phải tile 4 bar lặp.
+- B đặt theo phrase/trio/apex, có câu kết A/cadence.
+- Sentence selection theo `n`/`closes`/`rise`, không hardcode `n=0, closes=False, rise=0`.
 
-Sau khi Bước A chạy ổn định:
+### Phase 3 — native 2/4
+
+Chỉ làm khi:
+
+- `FormSpec`/`span` tạo được `ctx.kind == "2/4"` thật;
+- dùng cùng pattern id `suite_schottish` + meter variant `2/4`;
+- không tạo title thứ hai trùng tên.
+
+### Phase 4 — key figure tùy ý
+
+- Dùng `TextureSpec`/`PitchRef` hiện có.
+- Không tạo `KeyFigureSpec` song song.
+- 70/30 chỉ làm nếu chốt rule; hiện không có.
+
+---
+
+## 2. Hiện trạng đã kiểm tra
+
+### 2.1. 2/4 runtime
+
+- `METER_24` có trong `form.py`.
+- Chỉ dùng ở Studio preview/audio/MusicXML; **không** có `FormSpec` production dùng `METER_24`.
+- `span._guitar_meter()` chỉ map 3/4/6/8.
+- Docs §4.4.1 đang chốt Schottish 2/4 fold 4/4.
+
+### 2.2. Sentence plan
+
+- `SuiteGate._plan()` gọi `plan_slots(..., n=0, closes=False, rise=0)` một lần cho cả movement.
+- `SuiteGate.specs` chỉ một spec; `ensure_registered()` raise nếu tuple khác.
+- Vì vậy AABA 4 bar = ostinato lặp, không phải 4 câu.
+
+### 2.3. Figure B 2/4
+
+- `guitar_villa._chord_grid()` cho meter khác 4/4/6/8 trả `[0,4]`, `[4,2]`.
+- Với `ctx.epb=4`, offset 4 là downbeat bar sau → note tràn bar.
+- Native 2/4 phải sửa `_chord_grid` và test no-overflow.
+
+### 2.4. Registry/title
+
+- `suite_schottish` đã có title `Schottish-Choro`.
+- Thêm `suite_schottish_2_4` cùng title sẽ fail title uniqueness.
+- `PATTERN_META` counts/`PATTERN_NAMES`/generated TS/matrix phải cập nhật.
+
+### 2.5. Studio
+
+- `villa_preview.VILLA_PATTERNS` chỉ có `villa_pattern`, `chord_melody`, `etude1`, `etude11`.
+- `dispatch.family_for("suite_schottish")` trả `None`.
+- Studio preview/audio/export không nhận pattern suite nếu không mở family/whitelist.
+
+### 2.6. 70/30
+
+Không tồn tại.
+
+- `plan_sentence`/`plan_slots` chọn theo length/n/closes/rise và tile slots.
+- `guitar_scale_passages` có 30% body budget cho scale passage, không phải sentence.
+- 70/30 phải định nghĩa rõ: theo bar, beat hay voice.
+
+---
+
+## 3. Phase chi tiết
+
+### Phase 1 — production foundation (4/4 fold)
+
+1. Giữ `suite_schottish` hiện có; không tạo pattern id mới.
+2. Sửa/tối thiểu sentence:
+   - 4-bar tile ABAB hoặc AABA;
+   - ghi rõ đây là texture foundation, không phải final AABA.
+3. Nối đầy đủ wiring §4.
+4. Flag:
+   - `VSTOCK_SUITE_SCHOTTISH` đã có;
+   - giữ default off.
+5. Test:
+   - flag off digest byte-identical;
+   - flag on selection/render;
+   - plan/slots;
+   - no note overflow;
+   - composer chọn được pattern trong form 4/4.
+
+**Không tuyên bố Phase 1 là bản nhạc final.**
+
+### Phase 2 — musical AABA
+
+Chọn một trong hai:
+
+#### Option A — 16-bar sentence
+
+```text
+A1 4 bar  key figure
+A2 4 bar  key figure variation
+B  4 bar  contrast
+A3 4 bar  close/cadence
+tile = 16
+```
+
+- `SentenceSpec` tile 16.
+- `select.length_min=16`.
+- Movement 30 bar: 16 + 14 truncate; cần thêm spec 8/16 hoặc fallback cadence.
+
+#### Option B — phrase-level sentence plan (khuyến nghị)
+
+- `SuiteGate` mở rộng `specs` thành tuple.
+- `plan_slots` theo từng phrase:
+  - chọn spec theo `n`, `closes`, `rise`;
+  - B ở phrase bridge/trio;
+  - phrase cuối dùng close/cadence spec.
+- Không còn hardcode `n=0`.
+- Cần test 5/7/9/16/30 bar.
+
+Yêu cầu âm nhạc:
+
+- câu kết A, không kết ở B;
+- B có contrast nhưng không phá cadence;
+- key figure lặp có biến đổi;
+- không tràn bar/voice.
+
+### Phase 3 — native 2/4
+
+1. Thêm FormSpec/span path cho 2/4:
+   - ít nhất một movement guitar tạo `METER_24`;
+   - test composer thật, không chỉ `_render(..., METER_24, ...)`.
+2. Dùng `suite_schottish` + meter variant `("suite_schottish","2/4")`.
+3. Sửa `_chord_grid` 2/4:
+   - ví dụ `[0,2] / [2,2]` hoặc `[0] / [epb]`;
+   - test mọi figure 2/4 không có `beat/duration` vượt bar.
+4. Wave/accent profile 2/4:
+   - không copy `tresillo` 4/4;
+   - audition strong beat 0/subbar 2.
+5. Studio preview:
+   - mở `VILLA_PATTERNS`/dispatch/export cho `suite_schottish` 2/4;
+   - hoặc ghi rõ production-only, không authorable.
+6. Cập nhật candidate 4/4 fold → 2/4 native hoặc đánh dấu legacy.
+
+### Phase 4 — key figure tùy ý
 
 1. Chọn 1 bar passage.
-2. Trích:
-
-```text
-role → onset / duration / rest / tie
-```
-
-3. Gán pitch policy:
-
-| Role | Policy |
-|---|---|
-| Lead | `melody_at_beat` / `melody_eighth` |
-| Mid | `chord_degree` |
-| Bass | `bass_root` / chord root |
-
-4. Tạo `KeyFigureSpec` / `RhythmTemplate` production.
-5. Renderer generic loop key figure.
-6. Sentence slots override một phần bar.
-7. Nếu cần 70/30, định nghĩa rule rõ:
-
-```text
-70% bar body = sentence slots
-30% bar body = key figure loop
-```
-
-Rule 70/30 **chưa có**; chỉ làm khi bạn chốt.
+2. Trích rhythm per role.
+3. Tạo `TextureSpec`:
+   - `authored.events` dùng `PitchRef` hiện có;
+   - Lead: `melody_eighth`/`melody_at_beat`;
+   - Mid: `chord_degree`;
+   - Bass: `chord_root`/`bass_root` (nếu cần thêm).
+4. Renderer generic loop key figure; sentence slots override.
+5. 70/30 nếu chốt:
+   - định nghĩa theo bar/beat/voice;
+   - test cadence và không phá phrase.
+6. Promote qua registry/flag; preview/export trước.
 
 ---
 
-## 3. Bước A — chi tiết production
+## 4. Wiring checklist đầy đủ
 
-### 3.1. Module mới
+Khi thêm pattern/meter variant:
 
-```text
-backend/app/sonify/guitar_suite_schottish_2_4.py
-```
+### Production flags
 
-Dùng:
+- `production_flags.py`
+  - env constant;
+  - ContextVar override;
+  - `SUITE_MOVEMENT_ENVS` nếu là suite movement;
+  - `any_suite_movement_enabled()`;
+  - `__all__`.
 
-- `SuiteGate`;
-- `VILLA_ARPEGGIO`, `VILLA_CHORD_MELODY`;
-- `render_villa_figure`;
-- `sentence_specs.register`.
+### Pattern/runtime
 
-Data dự kiến:
+- `guitar_patterns.py`
+  - `_FAMILY`;
+  - `_PROFILE`;
+  - `_finish_voices` ringing set;
+  - `_contrast_pattern` nếu pattern có thể làm contrast;
+  - `_PEDAL_DOOR_PROFILE` nếu door mới.
+- `guitar_wave.py`
+  - `PROFILES[("villa", pattern)]`;
+  - `_VILLA_SENTENCE_PATTERNS`.
+- `guitar_frame.py`
+  - `_RETAINED_DOORS` hoặc door riêng.
+- `guitar_scale_passages.py`
+  - `_KINETIC_PATTERNS`;
+  - `_LOUD_DOWN_PATTERNS`;
+  - `_NARROW_ROWS`;
+  - `_HOST`.
+- `program.py`
+  - `_PATTERN_TITLE`.
+- `pattern_registry.py`
+  - `PATTERN_META`;
+  - counts.
+- `humanize.py`
+  - `_clamp_guitar` nếu velocity ceiling khác.
+- generated TS
+  - `patternRegistry.generated.ts` / `PATTERN_NAMES`.
 
-```python
-PATTERN = "suite_schottish_2_4"
-METER = "2/4"
-MIN_BARS = 4
+### Studio
 
-SENTENCE = SentenceSpec(
-    id="suite_schottish_2_4_aaba",
-    pattern=PATTERN,
-    meter=METER,
-    select=Select(length_min=4),
-    span=Span(tile=4, remainder="same_figure", truncate_to_length=True),
-    slots=(
-        Slot(start=0, bars=1, figure=VILLA_ARPEGGIO),
-        Slot(start=1, bars=1, figure=VILLA_ARPEGGIO),
-        Slot(start=2, bars=1, figure=VILLA_CHORD_MELODY),
-        Slot(start=3, bars=1, figure=VILLA_ARPEGGIO),
-    ),
-)
-```
+- `villa_preview.VILLA_PATTERNS`;
+- `dispatch.family_for` / family override;
+- `/sentence/preview`, `/sentence/audio`, `/sentence/export`;
+- examples/candidate JSON;
+- `sentenceDraft` template picker if authorable.
 
-`SuiteGate` hiện đã hỗ trợ meter bất kỳ; `METER_24` đã có trong `form.py`.
+### Tests
 
-### 3.2. Flag
-
-Thêm:
-
-```text
-VSTOCK_SUITE_SCHOTTISH_2_4
-```
-
-trong `production_flags.py`:
-
-- env reader;
-- ContextVar override;
-- `suite_schottish_2_4_enabled()`;
-- `use_suite_schottish_2_4()`.
-
-Default off.
-
-### 3.3. Selection + render
-
-Thêm module vào:
-
-```text
-backend/app/sonify/guitar_suite_movements.py
-```
-
-thứ tự precedence:
-
-- `suite_schottish_2_4` trước `suite_schottish` (4/4 stand-in);
-- vì khác meter nên không tranh nhau.
-
-`_gated_sentence` đã dùng `suite_movements.render_sentence`; không cần branch riêng.
-
-`_finish_voices` ringing set thêm:
-
-```text
-suite_schottish_2_4
-```
-
-### 3.4. Pattern metadata
-
-Thêm:
-
-- `PatternMeta` cho `suite_schottish_2_4`;
-- `PATTERN_NAMES` / matrix row nếu codegen yêu cầu;
-- title `Schottish-Choro`;
-- level `topic`, name source `dance`.
-
-### 3.5. Composer output
-
-Khi flag on, với:
-
-```text
-ensemble = villa
-meter = 2/4
-bars >= 4
-no pedal bars
-```
-
-composer chọn `suite_schottish_2_4` và render AABA.
-
-Key figure loop = các slot A `VILLA_ARPEGGIO`; B là contrast.
-
-### 3.6. Tests
-
-- Flag off: digest byte-identical với historical Villa.
-- Flag on:
-  - selection trả `suite_schottish_2_4`;
-  - render đúng 2/4;
-  - plan `AABA`;
-  - figure ids đúng;
-  - `suite_schottish` 4/4 không bị ảnh hưởng;
-  - 2/4 không eligible nếu `<4` bar hoặc có pedal.
-- Gate:
-  - pin off/on digest;
-  - shared tail spy;
-  - no registry mutation ngoài context.
-- Matrix/codegen:
-  - pattern row mới;
-  - title coverage;
-  - docs §3.2/§12 cập nhật.
-- Full backend + frontend.
+- `test_pattern_registry.py` counts + title uniqueness;
+- `test_guitar_wave.py::_EXPECTED`;
+- `test_suite_production_movements.py`;
+- `test_studio_suite_schottish.py`;
+- texture selection/render matrices;
+- stabilization gate digest off/on;
+- composer end-to-end 2/4/4/4;
+- note bounds/accent/velocity;
+- long movement 30 bar and 5/7/9 bar.
 
 ---
 
-## 4. Bước B — key figure tùy ý
+## 5. Tiêu chí âm nhạc
 
-### 4.1. Model
+Một pattern chỉ được coi là “xong” khi:
 
-```json
-{
-  "id": "villa_schottish_key",
-  "meter": "2/4",
-  "events": [
-    {"voice": "lead", "beat": 0, "duration": 1, "policy": "melody"},
-    {"voice": "mid", "beat": 0, "duration": 1, "policy": "chord_degree:2"},
-    {"voice": "bass", "beat": 0, "duration": 2, "policy": "bass_root"}
-  ]
-}
-```
-
-- `events` là rhythm template.
-- `policy` map sang price/chord.
-- Không lưu absolute MusicXML MIDI trong production.
-
-### 4.2. Renderer
-
-Thêm materializer generic:
-
-```text
-render_rhythm_template_bar(ctx, bar, template)
-```
-
-- Lead: `melody_at_beat` / `melody_eighth`;
-- Mid: `chord_degree`;
-- Bass: `bass_root`;
-- loop theo tile.
-
-### 4.3. Sentence fill
-
-- Key figure fills base bars.
-- Sentence slots override selected bars.
-- 70/30 policy (nếu chốt):
-
-```text
-sentence_bars = round(0.7 * body_bars)
-key_bars = body_bars - sentence_bars
-```
-
-Không dùng rule này nếu chưa có test rõ.
-
-### 4.4. Promotion
-
-- `KeyFigureSpec` registry/version gate.
-- Flag default off.
-- Production digest.
-- Không cho Studio tự ghi repo; export + commit.
+1. AABA là câu, không phải ostinato 4 bar.
+2. B đặt đúng contrast (bridge/trio/apex), không cắt giữa phrase.
+3. Có câu kết A/cadence.
+4. Không có note tràn bar/voice.
+5. Accent/velocity 2/4 đúng, không copy 4/4 tresillo.
+6. Nghe thử 8/16/30 bar:
+   - có breath;
+   - có cao trào;
+   - kết coherent.
+7. Flag off byte-identical; flag on deterministic digest.
+8. Studio preview/export và composer render cùng một nội dung.
 
 ---
 
-## 5. Những gì chưa làm
+## 6. 70/30
 
-- Không có 70/30 hiện tại.
-- Không có key figure tùy ý production.
-- New-pattern `rhythmTemplate` hiện preview/export-only.
-- Publish SQLite không đưa spec vào composer runtime.
-- Promote pattern/sentence vẫn là code change + flag.
+**Không có sẵn.** Nếu muốn:
+
+- định nghĩa theo **bar** hay **beat/voice**;
+- key figure là accompaniment hay lead;
+- sentence 70% có được phép chiếm lead 100% không.
+
+Đề xuất: để 70/30 ra khỏi MVP; làm sau khi có key figure tùy ý và phrase-level sentences.
 
 ---
 
-## 6. Thứ tự thực hiện
+## 7. Thứ tự thực hiện đề xuất
 
-| Sprint | Việc | Kết quả |
+| Phase | Việc | Output |
 |---|---|---|
-| A1 | `suite_schottish_2_4` + flag + gate | Pattern 2/4 chạy production |
-| A2 | Tests/digest/matrix/docs | Flag off an toàn, flag on đúng |
-| B1 | `KeyFigureSpec` + rhythm materializer | Key figure từ 1 bar |
-| B2 | Sentence fill + 70/30 rule nếu chốt | Pattern + sentences linh hoạt |
-| B3 | Promote/registry/version | Composer dùng ổn định |
+| 1 | `suite_schottish` 4/4 fold wiring đầy đủ | Pattern chạy composer, flag off an toàn |
+| 2 | Phrase-level AABA + cadence | Bản nhạc có form nghe được |
+| 3 | Native 2/4 FormSpec + B figure fix + Studio | 2/4 thật, không fold |
+| 4 | Key figure tùy ý từ passage | Pattern + sentences từ passage |
+| 5 | 70/30 (nếu chốt) | Fill policy |
 
-MVP nên làm **A1 + A2** trước.
+MVP không nên nhảy thẳng Phase 3 khi Phase 1/2 chưa có form/cadence.
 
 ---
 
-## 7. Cần chốt
+## 8. Câu cần chốt
 
-1. Làm **Bước A** với `VILLA_ARPEGGIO` trước?
-2. 70/30 có bắt buộc không?
-3. Key figure Bước B lấy đúng bar nào của Scottish?
-4. Pattern mới chỉ chạy qua **flag** hay cần auto-selected mặc định?
-
-Khuyến nghị:
-
-- A trước;
-- 70/30 để sau khi có key figure tùy ý;
-- B chọn bar 2 hoặc bar 3 của Scottish;
-- flag default off.
+1. Phase 1 dùng **4/4 fold** làm foundation — đồng ý?
+2. Phase 2 chọn **16-bar sentence** hay **phrase-level plan**?
+3. Native 2/4 có bắt buộc cho final hay fold chấp nhận được?
+4. 70/30 có bắt buộc không?
+5. Pattern mới là **preset production** hay **user-authorable trong Studio**?
+6. Key figure lấy bar nào của Scottish, và ưu tiên rhythm fidelity hay Villa texture?
