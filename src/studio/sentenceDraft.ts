@@ -14,8 +14,13 @@
  *   POST /v1/studio/import/musicxml/{importId}/sentence-draft
  *     body { barStart, beatStart, barEnd, beatEnd, mode, pattern?,
  *            templateId?, newPattern?, voices? }
- *     -> { ok, mode, spec, fixture, preview: { renderHash, audioUrl,
- *          durationSec, notes }, warnings, productionReady, errors? }
+ *     -> { ok, mode, rhythmTemplate?, spec, fixture, preview: {
+ *          renderHash?, audioUrl, durationSec, notes }, warnings,
+ *          productionReady, errors? }
+ *
+ * `rhythmTemplate: true` marks a `new` draft whose spec is the selected
+ * passage itself (a TextureSpec, not a SentenceSpec); its audio follows the
+ * source rhythm. Existing-pattern drafts keep the template/SentenceSpec path.
  *
  * Errors arrive as HTTP 200 `{ ok: false, errors: [{ path, message }] }`.
  */
@@ -305,6 +310,11 @@ export type SentenceDraftPreview = {
 export type SentenceDraftResponse = {
   ok: boolean;
   mode: SentenceDraftMode;
+  /**
+   * True when `spec` is a passage-sourced TextureSpec (new-pattern rhythm
+   * preview), not a SentenceSpec built from a template.
+   */
+  rhythmTemplate: boolean;
   spec: Record<string, unknown> | null;
   fixture: Record<string, unknown>;
   preview: SentenceDraftPreview | null;
@@ -312,6 +322,19 @@ export type SentenceDraftResponse = {
   productionReady: boolean;
   errors: StudioError[];
 };
+
+/**
+ * Source line for the result box: `source rhythm` for a passage-sourced new
+ * draft, or `template auto` / the chosen template for the existing path.
+ */
+export function sentenceDraftSourceLabel(
+  templateId: string,
+  rhythmTemplate: boolean,
+): string {
+  if (rhythmTemplate) return 'source rhythm';
+  const template = text(templateId);
+  return template ? `template ${template}` : 'template auto';
+}
 
 function previewNotes(value: unknown): number {
   if (Array.isArray(value)) return value.length;
@@ -362,6 +385,8 @@ export function normalizeSentenceDraftResponse(
         ? value.ok
         : spec != null && errors.length === 0,
     mode: value.mode === 'new' ? 'new' : 'existing',
+    rhythmTemplate:
+      value.rhythmTemplate === true || value.rhythm_template === true,
     spec,
     fixture,
     preview: hasPreview ? preview : null,

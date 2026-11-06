@@ -8,9 +8,11 @@ result through the existing preview and audio seams:
 * ``existing`` mode only accepts the generic ``PILOT_PATTERNS`` set.  A
   ``suite_*`` id is a deliberate error: suite gates own exactly one sentence,
   so adding a second sentence there could not be promoted.
-* ``new`` mode reuses a Villa template (a candidate/example ``villa_pattern``
-  spec), re-keys it to the caller's new id, and previews through the Villa
-  sandbox.  No registry is mutated and the result is never production-ready.
+* ``new`` mode in the router now previews the selected passage itself (see
+  ``prepare_new_metadata``): the rhythm, durations, and reference pitch are the
+  source, and no template is required. ``render_draft`` still keeps the legacy
+  template path for ``new`` drafts built directly by callers/tests.  No
+  registry is mutated and the result is never production-ready.
 
 Templates come from ``app.studio.examples`` (the committed JSON payloads),
 parsed with ``sentence_spec.parse_spec``.  Nothing here hardcodes a template.
@@ -533,6 +535,68 @@ def _prepare_existing(
     )
 
 
+def _new_pattern_meta(
+    *,
+    new_pattern: Mapping[str, Any] | None,
+    template_id: str | None,
+    meter: str,
+) -> tuple[str | None, str | None, tuple[Error, ...]]:
+    """Validate only the new-pattern metadata shared by every new draft.
+
+    The template is optional here: ``new`` mode now previews the source rhythm,
+    so metadata validation must not depend on a committed template existing.
+    Returns ``(pattern_id, chosen_template_id, errors)``.
+    """
+    if not isinstance(new_pattern, Mapping):
+        return None, None, (Error("newPattern", "newPattern is required"),)
+
+    new = dict(new_pattern)
+    pattern_id, error = _text(new.get("id"), "newPattern.id")
+    if error is not None:
+        return None, None, (error,)
+    assert pattern_id is not None
+
+    for field in ("label", "composer"):
+        _value, field_error = _text(new.get(field), f"newPattern.{field}")
+        if field_error is not None:
+            return None, None, (field_error,)
+
+    renderer, error = _text(new.get("renderer"), "newPattern.renderer")
+    if error is not None:
+        return None, None, (error,)
+    if renderer != _VILLA_RENDERER:
+        return None, None, (
+            Error(
+                "newPattern.renderer",
+                f"MVP supports renderer {_VILLA_RENDERER!r} only, got "
+                f"{renderer!r}",
+            ),
+        )
+
+    requested_meter = new.get("meter")
+    if requested_meter is not None:
+        if not isinstance(requested_meter, str) or requested_meter.strip() != meter:
+            return None, None, (
+                Error(
+                    "newPattern.meter",
+                    f"newPattern.meter must match the passage meter {meter}",
+                ),
+            )
+
+    # Either templateId location may be the UI's blank Auto value. A non-blank
+    # newPattern.templateId wins; otherwise the top-level field is used.
+    chosen_template_id = (
+        _blank_to_none(new.get("templateId"))
+        or _blank_to_none(template_id)
+    )
+
+    collision = _collision_error(pattern_id)
+    if collision is not None:
+        return None, None, (collision,)
+
+    return pattern_id, chosen_template_id, ()
+
+
 def _prepare_new(
     *,
     import_id: str,
@@ -544,65 +608,14 @@ def _prepare_new(
     template_id: str | None,
     warnings: list[str],
 ) -> Draft:
-    if not isinstance(new_pattern, Mapping):
-        return Draft(
-            ok=False,
-            mode="new",
-            errors=(Error("newPattern", "newPattern is required"),),
-        )
-
-    new = dict(new_pattern)
-    pattern_id, error = _text(new.get("id"), "newPattern.id")
-    if error is not None:
-        return Draft(ok=False, mode="new", errors=(error,))
-    assert pattern_id is not None
-
-    for field in ("label", "composer"):
-        _value, field_error = _text(new.get(field), f"newPattern.{field}")
-        if field_error is not None:
-            return Draft(ok=False, mode="new", errors=(field_error,))
-
-    renderer, error = _text(new.get("renderer"), "newPattern.renderer")
-    if error is not None:
-        return Draft(ok=False, mode="new", errors=(error,))
-    if renderer != _VILLA_RENDERER:
-        return Draft(
-            ok=False,
-            mode="new",
-            errors=(
-                Error(
-                    "newPattern.renderer",
-                    f"MVP supports renderer {_VILLA_RENDERER!r} only, got "
-                    f"{renderer!r}",
-                ),
-            ),
-        )
-
-    requested_meter = new.get("meter")
-    if requested_meter is not None:
-        if not isinstance(requested_meter, str) or requested_meter.strip() != meter:
-            return Draft(
-                ok=False,
-                mode="new",
-                errors=(
-                    Error(
-                        "newPattern.meter",
-                        f"newPattern.meter must match the passage meter {meter}",
-                    ),
-                ),
-            )
-
-    # Either templateId location may be the UI's blank Auto value. A non-blank
-    # newPattern.templateId wins; otherwise the top-level field is used, and
-    # two blanks mean "pick the closest Villa template for this meter".
-    chosen_template_id = (
-        _blank_to_none(new.get("templateId"))
-        or _blank_to_none(template_id)
+    pattern_id, chosen_template_id, errors = _new_pattern_meta(
+        new_pattern=new_pattern,
+        template_id=template_id,
+        meter=meter,
     )
-
-    collision = _collision_error(pattern_id)
-    if collision is not None:
-        return Draft(ok=False, mode="new", errors=(collision,))
+    if errors:
+        return Draft(ok=False, mode="new", errors=errors)
+    assert pattern_id is not None
 
     if meter not in _VILLA_METERS:
         supported = ", ".join(sorted(_VILLA_METERS))
@@ -670,6 +683,43 @@ def _prepare_new(
         template_id=template.id,
         family=dispatch.VILLA,
         warnings=tuple(warnings),
+        production_ready=False,
+    )
+
+
+def prepare_new_metadata(
+    *,
+    meter: str,
+    bar_start: int,
+    bar_end: int,
+    new_pattern: Mapping[str, Any] | None,
+    template_id: str | None = None,
+) -> Draft:
+    """Validate a ``new`` request without selecting or requiring a template.
+
+    The rhythm-faithful preview is built from the passage itself, so the only
+    draft checks that matter are the new-pattern id/label/composer/renderer,
+    the meter match, the bar span, and the registry collision. A template id is
+    accepted for compatibility but is not needed to preview the passage.
+    """
+    _bar_count, error = _bars(bar_start, bar_end)
+    if error is not None:
+        return Draft(ok=False, mode="new", errors=(error,))
+
+    _pattern_id, _template_id, errors = _new_pattern_meta(
+        new_pattern=new_pattern,
+        template_id=template_id,
+        meter=meter,
+    )
+    if errors:
+        return Draft(ok=False, mode="new", errors=errors)
+
+    # Beat offsets and long passages are handled by the passage payload itself,
+    # so this metadata check returns no sentence/template warnings.
+    return Draft(
+        ok=True,
+        mode="new",
+        family=dispatch.VILLA,
         production_ready=False,
     )
 

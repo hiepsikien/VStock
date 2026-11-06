@@ -1628,6 +1628,97 @@ def _draft_quota_response(decision: _DraftQuota) -> JSONResponse:
     )
 
 
+def _rhythm_spec_id(
+    *,
+    import_id: str,
+    bar_start: int,
+    bar_end: int,
+    meter: str,
+    voices: list[int],
+    beat_start: float | None,
+    beat_end: float | None,
+) -> str:
+    """Deterministic preview id for a passage-sourced rhythm draft."""
+    seed = {
+        "importId": import_id,
+        "barStart": bar_start,
+        "barEnd": bar_end,
+        "meter": meter,
+        "voices": sorted(voices),
+        "beatStart": float(beat_start or 0.0),
+        "beatEnd": float(beat_end or 0.0),
+    }
+    payload = json.dumps(seed, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+    return f"rhythm_{import_id}_{bar_start}_{bar_end}_{digest}"
+
+
+def _rhythm_error_payload(passage: dict[str, Any]) -> dict[str, Any]:
+    """A passage build failed: keep its structured errors and warnings."""
+    errors = passage.get("errors") or [
+        {
+            "path": "passage",
+            "message": "the passage could not be previewed",
+        }
+    ]
+    return {
+        "ok": False,
+        "mode": "new",
+        "rhythmTemplate": True,
+        "errors": list(errors),
+        "warnings": list(passage.get("warnings") or []),
+        "productionReady": False,
+    }
+
+
+def _rhythm_preview_payload(
+    passage: dict[str, Any],
+    *,
+    import_id: str,
+    bar_start: int,
+    bar_end: int,
+    meter: str,
+    pattern_id: str,
+    voices: list[int],
+    beat_start: float | None,
+    beat_end: float | None,
+) -> dict[str, Any]:
+    """Return the passage as a rhythm-faithful, preview-only draft.
+
+    The stored passage payload is never mutated: the spec mapping, its source
+    metadata, and the preview id are copied before they are relabelled.
+    """
+    spec = dict(passage.get("spec") or {})
+    source = dict(spec.get("source") or {})
+    source["patternId"] = pattern_id
+    source["notation"] = "musicxml"
+    spec["source"] = source
+    spec["id"] = _rhythm_spec_id(
+        import_id=import_id,
+        bar_start=bar_start,
+        bar_end=bar_end,
+        meter=meter,
+        voices=voices,
+        beat_start=beat_start,
+        beat_end=beat_end,
+    )
+    notes = passage.get("notes") or []
+    return {
+        "ok": True,
+        "mode": "new",
+        "rhythmTemplate": True,
+        "spec": spec,
+        "fixture": {"meter": meter, "bars": bar_end - bar_start + 1},
+        "preview": {
+            "audioUrl": passage.get("audioUrl"),
+            "durationSec": passage.get("durationSec", 0.0),
+            "notes": len(notes),
+        },
+        "warnings": list(passage.get("warnings") or []),
+        "productionReady": False,
+    }
+
+
 @router.post(
     "/musicxml/{import_id}/sentence-draft",
     responses={
@@ -1660,10 +1751,10 @@ def create_sentence_draft(
     if errors:
         return {"ok": False, "errors": [error.model_dump() for error in errors]}
 
-    # The draft is whole-bar, so its meter is the constant meter of the whole
-    # selected bar range. The beat window is still resolved to reject invalid
-    # offsets and empty ranges; its meter is intentionally not substituted for
-    # the whole-bar one when a partial range touches only some of the bars.
+    # Existing-pattern drafts are whole-bar sentences: their meter is the
+    # constant meter of the whole selected bar range. The beat window is still
+    # resolved to reject invalid offsets and empty ranges. New-pattern drafts
+    # use the exact passage window, so the beat range is honoured there.
     meter, meter_errors = _range_meter(
         record.summary, body.barStart, body.barEnd
     )
@@ -1686,6 +1777,64 @@ def create_sentence_draft(
             "errors": [error.model_dump() for error in window_errors],
         }
 
+    voices = sorted({int(voice) for voice in body.voices}) if body.voices else []
+    new_pattern = (
+        body.newPattern.model_dump() if body.newPattern is not None else None
+    )
+
+    if body.mode == "new":
+        # A new pattern now previews the selected passage itself: its rhythm,
+        # durations, and reference pitch are the source. Validate only the
+        # pattern metadata/collision, then build the same passage payload the
+        # passage endpoint would build. No template renderer is involved.
+        draft = musicxml_sentence.prepare_new_metadata(
+            meter=meter,
+            bar_start=body.barStart,
+            bar_end=body.barEnd,
+            new_pattern=new_pattern,
+            template_id=body.templateId,
+        )
+        if not draft.ok:
+            return draft.as_error()
+        assert new_pattern is not None
+        pattern_id = str(new_pattern["id"]).strip()
+
+        decision = consume_draft(owner_id)
+        if not decision.allowed:
+            return _draft_quota_response(decision)
+        try:
+            passage = _passage_payload(
+                import_id=import_id,
+                owner_id=owner_id,
+                bar_start=body.barStart,
+                bar_end=body.barEnd,
+                voices=voices,
+                record=record,
+                beat_start=body.beatStart,
+                beat_end=body.beatEnd,
+            )
+        except Exception:
+            refund_draft(owner_id, decision.day)
+            raise
+        if (
+            not passage.get("ok")
+            or not passage.get("spec")
+            or not passage.get("audioUrl")
+        ):
+            refund_draft(owner_id, decision.day)
+            return _rhythm_error_payload(passage)
+        return _rhythm_preview_payload(
+            passage,
+            import_id=import_id,
+            bar_start=body.barStart,
+            bar_end=body.barEnd,
+            meter=meter,
+            pattern_id=pattern_id,
+            voices=voices,
+            beat_start=body.beatStart,
+            beat_end=body.beatEnd,
+        )
+
     draft = musicxml_sentence.prepare_draft(
         import_id=import_id,
         meter=meter,
@@ -1694,9 +1843,7 @@ def create_sentence_draft(
         mode=body.mode,
         pattern=body.pattern,
         template_id=body.templateId,
-        new_pattern=(
-            body.newPattern.model_dump() if body.newPattern is not None else None
-        ),
+        new_pattern=new_pattern,
         beat_start=window.beat_start,
         beat_end=window.beat_end,
     )

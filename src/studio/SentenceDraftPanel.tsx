@@ -27,6 +27,7 @@ import {
   patternDraftJson,
   patternDraftLabel,
   removePatternSentence,
+  sentenceDraftSourceLabel,
   villaMeterSupported,
   villaTemplateOptions,
   type MusicXmlSentenceDraftRequest,
@@ -468,7 +469,10 @@ export function SentenceDraftPanel({
   }, [draft, result]);
 
   const warnings = result?.warnings ?? [];
-  const resultTemplate = templateValue || 'auto';
+  const resultTemplate = sentenceDraftSourceLabel(
+    templateValue,
+    result?.rhythmTemplate ?? false,
+  );
   const resultPattern =
     specText(result?.spec?.pattern) ??
     (mode === 'new' ? nextId : pattern) ??
@@ -601,16 +605,10 @@ export function SentenceDraftPanel({
               of those meters.
             </Text>
           ) : null}
-          <TemplatePicker
-            templates={villaTemplates}
-            value={templateValue}
-            onSelect={setTemplateId}
-            hint={
-              villaTemplates.length
-                ? 'Auto picks the closest Villa template; choose one to override.'
-                : `No committed Villa template at ${meter || 'this meter'}; auto uses a one-bar arpeggio.`
-            }
-          />
+          <Text style={styles.fieldMeta}>
+            Source rhythm is used: the preview follows this passage's notes and
+            durations, not a template.
+          </Text>
         </>
       )}
 
@@ -647,12 +645,17 @@ export function SentenceDraftPanel({
             </Text>
           </View>
           <Text style={styles.resultMeta} numberOfLines={2}>
-            template {resultTemplate} · bars {range.barStart}–{range.barEnd} ·{' '}
+            {resultTemplate} · bars {range.barStart}–{range.barEnd} ·{' '}
             {resultNotes} note{resultNotes === 1 ? '' : 's'}
             {result.preview?.durationSec
               ? ` · ${result.preview.durationSec.toFixed(2)} s`
               : ''}
           </Text>
+          {result.rhythmTemplate ? (
+            <Text style={styles.fieldMeta}>
+              Preview follows the passage rhythm; preview/export only.
+            </Text>
+          ) : null}
           {warnings.length ? (
             <Pressable
               onPress={() => setWarningsOpen((open) => !open)}

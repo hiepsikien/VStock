@@ -195,6 +195,7 @@ import {
   patternDraftLabel,
   removePatternSentence,
   sentenceDraftKey,
+  sentenceDraftSourceLabel,
   slugifyPatternId,
   villaMeterSupported,
   villaTemplateOptions,
@@ -3600,6 +3601,57 @@ equal(draftResponse.preview?.durationSec, 1.5);
 equal(draftResponse.preview?.notes, 24);
 equal(draftResponse.warnings[0], 'template tile 4 used; passage has 4 bars');
 equal(draftResponse.productionReady, false);
+equal(draftResponse.rhythmTemplate, false);
+equal(sentenceDraftSourceLabel('', false), 'template auto');
+equal(
+  sentenceDraftSourceLabel('castillo_34_walk', false),
+  'template castillo_34_walk',
+);
+
+const rhythmDraft = normalizeSentenceDraftResponse(
+  {
+    ok: true,
+    mode: 'new',
+    rhythmTemplate: true,
+    spec: {
+      id: 'rhythm_mxi_1_2_deadbeef',
+      source: { patternId: 'villa_schottish_choro', notation: 'musicxml' },
+    },
+    fixture: { meter: '2/4', bars: 2 },
+    preview: {
+      audioUrl: '/v1/studio/sentence/audio/rhythm.wav',
+      durationSec: 3,
+      notes: 2,
+    },
+    warnings: [],
+    productionReady: false,
+  },
+  'https://api.test',
+);
+equal(rhythmDraft.ok, true);
+equal(rhythmDraft.mode, 'new');
+equal(rhythmDraft.rhythmTemplate, true);
+equal(rhythmDraft.spec?.id, 'rhythm_mxi_1_2_deadbeef');
+equal(rhythmDraft.preview?.notes, 2);
+equal(
+  rhythmDraft.preview?.audioUrl,
+  'https://api.test/v1/studio/sentence/audio/rhythm.wav',
+);
+equal(sentenceDraftSourceLabel('', rhythmDraft.rhythmTemplate), 'source rhythm');
+equal(
+  sentenceDraftSourceLabel(
+    'suite_mazurka_arpeggio_aaba',
+    rhythmDraft.rhythmTemplate,
+  ),
+  'source rhythm',
+);
+
+const snakeRhythmDraft = normalizeSentenceDraftResponse({
+  ok: true,
+  mode: 'new',
+  rhythm_template: true,
+});
+equal(snakeRhythmDraft.rhythmTemplate, true);
 
 const snakeDraft = normalizeSentenceDraftResponse({
   ok: true,
@@ -3620,6 +3672,7 @@ equal(snakeDraft.preview?.audioUrl, 'https://cdn.test/a.wav');
 equal(snakeDraft.preview?.durationSec, 2);
 equal(snakeDraft.preview?.notes, 3);
 equal(snakeDraft.productionReady, true);
+equal(snakeDraft.rhythmTemplate, false);
 deepEqual(snakeDraft.warnings, ['single warning']);
 
 const failedSentenceDraft = normalizeSentenceDraftResponse({

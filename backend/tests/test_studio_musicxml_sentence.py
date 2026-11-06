@@ -18,7 +18,7 @@ from app.routers import studio as studio_router
 from app.routers import studio_audio as studio_audio_router
 from app.routers import studio_export as studio_export_router
 from app.routers import studio_musicxml
-from app.studio import dispatch, musicxml_sentence, villa_preview
+from app.studio import musicxml_sentence
 from app.studio.candidates import villa_candidate_spec
 from app.studio.sentence_spec import parse_spec
 from app.studio.villa_preview import validate_villa_spec
@@ -205,6 +205,7 @@ def test_existing_castillo_three_four_draft_previews_and_saves_audio() -> None:
     audio = client.get(preview["audioUrl"])
     assert audio.status_code == 200
     assert audio.content[:4] == b"RIFF"
+    assert "rhythmTemplate" not in body
 
 
 def test_blank_template_id_is_the_auto_option_for_existing_mode() -> None:
@@ -364,86 +365,212 @@ def test_existing_template_meter_mismatch_is_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
-# New Villa pattern drafts
+# New pattern rhythm previews
 
 
-def test_new_villa_pattern_previews_with_the_draft_family_override() -> None:
+def _rhythm_events(spec: dict) -> list[tuple[int, float, float, int]]:
+    return [
+        (
+            int(event["bar"]),
+            float(event["beat"]),
+            float(event["duration_beats"]),
+            int(event["pitch"]["value"]),
+        )
+        for event in spec["authored"]["events"]
+    ]
+
+
+def _passage(client: TestClient, import_id: str, **body) -> dict:
+    return client.post(
+        f"/v1/studio/import/musicxml/{import_id}/passage", json=body
+    ).json()
+
+
+def _four_four_fixture(bars: int = 2) -> bytes:
+    """Two 4/4 bars with a half note then two quarters."""
+    measures = []
+    for index in range(bars):
+        attributes = (
+            "<attributes><divisions>1</divisions>"
+            "<time><beats>4</beats><beat-type>4</beat-type></time>"
+            "</attributes>"
+            if index == 0
+            else ""
+        )
+        step = "E" if index == 0 else "G"
+        measures.append(
+            f"""<measure number="{index + 1}">{attributes}
+              <note><pitch><step>{step}</step><octave>4</octave></pitch>
+                <duration>2</duration><voice>1</voice></note>
+              <note><pitch><step>A</step><octave>4</octave></pitch>
+                <duration>1</duration><voice>1</voice></note>
+              <note><pitch><step>B</step><octave>4</octave></pitch>
+                <duration>1</duration><voice>1</voice></note>
+            </measure>"""
+        )
+    return _score("".join(measures))
+
+
+def _pickup_two_four_fixture() -> bytes:
+    """Bar 1 is a 1/4 pickup normalized into a 2/4 bar (note at beat 2)."""
+    return _score(
+        """<measure number="1"><attributes><divisions>1</divisions>
+          <time><beats>1</beats><beat-type>4</beat-type></time></attributes>
+          <note><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>1</duration><voice>1</voice></note></measure>
+        <measure number="2"><attributes>
+          <time><beats>2</beats><beat-type>4</beat-type></time></attributes>
+          <note><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>2</duration><voice>1</voice></note></measure>
+        <measure number="3">
+          <note><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>2</duration><voice>1</voice></note></measure>"""
+    )
+
+
+def test_new_two_four_pattern_previews_the_passage_rhythm() -> None:
     client = _client()
-    import_id = _upload(client, _waltz_fixture(5)).json()["importId"]
+    import_id = _upload(client, _two_four_fixture()).json()["importId"]
 
-    body = _draft(
-        client,
-        import_id,
-        barStart=2,
-        barEnd=5,
-        mode="new",
-        newPattern=_new_pattern(),
-    ).json()
-    assert body["ok"] is True, body["errors"]
-    assert body["mode"] == "new"
-    assert body["productionReady"] is False
-    assert body["templateId"] == "suite_mazurka_arpeggio_aaba"
-    assert body["spec"]["pattern"] == "villa_choro_mazurka"
-    assert body["spec"]["meter"] == "3/4"
-    assert body["fixture"]["pattern"] == "villa_choro_mazurka"
-    assert _AUDIO_URL.match(body["preview"]["audioUrl"] or "")
-    assert body["preview"]["notes"] > 0
-
-    spec = parse_spec(body["spec"])
-    assert spec.pattern == "villa_choro_mazurka"
-
-    # The new pattern is invisible to the production dispatcher until a caller
-    # supplies the draft family explicitly.
-    assert dispatch.family_for(spec.pattern) is None
-    assert dispatch.validate(spec)[0].path == "pattern"
-    assert dispatch.validate(spec, family="villa") == []
-    assert dispatch.preview_sentence(
-        spec, body["fixture"], family="villa"
-    ).ok is True
-    assert dispatch.resolve_fixture(
-        spec, body["fixture"], family="villa"
-    )["pattern"] == "villa_choro_mazurka"
-
-    # Production routes must not expose the draft family override. A new
-    # pattern is previewable only through the MusicXML sentence-draft endpoint.
-    audio = client.post(
-        "/v1/studio/sentence/audio",
-        json={
-            "spec": body["spec"],
-            "fixture": body["fixture"],
-            "family": "villa",
-        },
-    ).json()
-    assert audio["ok"] is False
-
-    exported = client.post(
-        "/v1/studio/sentence/export",
-        json={
-            "spec": body["spec"],
-            "fixture": body["fixture"],
-            "family": "villa",
-        },
-    ).json()
-    assert exported["ok"] is False
-
-
-def test_blank_template_ids_auto_pick_a_villa_template() -> None:
-    client = _client()
-    import_id = _upload(client).json()["importId"]
-
+    passage = _passage(client, import_id, barStart=1, barEnd=2)
     body = _draft(
         client,
         import_id,
         barStart=1,
-        barEnd=4,
+        barEnd=2,
+        mode="new",
+        newPattern=_new_pattern(
+            id="villa_schottish_choro",
+            label="Schottish-Choro",
+            meter="2/4",
+            templateId="",
+        ),
+    ).json()
+
+    assert body["ok"] is True, body["errors"]
+    assert body["mode"] == "new"
+    assert body["rhythmTemplate"] is True
+    assert body["productionReady"] is False
+    assert "templateId" not in body
+    assert body["spec"]["id"].startswith("rhythm_")
+    assert body["spec"]["source"]["patternId"] == "villa_schottish_choro"
+    assert body["spec"]["source"]["notation"] == "musicxml"
+    assert body["fixture"] == {"meter": "2/4", "bars": 2}
+    assert _AUDIO_URL.match(body["preview"]["audioUrl"] or "")
+    assert body["preview"]["audioUrl"] == passage["audioUrl"]
+    assert body["preview"]["durationSec"] == passage["durationSec"]
+    assert body["preview"]["notes"] == len(passage["notes"])
+
+    # The preview is the source passage, not the old villa_2_4_arpeggio.
+    events = _rhythm_events(body["spec"])
+    assert events == _rhythm_events(passage["spec"])
+    assert len(events) == 2
+
+    # Relabelling the preview must not mutate the stored passage payload.
+    again = _passage(client, import_id, barStart=1, barEnd=2)
+    assert again["spec"]["id"] == passage["spec"]["id"]
+    assert again["spec"]["source"] == passage["spec"]["source"]
+
+
+def test_new_four_four_pattern_previews_the_passage_rhythm() -> None:
+    client = _client()
+    import_id = _upload(client, _four_four_fixture()).json()["importId"]
+
+    passage = _passage(client, import_id, barStart=1, barEnd=2)
+    body = _draft(
+        client,
+        import_id,
+        barStart=1,
+        barEnd=2,
+        mode="new",
+        newPattern=_new_pattern(
+            id="villa_study_four",
+            label="Study in Four",
+            templateId="",
+        ),
+    ).json()
+
+    assert body["ok"] is True, body["errors"]
+    assert body["rhythmTemplate"] is True
+    assert body["fixture"] == {"meter": "4/4", "bars": 2}
+    assert _AUDIO_URL.match(body["preview"]["audioUrl"] or "")
+    assert body["preview"]["notes"] == len(passage["notes"]) == 6
+    assert _rhythm_events(body["spec"]) == _rhythm_events(passage["spec"])
+    assert {
+        event["beat"]
+        for event in body["spec"]["authored"]["events"]
+    } == {0.0, 2.0, 3.0}
+    assert len(body["spec"]["authored"]["events"]) == 6
+
+
+def test_new_pattern_draft_uses_the_normalized_pickup_bar() -> None:
+    client = _client()
+    uploaded = _upload(client, _pickup_two_four_fixture()).json()
+    assert uploaded["summary"]["measureMeters"][0] == "2/4"
+    import_id = uploaded["importId"]
+
+    passage = _passage(client, import_id, barStart=1, barEnd=1)
+    body = _draft(
+        client,
+        import_id,
+        barStart=1,
+        barEnd=1,
+        mode="new",
+        newPattern=_new_pattern(
+            id="villa_pickup_study",
+            label="Pickup Study",
+            meter="2/4",
+            templateId="",
+        ),
+    ).json()
+
+    assert body["ok"] is True, body["errors"]
+    assert body["rhythmTemplate"] is True
+    assert body["fixture"] == {"meter": "2/4", "bars": 1}
+    assert body["preview"]["notes"] == 1
+    events = body["spec"]["authored"]["events"]
+    assert {event["beat"] for event in events} == {1.0}
+    assert _rhythm_events(body["spec"]) == _rhythm_events(passage["spec"])
+
+
+def test_new_rhythm_preview_ignores_the_template_choice() -> None:
+    client = _client()
+    import_id = _upload(client, _two_four_fixture()).json()["importId"]
+
+    blank = _draft(
+        client,
+        import_id,
+        barStart=1,
+        barEnd=2,
         mode="new",
         templateId="",
-        newPattern=_new_pattern(templateId=""),
+        newPattern=_new_pattern(
+            id="villa_schottish_choro",
+            label="Schottish-Choro",
+            meter="2/4",
+            templateId="",
+        ),
     ).json()
-    assert body["ok"] is True, body["errors"]
-    assert body["templateId"] == "suite_mazurka_arpeggio_aaba"
-    assert body["spec"]["pattern"] == "villa_choro_mazurka"
-    assert body["preview"]["notes"] > 0
+    unknown = _draft(
+        client,
+        import_id,
+        barStart=1,
+        barEnd=2,
+        mode="new",
+        newPattern=_new_pattern(
+            id="villa_schottish_choro",
+            label="Schottish-Choro",
+            meter="2/4",
+            templateId="no_such_template",
+        ),
+    ).json()
+
+    assert blank["ok"] is True, blank["errors"]
+    assert unknown["ok"] is True, unknown["errors"]
+    assert blank["rhythmTemplate"] is True
+    assert unknown["rhythmTemplate"] is True
+    assert blank["spec"]["id"] == unknown["spec"]["id"]
+    assert blank["preview"]["audioUrl"] == unknown["preview"]["audioUrl"]
 
 
 def test_new_pattern_ids_collide_with_existing_registries() -> None:
@@ -469,7 +596,7 @@ def test_new_pattern_ids_collide_with_existing_registries() -> None:
         assert expected in errors[0]["message"]
 
 
-def test_new_pattern_requires_the_mvp_renderer_and_known_template() -> None:
+def test_new_pattern_requires_the_mvp_renderer() -> None:
     client = _client()
     import_id = _upload(client).json()["importId"]
 
@@ -484,19 +611,6 @@ def test_new_pattern_requires_the_mvp_renderer_and_known_template() -> None:
     assert bad_renderer["ok"] is False
     assert [error["path"] for error in bad_renderer["errors"]] == [
         "newPattern.renderer"
-    ]
-
-    unknown_template = _draft(
-        client,
-        import_id,
-        barStart=1,
-        barEnd=4,
-        mode="new",
-        newPattern=_new_pattern(templateId="no_such_template"),
-    ).json()
-    assert unknown_template["ok"] is False
-    assert [error["path"] for error in unknown_template["errors"]] == [
-        "newPattern.templateId"
     ]
 
 
@@ -645,6 +759,31 @@ def test_draft_quota_is_per_owner_and_returns_429(monkeypatch) -> None:
     assert third.json()["ok"] is True
 
 
+def test_new_rhythm_draft_spends_one_quota(monkeypatch) -> None:
+    monkeypatch.setenv("VSTOCK_STUDIO_MUSICXML_DRAFTS_PER_DAY", "1")
+    client = _client()
+    import_id = _upload(client, _two_four_fixture()).json()["importId"]
+    body = {
+        "barStart": 1,
+        "barEnd": 2,
+        "mode": "new",
+        "newPattern": _new_pattern(
+            id="villa_schottish_choro",
+            label="Schottish-Choro",
+            meter="2/4",
+            templateId="",
+        ),
+    }
+
+    first = _draft(client, import_id, **body)
+    assert first.status_code == 200
+    assert first.json()["ok"] is True
+
+    second = _draft(client, import_id, **body)
+    assert second.status_code == 429
+    assert [error["path"] for error in second.json()["errors"]] == ["quota"]
+
+
 def test_malformed_requests_do_not_spend_quota(monkeypatch) -> None:
     monkeypatch.setenv("VSTOCK_STUDIO_MUSICXML_DRAFTS_PER_DAY", "1")
     client = _client()
@@ -694,61 +833,3 @@ def test_template_choice_is_deterministic() -> None:
     assert first_errors == second_errors == []
     assert first is not None and second is not None
     assert first.id == second.id
-
-
-def _two_four_fixture(bars: int = 2) -> bytes:
-    measures = []
-    for index in range(bars):
-        attributes = (
-            "<attributes><divisions>2</divisions>"
-            "<time><beats>2</beats><beat-type>4</beat-type></time>"
-            "</attributes>"
-            if index == 0
-            else ""
-        )
-        measures.append(
-            f"""<measure number="{index + 1}">{attributes}
-              <note><pitch><step>E</step><octave>4</octave></pitch>
-                <duration>4</duration><voice>1</voice><type>half</type></note>
-            </measure>"""
-        )
-    return _score("".join(measures))
-
-
-def test_new_two_four_pattern_uses_the_default_villa_template() -> None:
-    client = _client()
-    import_id = _upload(client, _two_four_fixture()).json()["importId"]
-
-    body = _draft(
-        client,
-        import_id,
-        barStart=1,
-        barEnd=2,
-        mode="new",
-        newPattern=_new_pattern(
-            id="villa_schottish_choro",
-            label="Schottish-Choro",
-            meter="2/4",
-            templateId="",
-        ),
-    ).json()
-
-    assert body["ok"] is True, body["errors"]
-    assert body["spec"]["meter"] == "2/4"
-    assert body["spec"]["pattern"] == "villa_schottish_choro"
-    assert body["templateId"] == "villa_2_4_arpeggio"
-    assert body["fixture"]["meter"] == "2/4"
-    assert _AUDIO_URL.match(body["preview"]["audioUrl"] or "")
-    assert body["preview"]["notes"] > 0
-
-    preview = villa_preview.preview_villa_sentence(
-        parse_spec(body["spec"]),
-        body["fixture"],
-        allowed_patterns={body["spec"]["pattern"]},
-    )
-    lead = [
-        note["midi"]
-        for note in preview.notes
-        if note.get("voice") == 1
-    ]
-    assert lead and min(lead) >= 70
