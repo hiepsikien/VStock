@@ -185,25 +185,36 @@ Các plan user chọn trước khi export:
 
 ### 5.1. Vật liệu B và close
 
-Hiện 5 tag chỉ có `key`, `intro.*`, `outro.*`. Để ABA/AABA có contrast thật, cần:
+Hiện tại **chưa có tag `close`**. Cần phân biệt rõ:
 
-- **optional tag** `key.b` hoặc `contrast` cho figure B;
-- **optional tag** `key.close` cho figure kết;
-- nếu thiếu:
-  - B = key cell với variation (preview-only, warning);
-  - close = key cell + `VILLA_CADENCE` bar nếu có.
+| Tên | Là gì | Bars |
+|---|---|---|
+| `key` | figure body A | 1–4 |
+| `contrast` | figure body B (optional) | 1–4 |
+| `close` | figure body kết (optional) | 1–4 |
+| `intro.short` | door intro 2 bar | 2 |
+| `intro.long` | door intro 4 bar | 4 |
+| `outro.short` | door outro 2 bar | 2 |
+| `outro.long` | door outro 4 bar | 4 |
 
-Đề xuất MVP:
+- `intro/outro` là **cửa** (frame door), có short/long.
+- `close` là **câu kết trong body**, không phải door, nên **không có short/long**.
+- `VILLA_CADENCE` là figure built-in dùng cho bar kết, không phải tag.
+
+Quyết định MVP:
 
 ```text
 tags bắt buộc: key, intro.short, intro.long, outro.short, outro.long
 tags optional: contrast, close
 ```
 
-`complete` vẫn dựa trên 5 tag; plan có B/close sẽ kiểm thêm:
-
-- `trio`/`aaba`/`abab` cần `contrast` hoặc fallback warning;
-- close dùng `close` nếu có, else key + cadence.
+- Plan có B (`aaba`, `trio`, `abab`, `aab_close`):
+  - dùng `contrast` nếu có;
+  - nếu không, fallback variation của `key` + warning, chỉ cho preview/export, không promote.
+- Plan có close:
+  - dùng `close` nếu có;
+  - nếu không, bar cuối dùng `VILLA_CADENCE` (nếu pattern hỗ trợ), else key + warning.
+- `complete` cơ bản vẫn dựa trên 5 tag; plan-specific completeness kiểm thêm `contrast`/`close`.
 
 ---
 
@@ -393,19 +404,13 @@ Hành vi:
 
 ---
 
-## 12. Rủi ro / câu cần chốt
+## 12. Quyết định đã chốt
 
-1. B material lấy từ đâu: optional `contrast` tag hay variation của key?
-2. Close dùng `close` tag hay `VILLA_CADENCE`?
-3. 1D series mặc định nào?
-4. Audio >45s: cắt preview hay dùng MuseScore production?
-5. Render có tiêu quota không?
-6. Cache TTL/renderHash bao lâu?
-
-Đề xuất mặc định:
-
-- B: optional `contrast`; fallback key variation + warning.
-- Close: optional `close`; fallback key + cadence.
-- Series: `VIC 2026-10-14` làm demo.
-- Audio >45s: trả MusicXML + warning, không cắt im lặng.
-- Render preview: không tiêu publish quota; có rate limit riêng.
+1. **B material**: optional `contrast` tag. Nếu thiếu, fallback variation của `key` + warning; chỉ preview/export, không promote.
+2. **Close**: optional `close` tag cho body kết. Không có short/long; `outro.short/long` là door riêng. Fallback `VILLA_CADENCE` ở bar cuối nếu pattern hỗ trợ.
+3. **1D series mặc định**: `VIC 2026-10-14`.
+4. **Audio**: dùng luồng hiện tại.
+   - `<=45s`: `studio_audio.ensure_audio` + route audio hiện có.
+   - `>45s`: dùng production audio/MuseScore; nếu không có, trả MusicXML + warning, **không cắt im lặng**.
+5. **Quota**: render preview **không tiêu publish quota**. Có rate limit riêng cho render/audio; quota publish giữ nguyên.
+6. **Cache**: content hash `renderHash`, TTL 24h, LRU; MusicXML/WAV cùng key.
