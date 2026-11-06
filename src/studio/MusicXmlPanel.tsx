@@ -27,6 +27,7 @@ import {
   buildRoleLanes,
   clampZoom,
   defaultPassageRange,
+  fullySelectedBars,
   keySignatureLabel,
   meterChangeLabel,
   musicXmlGrid,
@@ -36,6 +37,7 @@ import {
   passageRangeLabel,
   playheadTickAt,
   rangeTicks,
+  resizeSelectionTicks,
   selectionFromTicks,
   snapTick,
   tempoLabel,
@@ -169,6 +171,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const [tapStart, setTapStart] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(false);
   const [playheadTick, setPlayheadTick] = useState<number | null>(null);
   const [voices, setVoices] = useState<number[]>([]);
   const [passage, setPassage] = useState<MusicXmlPassage | null>(null);
@@ -190,6 +193,8 @@ export function MusicXmlPanel({ compact = false }: Props) {
   const pendingScroll = useRef<number | null>(null);
   const dragSurface = useRef<React.ComponentRef<typeof View> | null>(null);
   const dragAnchor = useRef<{ tick: number } | null>(null);
+  const resizeEdge = useRef<'start' | 'end' | null>(null);
+  const resizeSpan = useRef<{ startTick: number; endTick: number } | null>(null);
 
   const cancelPlayhead = useCallback(() => {
     if (playheadFrame.current != null) {
@@ -302,22 +307,13 @@ export function MusicXmlPanel({ compact = false }: Props) {
   ]);
 
   const selectedBars = useMemo(() => {
-    const selected = new Set<number>();
-    if (bars.length === 0) return selected;
-    if (
-      !Number.isInteger(range.barStart) ||
-      !Number.isInteger(range.barEnd) ||
-      range.barStart < 1 ||
-      range.barEnd > bars.length ||
-      range.barStart > range.barEnd
-    ) {
-      return selected;
-    }
-    for (let bar = range.barStart; bar <= range.barEnd; bar += 1) {
-      selected.add(bar);
-    }
-    return selected;
-  }, [bars.length, range.barEnd, range.barStart]);
+    if (!selectionTicks) return new Set<number>();
+    return fullySelectedBars(
+      grid.bars,
+      selectionTicks.startTick,
+      selectionTicks.endTick,
+    );
+  }, [grid.bars, selectionTicks]);
 
   const applyRange = useCallback((next: PassageRange) => {
     setStartText(String(next.barStart));
@@ -673,6 +669,46 @@ export function MusicXmlPanel({ compact = false }: Props) {
     };
   }, [applyDragSelection, dragging, tickFromClientX]);
 
+  const beginResize = useCallback(
+    (edge: 'start' | 'end', event: RNPointerEvent) => {
+      if (Platform.OS !== 'web' || !selectionTicks) return;
+      event.stopPropagation?.();
+      event.preventDefault?.();
+      resetPassage();
+      resizeEdge.current = edge;
+      resizeSpan.current = { ...selectionTicks };
+      setResizing(true);
+    },
+    [resetPassage, selectionTicks],
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !resizing) return;
+    const onMove = (event: PointerEvent) => {
+      const edge = resizeEdge.current;
+      const span = resizeSpan.current;
+      const tick = tickFromClientX(event.clientX);
+      if (!edge || !span || tick == null) return;
+      event.preventDefault();
+      const next = resizeSelectionTicks(grid, span, edge, tick);
+      resizeSpan.current = next;
+      applyRange(selectionFromTicks(grid, next.startTick, next.endTick));
+    };
+    const onUp = () => {
+      resizeEdge.current = null;
+      resizeSpan.current = null;
+      setResizing(false);
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [applyRange, grid, resizing, tickFromClientX]);
+
   const canRequest =
     imported != null && rangeValidation.ok && passageBusy == null;
   const canPlay = canRequest && Platform.OS === 'web';
@@ -916,6 +952,23 @@ export function MusicXmlPanel({ compact = false }: Props) {
             >
               <View style={{ width: matrixWidth, position: 'relative' }}>
                 <View style={[styles.ruler, { height: RULER_HEIGHT }]}>
+                  {selectionTicks ? (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.rulerSelectionBand,
+                        {
+                          left: selectionTicks.startTick * tickWidth,
+                          width: Math.max(
+                            1,
+                            (selectionTicks.endTick - selectionTicks.startTick) *
+                              tickWidth,
+                          ),
+                          height: RULER_HEIGHT,
+                        },
+                      ]}
+                    />
+                  ) : null}
                   {grid.bars.map((bar) => {
                     const width = Math.max(2, bar.ticks * tickWidth);
                     const selected = selectedBars.has(bar.bar);
@@ -1076,6 +1129,45 @@ export function MusicXmlPanel({ compact = false }: Props) {
                       },
                     ]}
                   />
+                ) : null}
+
+                {selectionTicks ? (
+                  <>
+                    <View
+                      onPointerDown={(event) => beginResize('start', event)}
+                      accessibilityRole="adjustable"
+                      accessibilityLabel="Selection start; drag to resize"
+                      style={[
+                        styles.resizeHandle,
+                        {
+                          left: Math.max(
+                            0,
+                            selectionTicks.startTick * tickWidth - 6,
+                          ),
+                          height: RULER_HEIGHT + laneBodyHeight,
+                        },
+                      ]}
+                    >
+                      <View style={styles.resizeGrip} />
+                    </View>
+                    <View
+                      onPointerDown={(event) => beginResize('end', event)}
+                      accessibilityRole="adjustable"
+                      accessibilityLabel="Selection end; drag to resize"
+                      style={[
+                        styles.resizeHandle,
+                        {
+                          left: Math.min(
+                            matrixWidth - 12,
+                            selectionTicks.endTick * tickWidth - 6,
+                          ),
+                          height: RULER_HEIGHT + laneBodyHeight,
+                        },
+                      ]}
+                    >
+                      <View style={styles.resizeGrip} />
+                    </View>
+                  </>
                 ) : null}
               </View>
             </ScrollView>
@@ -1797,8 +1889,16 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: palette.hairline,
   },
+  rulerSelectionBand: {
+    position: 'absolute',
+    top: 0,
+    backgroundColor: 'rgba(62, 224, 224, 0.16)',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(62, 224, 224, 0.55)',
+  },
   rulerCellSelected: {
-    backgroundColor: 'rgba(62, 224, 224, 0.10)',
+    backgroundColor: 'rgba(62, 224, 224, 0.08)',
   },
   rulerCellAnchor: {
     borderLeftColor: palette.data,
@@ -1875,6 +1975,21 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     cursor: 'pointer',
+  },
+  resizeHandle: {
+    position: 'absolute',
+    top: 0,
+    width: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 6,
+  },
+  resizeGrip: {
+    width: 3,
+    height: 34,
+    borderRadius: 2,
+    backgroundColor: palette.data,
+    opacity: 0.95,
   },
   playhead: {
     position: 'absolute',

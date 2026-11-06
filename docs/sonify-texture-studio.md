@@ -229,6 +229,8 @@ Hợp đồng:
 - Lỗi cấu trúc trả HTTP `200` `{ok:false, errors:[{path,message}]}`; import/passage không tồn tại hoặc khác owner → `404`; quota → `429`.
 - `productionReady`: `true` cho existing (pattern đã dispatchable), `false` cho new (phải promote bằng code). Client hiển thị `PRODUCTION OK` / `PREVIEW ONLY`.
 
+**Selection trong matrix:** kéo lane body tạo selection mới; hai handle dọc ở `startTick`/`endTick` cho phép resize từng mép (snap 1 nốt đen, tối thiểu 1 nốt). Ruler dùng cùng tick span với lane; bar chỉ được tô full khi selection phủ trọn bar, bar một phần chỉ hiện dải tick. Tap bar header vẫn chọn nguyên bar.
+
 ### 0.5.3. Access / quota / owner
 
 - Owner lấy từ `X-Studio-Session` (hash); thiếu header → namespace `anonymous`.

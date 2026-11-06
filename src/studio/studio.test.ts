@@ -156,6 +156,7 @@ import {
   buildRoleLanes,
   clampZoom,
   defaultPassageRange,
+  fullySelectedBars,
   isSupportedMeter,
   keySignatureLabel,
   meterChangeLabel,
@@ -169,6 +170,7 @@ import {
   passageRangeLabel,
   playheadTickAt,
   rangeTicks,
+  resizeSelectionTicks,
   selectionFromTicks,
   snapTick,
   validatePassageRange,
@@ -3218,6 +3220,28 @@ deepEqual(
   selectionFromTicks(twoFourGrid, 48, 96),
   { barStart: 2, beatStart: 0, barEnd: 2, beatEnd: 2 },
 );
+
+deepEqual(
+  resizeSelectionTicks(fourFourGrid, { startTick: 0, endTick: 96 }, 'start', 24),
+  { startTick: 24, endTick: 96 },
+);
+deepEqual(
+  resizeSelectionTicks(fourFourGrid, { startTick: 0, endTick: 96 }, 'start', 200),
+  { startTick: 72, endTick: 96 },
+);
+deepEqual(
+  resizeSelectionTicks(fourFourGrid, { startTick: 24, endTick: 96 }, 'end', 120),
+  { startTick: 24, endTick: 120 },
+);
+deepEqual(
+  resizeSelectionTicks(fourFourGrid, { startTick: 24, endTick: 96 }, 'end', 9999),
+  { startTick: 24, endTick: 192 },
+);
+deepEqual([...fullySelectedBars(fourFourGrid.bars, 0, 96)], [1]);
+deepEqual([...fullySelectedBars(fourFourGrid.bars, 0, 120)], [1]);
+deepEqual([...fullySelectedBars(fourFourGrid.bars, 0, 192)], [1, 2]);
+deepEqual([...fullySelectedBars(fourFourGrid.bars, 24, 192)], [2]);
+deepEqual([...fullySelectedBars(fourFourGrid.bars, 24, 144)], []);
 
 const beatStartNegative = validatePassageRange(fourFourBars, {
   barStart: 1,

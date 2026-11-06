@@ -847,6 +847,46 @@ export function selectionFromTicks(
  * Reversed/out-of-range/mixed-meter/unsupported-meter and beat-bound checks
  * for the panel. Beats are quarter-note offsets; `beatEnd` is exclusive.
  */
+export type SelectionEdge = 'start' | 'end';
+
+/** Resize one selection edge to a snapped tick, keeping one quarter minimum. */
+export function resizeSelectionTicks(
+  grid: MusicXmlGrid,
+  selection: { startTick: number; endTick: number },
+  edge: SelectionEdge,
+  pointerTick: number,
+): { startTick: number; endTick: number } {
+  const total = Math.max(TICKS_PER_QUARTER, grid.totalTicks);
+  const tick = Math.min(total, Math.max(0, snapTick(pointerTick)));
+  if (edge === 'start') {
+    const end = Math.min(total, Math.max(selection.endTick, TICKS_PER_QUARTER));
+    return {
+      startTick: Math.min(tick, end - TICKS_PER_QUARTER),
+      endTick: end,
+    };
+  }
+  const start = Math.max(0, Math.min(selection.startTick, total - TICKS_PER_QUARTER));
+  return {
+    startTick: start,
+    endTick: Math.max(start + TICKS_PER_QUARTER, Math.min(total, tick)),
+  };
+}
+
+/** Bars completely covered by a tick span; partial bars are not full highlights. */
+export function fullySelectedBars(
+  bars: readonly MusicXmlGridBar[],
+  startTick: number,
+  endTick: number,
+): Set<number> {
+  const selected = new Set<number>();
+  for (const bar of bars) {
+    if (bar.startTick >= startTick && bar.startTick + bar.ticks <= endTick) {
+      selected.add(bar.bar);
+    }
+  }
+  return selected;
+}
+
 export function validatePassageRange(
   bars: readonly MusicXmlBarLayout[],
   range: PassageRange,
