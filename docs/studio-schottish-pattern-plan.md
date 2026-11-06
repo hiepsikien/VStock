@@ -914,4 +914,3 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 1. **Native 2/4 gán vào movement III** cho `1M`/`3M`; `1W` dùng 2/4 cho toàn movement.
 2. **Track B không tự sinh door**: chỉ warning + `complete:false`; user phải thêm intro/outro trước promote.
 3. **Không còn câu hỏi mở** cho Phase 0; các thay đổi code bắt đầu từ Phase 0 theo §3.0.
-
