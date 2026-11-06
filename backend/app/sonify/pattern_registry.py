@@ -84,6 +84,14 @@ PATTERN_META: Mapping[str, PatternMeta] = MappingProxyType({
     "etude1": PatternMeta("etude1", "topic", "genre"),
     "etude11": PatternMeta("etude11", "topic", "genre"),
     "villa_pattern": PatternMeta("villa_pattern", "texture", None),
+    # The promoted Suite Popular Brasileira movements. Each is a dance that
+    # names itself; each is selected only behind its own flag.
+    "suite_mazurka": PatternMeta("suite_mazurka", "topic", "dance"),
+    "suite_valsa": PatternMeta("suite_valsa", "topic", "dance"),
+    "suite_gavotta": PatternMeta("suite_gavotta", "topic", "dance"),
+    "suite_schottish": PatternMeta("suite_schottish", "topic", "dance"),
+    # Choros is a genre, not a dance.
+    "suite_choros1": PatternMeta("suite_choros1", "topic", "genre"),
     # Pedal is a frame path, not a printed unit: no wave profile, never a headline.
     "pedal": PatternMeta("pedal", "texture", None),
 })

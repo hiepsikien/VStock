@@ -102,6 +102,51 @@ CREATE TABLE IF NOT EXISTS income_statements (
 );
 
 CREATE INDEX IF NOT EXISTS idx_income_statements_updated_at ON income_statements(updated_at);
+
+CREATE TABLE IF NOT EXISTS studio_sentence_specs (
+    id TEXT PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    meter TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'published',
+    created_at TEXT NOT NULL,
+    rollback_of TEXT,
+    owner_id TEXT NOT NULL DEFAULT 'anonymous',
+    visibility TEXT NOT NULL DEFAULT 'private',
+    UNIQUE(pattern, meter, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_studio_sentence_specs_key
+    ON studio_sentence_specs(pattern, meter, version DESC);
+
+CREATE TABLE IF NOT EXISTS studio_blobs (
+    sha256 TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    refcount INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS studio_uploads (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    blob_sha256 TEXT NOT NULL REFERENCES studio_blobs(sha256),
+    filename TEXT NOT NULL DEFAULT '',
+    mime TEXT NOT NULL DEFAULT '',
+    width INTEGER,
+    height INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_studio_uploads_owner
+    ON studio_uploads(owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS studio_quota (
+    owner_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    day TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner_id, kind, day)
+);
 """
 
 
@@ -113,6 +158,26 @@ _FUNDAMENTALS_EXTRA_COLUMNS = (
     ("dividend_yield", "REAL"),
 )
 
+# Nullable lineage column: old rows read as "not a rollback" and new writes stay
+# additive, so `ALTER TABLE ... ADD COLUMN` is enough on an existing database.
+# Owner/visibility are also additive: defaults keep pre-scoping rows readable and
+# private to the `anonymous` namespace (a missing session header).
+_STUDIO_SENTENCE_SPEC_EXTRA_COLUMNS = (
+    ("rollback_of", "TEXT"),
+    ("owner_id", "TEXT NOT NULL DEFAULT 'anonymous'"),
+    ("visibility", "TEXT NOT NULL DEFAULT 'private'"),
+)
+
+# A Phase-1 database may already have a partial `studio_uploads` table (id,
+# owner, blob, created_at) from an earlier draft. Filename/MIME are additive
+# with defaults so old rows stay readable; width/height are nullable.
+_STUDIO_UPLOAD_EXTRA_COLUMNS = (
+    ("filename", "TEXT NOT NULL DEFAULT ''"),
+    ("mime", "TEXT NOT NULL DEFAULT ''"),
+    ("width", "INTEGER"),
+    ("height", "INTEGER"),
+)
+
 
 async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
     cursor = await db.execute("PRAGMA table_info(fundamentals)")
@@ -120,6 +185,24 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
     for col, col_type in _FUNDAMENTALS_EXTRA_COLUMNS:
         if col not in existing:
             await db.execute(f"ALTER TABLE fundamentals ADD COLUMN {col} {col_type}")
+
+    cursor = await db.execute("PRAGMA table_info(studio_sentence_specs)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for col, col_type in _STUDIO_SENTENCE_SPEC_EXTRA_COLUMNS:
+        if col not in existing:
+            await db.execute(
+                f"ALTER TABLE studio_sentence_specs ADD COLUMN {col} {col_type}"
+            )
+
+    # SCHEMA already creates the Studio upload/blob/quota tables when missing.
+    # This only backfills columns on a table that predates them.
+    cursor = await db.execute("PRAGMA table_info(studio_uploads)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for col, col_type in _STUDIO_UPLOAD_EXTRA_COLUMNS:
+        if col not in existing:
+            await db.execute(
+                f"ALTER TABLE studio_uploads ADD COLUMN {col} {col_type}"
+            )
     await db.commit()
 
 

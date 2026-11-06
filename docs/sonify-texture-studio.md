@@ -1,10 +1,60 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: đề xuất, revision 7 — thêm §0.4 từ vựng chuẩn và link mô hình âm nhạc; thân bài rev 6 **chưa** đổi theo từ vựng mới. **Chưa code.**
-> **Phạm vi đợt đầu**: Villa-Lobos (`ensemble = "villa"`), texture lấy từ *Suite Popular Brasileira*.
-> **Nơi chạy**: trong app Musicalize (room mới), backend FastAPI phía sau.
-> **Mở cho tất cả bây giờ**, nhưng có session namespace và seam quyền truy cập để sau này giới hạn.
+> **Trạng thái**: **sentence authoring MVP đã code** (JSON `SentenceSpec`, validate/preview/audio/publish/rollback, UI Studio) + **Phase 0 schema core** (`MeterSpec`/`TextureSpec` validator) + **sentence-level selection/render matrices** + **compiler bundle JSON** + **upload/Gemini draft/session quota**.
+> **Phạm vi đã code**: Torroba/Sor (5 pattern, 38 spec) + candidate preview-only Villa/Barrios/Brouwer; Barrios có production path sau flag default-off. Bach exposition mới có preview prototype.
+> **Nơi chạy**: trong app Musicalize (room Studio), backend FastAPI phía sau.
+> **Auth:** chưa có. `X-Studio-Session` + `owner_id` + quota upload/analyze đã có; sentence specs cũng đã có `owner_id` + `visibility private/public` (publish/list/get/rollback/export scoped, private foreign id → 404). Đây vẫn là namespace, không phải auth.
 > **Liên quan**: [`sonify-guitar-model.md`](./sonify-guitar-model.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
+
+---
+
+## 0. Sentence MVP đã code
+
+Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
+
+| Mảng | Đã có |
+|---|---|
+| JSON | `backend/app/studio/specs/*.json` — 7 file / 38 spec, wrapper `{schema_version, runtime: "code", specs}` |
+| Export | `python3 -m app.studio.export` và `--check` (stale detector) |
+| Compiler | `POST /v1/studio/sentence/export` + `.../specs/{id}/export`; bundle JSON `spec/fixture/rendered/registration`, **không ghi file** từ server |
+| Loader | `sentence_specs.load_specs(path, replace=False)`; reload giống hệt là no-op, đổi spec cần `replace=True` |
+| Validate | `POST /v1/studio/sentence/validate` → `{ok, errors: [{path, message}]}`; dispatch theo pattern (Torroba/Sor, Villa, Barrios, Brouwer) |
+| Preview | `POST /v1/studio/sentence/preview` body `{spec, fixture}` → plan/row/notes/renderHash/matrix; cùng một response shape cho mọi family |
+| Examples | `GET /v1/studio/sentence/examples[/{pattern}]` trả spec đã commit (38 Torroba/Sor + 8 candidate = 46) để UI không copy JSON tay |
+| Publish | `POST /v1/studio/sentence/publish`, `GET .../specs`, `GET .../specs/{id}`; SQLite `studio_sentence_specs`, version tăng theo `(pattern, meter)` |
+| Rollback | `POST .../specs/{id}/rollback`: validate lại payload cũ rồi republish thành version mới, `rollbackOf` = id nguồn; row cũ bất biến, không xoá/sửa |
+| Audio | `POST /v1/studio/sentence/audio` → WAV ngắn (synth code-only, cache theo `renderHash`); `GET .../audio/{key}.wav` |
+| Procedure | `Slot.procedure` + `PROCEDURES` + JSON round-trip; production chỉ chạy `bach_imitation`; `bach_exposition` có **preview-only** module + test, **chưa có endpoint/UI** (examples API bỏ qua procedure candidate) |
+| Candidates | **Villa** `villa_arpeggio_aba`, **Suite** 5 movement (`suite_mazurka` 3/4, `suite_valsa` 3/4, `suite_gavotta` 4/4, `suite_schottish` 4/4 fold, `suite_choros1` 4/4 provisional), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview qua endpoint chung. Suite/Villa/Brouwer/Barrios có production path sau flag default off |
+| UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + crop web + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (native picker chưa) |
+| Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
+| Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
+| Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (44 row) + `render_matrix.json` (46 row); pattern-level matrix có `expected_empty` có lý do |
+| Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
+| Runtime | Vẫn code-backed; `runtime` bắt buộc `"code"`; interpreter chỉ là proof 2 bar `chord_melody` sau flag default off |
+
+Fixture preview: `pattern`, `meter`, `length` (hoặc `run_length` cho cell/cycle), `n`, `closes`, `rise`, `bars`, `character`, `mode`, `bpm`, `profile`, `matrix`. Render tối đa 16 bar; matrix mặc định 288 dòng, chỉ dòng fixture có `renderHash`.
+
+**Chưa làm:** Bach exposition production, multi-pattern/arbitrary-length interpreter, native picker/crop, durable preview/export, renderer-profile/derived golden, UI rule flatten, slot texture override source, final local stabilization. Suite/Villa/Brouwer/Barrios production đã có flag off; TextureSpec draft apply/validate offline, chưa render/register/publish.
+
+### 0.1. Đối chiếu nhanh với proposal trong thân bài
+
+| Vùng | Code hiện tại | Proposal trong doc |
+|---|---|---|
+| Sentence | `app/studio/sentence_spec.py`: `id/pattern/meter/select/span/slots`, JSON round-trip | §13 sentence pipeline — ✅ khớp |
+| `TextureSpec` | **Schema + validator** trong `app/studio/texture_spec.py`; authoring runtime vẫn là `SentenceSpec` | §6 `authored/derived/rendered`, pitch resolution, `assert_authored_playable` — **một phần** |
+| Meter | `MeterSpec` 6 field + canonical key đã có; sentence registry vẫn dùng `meter` string | §4 `resolve_runtime_meter`, materializer/12-8 policy — **chưa** |
+| Validation | Validator theo family + fixture bounds + procedure refusal | §4/§6 validator đầy đủ — **một phần** |
+| Preview | Render bounded `_Ctx` bằng realizer thật | §8.1 `slice_score` của render đầy đủ — **khác thiết kế** |
+| Audio | Synth code-only 22.05 kHz, 96 BPM, cache theo `renderHash` | §8.2 MuseScore + global queue — **chưa** |
+| Publish | SQLite version bất biến + rollback `rollbackOf`; compiler trả bundle JSON | §11 PR automation + `preview.wav` — **chưa** |
+| UI | Studio pill, editor, validate/preview/audio/publish/rollback, examples, upload/crop ảnh web, Gemini draft + notes table, TextureSpec draft/validate | §10 native picker/crop, apply SentenceSpec — **chưa** |
+| Candidates | Villa/Barrios/Brouwer + 5 Suite movement; production gate default off; Bach exposition preview | §3.2 Suite palette — **đã có gated** |
+| Matrix/codegen/registry | Sentence + pattern + render matrix; registry codegen + `PATTERN_NAMES` derived; `texture_registry.py` loader + 2 proof spec | §7.2 — **một phần** |
+| Session/quota | `X-Studio-Session`, `owner_id`, access/quota upload/analyze, signed media token, spec `owner_id`/`visibility` + scoped publish/list/get/rollback/export | preview queue — **một phần** |
+| Runtime | Code-backed; interpreter proof 2 bar `chord_melody` sau flag default off | §1.1 Phase 2/3 — **một phần** |
+
+Đọc thân bài: mọi câu “Đề xuất/Phase/Gate” là **kế hoạch**, không phải mô tả code hiện tại. Chỉ §0, §13.1–13.5 (sentence) và §13.6 (Barrios flag) phản ánh code hôm nay.
 
 ---
 
@@ -138,6 +188,7 @@ Revision 1 để mở “renderer hiện tại **hoặc** interpreter chung”. 
 
 - **Phase 0/1**: spec là **authoring source + test fixture**. Runtime vẫn là code hiện tại. Spec không được `guitar_patterns.py` đọc.
 - **Phase 2**: chỉ pattern có `runtime: "interpreter"` mới được runtime đọc. Mọi pattern còn lại giữ `runtime: "code"`.
+- **Phase 2 proof:** `app/sonify/texture_interpreter.py` render **hai bar `chord_melody`** từ `TextureSpec`, dispatch theo `(pattern, meter signature, excerpt digest)` trên `texture_registry`; có proof 4/4 và 3/4; flag `VSTOCK_TEXTURE_INTERPRETER` default off; thiếu/hỏng/bị registry bỏ/wrong digest → fallback code.
 - **Phase 3**: mới cân nhắc chuyển thêm pattern từ `code` sang `interpreter`.
 
 Lý do: renderer hiện tại chứa nhiều quyết định tay phải không thể biểu diễn bằng grid/events đơn giản. Nếu Phase 0 đã buộc runtime đọc spec, dự án sẽ thành một cuộc viết lại lớn trước khi có bằng chứng.
@@ -204,18 +255,20 @@ Composer
 
 Năm movement, nhưng trong engine chúng là **pattern thuộc palette Villa**, không phải 5 movement của một piece. Cột nhịp là nhịp **cần đối chiếu lại với bản nhạc** trước khi khoá spec.
 
-| Movement | Nhịp thường gặp | Id đề xuất | Tên in đề xuất |
+| Movement | Nhịp engine (audit) | Id đề xuất | Tên in đề xuất |
 |---|---|---|---|
-| Mazurka-Choro | 3/4 | `suite_mazurka` | Mazurka-Choro |
-| Schottish-Choro | 2/4 (cần xác nhận) | `suite_schottish` | Schottish-Choro |
-| Valsa-Choro | 3/4 | `suite_valsa` | Valsa-Choro |
-| Gavotta-Choro | 4/4 (cần xác nhận chỗ bắt đầu) | `suite_gavotta` | Gavotta-Choro |
-| Choros No. 1 | 2/4 hoặc 4/4 (cần xác nhận) | `suite_choros1` | Choros No. 1 |
+| Mazurka-Choro | `METER_34` — chắc chắn | `suite_mazurka` | Mazurka-Choro |
+| Schottish-Choro | `METER_44` sau `fold: 2` từ 2/4 — **chưa chắc** | `suite_schottish` | Schottish-Choro |
+| Valsa-Choro | `METER_34` — chắc chắn | `suite_valsa` | Valsa-Choro |
+| Gavotta-Choro | `METER_44` — pickup/bar 0 **chưa chắc** | `suite_gavotta` | Gavotta-Choro |
+| Choros No. 1 | `METER_44` tạm — 2/4 vs 4/4 **chưa chốt** | `suite_choros1` | Choros No. 1 |
+
+Audit vẫn là `backend/app/studio/villa_suite_audit.py` + `tests/test_villa_suite_audit.py`. Cả 5 movement có candidate preview; Mazurka/Valsa/Gavotta/Schottish/Choros1 đã register production metadata/title/profile/door nhưng selection/render chỉ khi flag tương ứng on (default off).
 
 Quy tắc tên:
 
 - Dùng **tên đầy đủ của movement**, không dùng `Mazurka`, `Valsa`, `Gavotta` trần.
-- `PATTERN_NAMES` trong `src/sonify/program.ts` là `Set<string>`; `isPatternForm` chỉ kiểm **membership**. Trùng title giữa hai nhà là **vô hại**: Set collapse, không “nhận nhầm pattern của nhà khác”.
+- `PATTERN_NAMES` trong `src/sonify/program.ts` là `ReadonlySet<string>` derive từ registry `level=topic`; `isPatternForm` chỉ kiểm **membership**. Trùng title giữa hai nhà là **vô hại**: Set collapse, không “nhận nhầm pattern của nhà khác”.
 - Hiện đã có 4 title trùng toàn cục và chúng **hợp lệ**: `Cantabile` (classic/barrios), `Etude` (classic/villa/brouwer), `Prelude` (villa/bach/barrios), `Sarabande` (bach/brouwer). Không đổi tên các pattern đang chạy.
 - Lý do dùng tên đầy đủ `Mazurka-Choro`, `Valsa-Choro`, `Gavotta-Choro` là **thẩm mỹ + luật trong `docs/sonify-pattern-names.md`**, không phải vì TS nhận nhầm.
 - Test đúng: **coverage** (mọi pattern có title không rỗng) + **uniqueness theo ensemble** (trong cùng một palette không trùng).
@@ -251,6 +304,8 @@ Hệ quả cần test:
 ---
 
 ## 4. Meter: mô hình đúng
+
+> **Trạng thái code:** `MeterSpec` 6 field + canonical key **đã có**; `app/studio/meter_runtime.py` có `resolve_runtime_meter()` (dùng thật `_guitar_meter` + `retarget_torroba_meter`), `resolve_meter_variant()` và chain check. Runtime vẫn không đổi; `SentenceSpec` vẫn dùng `meter` string, 12/8 fail-closed trừ variant `triplet_subdivision` được duyệt. Việc sửa fallback 12/8 trong runtime vẫn là Phase 3.
 
 ### 4.1. Thực tế trong code
 
@@ -534,6 +589,8 @@ Nếu `unsupported: true`, phải có `reason`; selection matrix không được
 
 #### Test
 
+> **Trạng thái code:** đã có cả ba matrix: `sentence_selection_matrix.json` (2.016 dòng), `pattern_selection_matrix.json` (44 row = 38 `_select_body` + 6 `_patterns`), `render_matrix.json` (46 row), với test drift. `pattern_selection_matrix` có **6 `expected_empty`** có reason: `(torroba, sonatina)` không có rule chọn, và 5 Suite movement vì flag default off. Không dùng `conftest.py`; fixture là module trực tiếp.
+
 - `backend/tests/test_texture_selection_matrix.py`
 - `backend/tests/test_texture_render_matrix.py`
 - Cả hai so fixture với output mới; drift phải review, không tự update.
@@ -548,6 +605,8 @@ Trong Phase 0–2:
 - Meter là per-render/per-movement.
 - Sentence `when.meter` là gate tĩnh, resolve lúc load spec.
 - Không dùng `kind_at` làm meter.
+
+**Ngoại lệ preview-only:** MusicXML import đọc meter theo từng measure để dựng matrix và chọn passage. Passage chỉ nhận range có **một** meter; range vắt qua meter change bị từ chối. Production runtime vẫn per-movement.
 
 ---
 
@@ -591,6 +650,8 @@ Ví dụ:
 
 ### 5.2. Villa chưa có sentence registry
 
+> **Trạng thái code:** `villa_pattern` vẫn là bar-level. `villa_arpeggio_aba` có production path sau `VSTOCK_VILLA_PRODUCTION`. Cả 5 Suite movement có candidate preview + production gate default off; chưa có sentence registry production mặc định.
+
 Trong code hiện tại:
 
 - `villa_pattern` là một hàm bar-level: `_render_villa_bar`.
@@ -625,17 +686,21 @@ Chi tiết schema/validator/inventory: [`sonify-guitar-model.md`](./sonify-guita
 
 ## 6. Spec model: authored / derived / rendered
 
+> **Trạng thái code:** **schema + validator** đã có trong `app/studio/texture_spec.py`; `app/studio/texture_resolve.py` resolve 5 pitch kind, authored → `NoteEvent`, và check register/voice order/string-fret/written-sounding/hand span (checks thiếu data trả `skipped`/`partial`). Chưa có renderer-profile exceptions, string/fret-vs-pitch, `derived`/golden hash hay compiler đầy đủ. Authoring runtime hiện vẫn là `SentenceSpec`.
+
 ### 6.1. Ba tầng
 
 Revision 1 trộn tất cả vào `events`. Revision 2/3 tách:
 
 | Tầng | Chứa gì | Có phải nguồn chân lý? | Dùng trong round-trip? |
 |---|---|---|---|
-| `authored` | bar, beat, duration, voice, **pitch reference**, tie, slur, accent, staccato, staff; optional `string`/`fret` | Có, cho **placement + reference** | Có, nhưng không so absolute MIDI |
-| `derived` | `resolved_midi`, velocity band, hairpin rule, humanize policy, dynamics policy | Không | Chỉ khi cùng render context |
+| `authored` | bar, beat, duration, voice, **pitch reference**, tie, slur, accent, staccato, staff; optional `string`/`fret`; optional **micro-velocity offset** | Có, cho **placement + reference + micro offset** | Có, nhưng không so absolute MIDI |
+| `derived` | `resolved_midi`, realized velocity sau wave/humanize, hairpin rule, humanize policy, dynamics policy | Không | Chỉ khi cùng render context |
 | `rendered` | `NoteEvent` sau `_resolve`, `apply_guitar_wave`, humanize | Không | Golden artifact riêng |
 
 `pitch reference` là `melody_eighth`, `chord_degree`, `scale_step` hoặc `literal_midi`. Chỉ `literal_midi` là absolute; các kind còn lại resolve từ render context. Vì vậy `resolved_midi` thuộc `derived`, không thuộc `authored`.
+
+**Micro-velocity offset** là ngoại lệ có chủ ý: nó thuộc `authored` nhưng **không phải velocity tuyệt đối**. Nó là delta optional trên level figure viết ra; realized velocity vẫn do wave/humanize quyết định. Không khai báo = offset 0.
 
 `rendered` không nằm trong `TextureSpec`. Nó là file `rendered.json` hoặc hash, sinh từ một render thật.
 
@@ -716,7 +781,7 @@ Sửa thành:
 - **Authored round-trip** so placement + reference: `bar`, `beat`, `duration_beats`, `voice`, `staff`, tie/slur/accent/staccato, và `pitch.kind` + index/degree. Không so absolute `midi` nếu pitch là `melody_eighth`/`chord_degree`/`scale_step`; nếu là `literal_midi` thì so được.
 - **Vì sao**: `melody_eighth` lấy `ctx.melody[index]` từ chính lần render đang so → so `midi` sẽ luôn pass, kể cả khi renderer đặt sai quãng. Đây là vòng tròn, không phải test.
 - **Absolute pitch** do `rendered` golden kiểm: cùng price path, volume, chord slots, liquidity, `params` hash, `SPAN_REVISION`/`RECAP_REVISION`, cùng `renderer_version`. So hash/snapshot, không so ±2.
-- Không so `velocity` tuyệt đối. Velocity do `apply_guitar_wave()` + `resolve_bar_volumes()` + liquidity + humanize quyết định; nó không thuộc spec.
+- Không so `velocity` tuyệt đối (realized). Velocity cuối do `apply_guitar_wave()` + `resolve_bar_volumes()` + liquidity + humanize quyết định. **Micro-velocity offset** thì so được, vì nó là authored data.
 - Không có “humanize seed”. `humanize()` nhận `params`, `offset_at`, `fan_hold`; tính deterministic qua `_stable_unit`, cố ý không dùng `hash()`. Vì vậy cache/so sánh dùng `params` hash + `SPAN_REVISION`.
 - `rendered` là golden artifact, không phải input của spec.
 
@@ -924,6 +989,121 @@ Quy tắc:
 - Vì vậy `melody_eighth`/`chord_degree`/`scale_step` chỉ dùng cho `runtime: "code"` hoặc interpreter có contract context tường minh; không dùng cho spec publish độc lập chưa có context.
 - Nếu cần escape hatch cho một gesture chưa biểu diễn được, dùng `literal_midi` + `runtime: "code"`, không thêm tên hàm.
 
+### 6.9. Micro-velocity contour (optional, authored)
+
+> **Trạng thái code:** **phần lớn**. `app/studio/micro_velocity.py` có data model + parse/validate + relative applier + pinned checker; `app/sonify/micro_velocity_contours.py` đã bóc tách Tremolo 4/4–3/4, Etude1, Etude11, Galop1/2, Cathedral; `SentenceSpec.Slot`/`TextureSpec`/`AuthoredEvent` đã parse/round-trip `microVelocity`/`velocityOffset`; preview trả `microVelocity: [{slot, contour}]`; UI có velocity lane + slot selector + save-to-spec. Writer integration **đã có sau flag `VSTOCK_MICRO_VELOCITY_WRITERS`** (default off) cho Tremolo/Etude1/Etude11/Galop1/2; flag off byte-identical. **Chưa wire**: Cathedral writer path, slot/texture override, preview áp contour vào notes. Schema dưới đây là contract hiện tại.
+
+Mỗi figure/pattern/sentence có thể mang **offset velocity theo từng nốt**. Đây là layer **optional, authored**, không phải velocity tuyệt đối. Không khai báo = offset 0 cho mọi nốt, kể cả thumb. Offset 0 phải cho **NoteEvent byte-identical** với code hiện tại.
+
+#### Carrier (nơi lưu)
+
+| Tầng | Field | Ghi chú |
+|---|---|---|
+| Figure registry | `figure.microVelocity` | default contour của figure; code-owned, Studio bóc tách/ghi đè |
+| Sentence | `SentenceSpec.slots[].microVelocity` | override contour cho slot đó; slot vẫn dùng `figure: int` |
+| Pattern / TextureSpec | `TextureSpec.microVelocity` | pattern-level contour; dùng khi pattern không có sentence slot |
+| Note-level | `AuthoredEvent.velocityOffset` | optional cho spec nhập tay; cùng nghĩa delta |
+
+Không có field `figures[]` mới: figure id vẫn là `int` trong `Slot`; contour gắn vào slot/registry, không đổi realizer.
+
+#### Toạ độ nốt
+
+Mỗi entry dùng toạ độ **tương đối trong figure/slot**, không phải index toàn bài:
+
+```json
+{
+  "bar": 0,
+  "beat": 0.0,
+  "voice": 1,
+  "finger": "a",
+  "offset": -6
+}
+```
+
+- `bar`: 0-based, tương đối từ đầu figure/slot (Galop 8 bar dùng 0..7).
+- `beat`: 0-based **quarter-note beat** trong bar; `0.25/0.5/0.75` là sixteenth, `1/3` là triplet.
+- `voice`: 1–4; UI bắt buộc lane 1–3, lane 4 chỉ hiện khi figure thực sự dùng voice 4.
+- `finger`: optional `p | a | m | i`; dùng cho tremolo/fingerstyle. Vắng `finger` thì offset áp theo `(bar, beat, voice)`, không phân biệt ngón.
+- `offset`: delta trên level figure viết ra; **không** phải velocity tuyệt đối.
+- `pinned: true` + `velocity`: attack do layer absolute kiểm soát (snap/stab/fan/tremolo trim) thì lưu velocity cuối, không lưu offset.
+
+#### Hai dạng contour
+
+```json
+{
+  "kind": "offsets",
+  "notes": [
+    { "bar": 0, "beat": 0.0, "voice": 1, "finger": "a", "offset": -6 },
+    { "bar": 0, "beat": 0.25, "voice": 1, "finger": "m", "offset": -3 },
+    { "bar": 0, "beat": 0.5, "voice": 1, "finger": "i", "offset": -4 },
+    { "bar": 0, "beat": 0.75, "voice": 1, "finger": "a", "offset": -6 }
+  ],
+  "thumb": [
+    { "bar": 0, "beat": 0.0, "voice": 3, "finger": "p", "offset": -4 }
+  ]
+}
+```
+
+```json
+{
+  "kind": "rule",
+  "ruleId": "galop1",
+  "ruleVersion": 1,
+  "params": { "step": 2, "floor": 40 },
+  "notes": []
+}
+```
+
+- `thumb: []` hoặc vắng = thumb offset 0.
+- `kind: "rule"` lưu rule/step table gốc; UI flatten thành per-note cho fixture đang chọn, nhưng dữ liệu lưu vẫn là rule. Mỗi `ruleId` phải khai `params` tối thiểu (ví dụ `galop1: {step, floor, peakQuarter}`) để flatten không phụ thuộc default ẩn.
+- Với `TextureSpec`, offline validator chỉ bound **beat** trong bar; `bar` không bound vì spec không khai length/window — compiler/preview bound theo meter/window đã chọn. Nhiều meter variant cũng vì vậy không chọn hộ.
+- `ruleVersion` phải bump khi writer mirror đổi (`_galop*_steps`, `_etude11_middle_vel`). `flatten_rule(base_at=...)` khi wire vào writer phải truyền **neutral level**, không dùng default `event.velocity` (chỉ dùng cho extraction harness).
+- **renderHash và audio cache key đã gồm contour**: canonical mapping theo slot, entry sort `(bar, beat, voice, finger)`. Hai spec cùng plan/row/notes nhưng khác offset không dùng chung cache. Preview vẫn chưa áp contour vào notes/velocity; writer integration là bước riêng.
+- Không có `base` áp vào velocity. Nếu UI cần mốc hiển thị, dùng level figure viết ra làm reference; không lưu/không cộng `base`.
+
+#### Thứ tự render và exception
+
+```
+figure writer (level gốc)
+  → relative micro offsets
+  → apply_guitar_wave (center + (written - 64), giữ relative)
+  → snap / stab / fan / tremolo trim (absolute, overwrite)
+  → humanize
+```
+
+- Relative offsets chỉ áp cho attack **không pinned**.
+- `_apply_snaps`, `_apply_stabs`, `_apply_fans`, `_apply_tremolo_bass_trim` là **absolute writers**. Chúng overwrite velocity; contour của các attack đó phải là `pinned: true` + `velocity` (không phải offset). `TREMOLO_BASS_TRIM=2` là một trong các exception này, không phải exception duy nhất.
+- `restamp_passage_hairpins` / `_restamp_swarm_hairpins` chỉ đổi hairpin, không ghi velocity; nếu tương lai chúng ghi velocity, phải thêm vào danh sách pinned.
+- Không layer nào được tự đặt lại offset của attack không pinned; chỉ dịch/clamp.
+
+#### Zero-diff bắt buộc
+
+- **Production patterns** (Tremolo, Galop, Cathedral, Etude1, Etude11) không có Studio `renderHash`. Zero-diff so **danh sách `NoteEvent`** (bar/beat/midi/voice/velocity/flags) và **golden digest/score-level artifact**, không phải `renderHash`.
+- **Studio preview** có `renderHash`; ở đó mới so hash.
+- Quy trình: baseline code → render fixture cố định → extract contour → render lại với contour → so từng NoteEvent + digest. Chỉ accept khi **identical**; nếu lệch, contour/schema sai, không được nới tolerance.
+- Contour vắng hoặc offset 0 phải identical; đây là điều kiện rollout.
+- Oracle hiện có: `backend/tests/micro_velocity_golden.py`, `backend/tests/fixtures/micro_velocity_golden.json`, `backend/tests/test_micro_velocity_golden.py`. Baseline lưu **full NoteEvent surface** (bar/beat/midi/duration/voice/velocity/staff/tie/slur/accent/tenuto/staccato/hairpin/pinned) + `fixture_digest`/`notes_digest`/`score_digest` (sha256), boundary là `render_patterned_voices` sau `apply_guitar_wave` trước humanize.
+- Fixture ids: `tremolo_44`, `tremolo_34`, `galop_1`, `galop_2`, `catedral_preludio`, `etude1`, `etude11`; offset 0 phải reproduce đúng notes_digest đã commit, không có update mode/tolerance.
+
+#### UI
+
+- Click figure/slot → **velocity lane**: x = bar/beat/note, y = offset; nhóm voice 1–4; thumb lane riêng. Khi preview trả nhiều slot, có slot selector; **Save to spec** ghi vào `slots[slot].microVelocity`, empty thì bỏ field, pinned/rule được khoá; preview trả `start`/`bars` (anchor-resolved); lane dùng origin cho preview bars, Save vẫn slot-relative. Tile/period chưa trả nên bar sau slot không lặp vẫn có thể wrap — còn gap.
+- Empty = 0; pinned attack hiện nhãn layer (snap/stab/fan/trim) và velocity tuyệt đối, không cho kéo offset.
+- Toggle “authored offsets → sau wave/humanize” **chỉ để xem**, không đổi dữ liệu lưu và không tạo hai render mode.
+- Sửa offset lưu vào figure/slot; không sửa velocity tuyệt đối của note thường. Preview notes cần `finger` (hoặc note-level `velocityOffset`) để match contour theo ngón; chưa có thì chỉ match entry không finger.
+
+#### Nguồn để bóc tách (hardcode hiện tại)
+
+| Figure | Nguồn offset trong code |
+|---|---|
+| Tremolo | thumb 4/4 `-4,0,+4,+1` quanh 58; fill `-6,-3,-4,-6`; trim 2 sau snap |
+| Galop | `_galop1_steps` / `_galop2_steps` × `_GALOP_STEP=2`, floor 40; rule-based |
+| Cathedral Preludio | role center + `_catedral_level` nudge, `_catedral_under(level,canto)=min(level,canto-6)`, whisper base 52/bottom-2 |
+| Etude1 | `_ETUDE1_ARC` theo sixteenth (`-2/-2/-2/0/0/+2...`), middle 52, bass sung-4 |
+| Etude11 | arch `-10/-6/-7/-10`, band nudge, `_ETUDE11_TILT`, lead hairpin/-8, bass hairpin-4 |
+
+Đã bóc tách: `TREMOLO_44`, `TREMOLO_34` (offsets), `ETUDE1` (offsets), `ETUDE11`/`GALOP1`/`GALOP2`/`CATHEDRAL_PRELUDIO` (rules) trong `app/sonify/micro_velocity_contours.py`; zero-diff bằng `tests/micro_velocity_extract.py` + `tests/test_micro_velocity_contours.py`. Cathedral dùng `canto_at`/`raw_at`/`beats_per_bar` ở flatten time cho `min(level, canto-6)`; không lưu bar plan/offset bịa. `NEUTRAL_LEVELS` chỉ là metadata verify, không phải `base` trong contour.
+
 ---
 
 ## 7. Runtime target và ai đọc spec
@@ -940,6 +1120,8 @@ Quy tắc:
 - Không sinh Python source từ spec trong runtime.
 
 ### 7.2. Phase 2: `texture_registry.py`
+
+> **Trạng thái code:** `texture_registry.py` **đã có** (lazy, fail-soft, allowlist, `renderer_version`, duplicate/skip). `textures/chord_melody_phase2.json` (4/4) và `chord_melody_phase2_34.json` (3/4) là proof spec hai bar, **được interpreter dispatch qua registry**; chưa có pattern production khác. Runtime vẫn đọc `SENTENCE_SPECS` code-backed; interpreter chỉ chạy sau `VSTOCK_TEXTURE_INTERPRETER` (default off).
 
 Thêm loader:
 
@@ -980,6 +1162,8 @@ Publish không ghi thẳng vào repo từ server. Publish tạo bundle để ng�
 
 ### 8.1. Preview là `slice_score` của render thật
 
+> **Trạng thái code:** MVP **không dùng `slice_score`**. `app/studio/preview.py` và các candidate preview dựng một `_Ctx` bounded rồi gọi realizer thật cho tối đa 16 bar. Đây là preview của realizer, chưa phải slice của render đầy đủ.
+
 Revision 1 nói “preview không cần dựng cả Score”. Sai. `_Ctx` cần:
 
 - `melody`, `raw`, `chord_at`, `phrases`
@@ -1008,6 +1192,8 @@ preview.wav / rendered.json
 
 ### 8.2. Audio, không phải MIDI
 
+> **Trạng thái code:** validate/preview có **job queue** `app/studio/jobs.py`: in-memory 64 job, TTL 10 phút, một `ThreadPoolExecutor(max_workers=1)`, cap **8 active job/owner** (`VSTOCK_STUDIO_JOBS_PER_OWNER`, owner từ `X-Studio-Session`, thiếu header → `anonymous` dùng chung), `POST /v1/studio/jobs` (202) + `GET /v1/studio/jobs/{id}` (404/409/200; owner khác → 404). Job terminal giải phóng `spec/fixture`. Audio preview vẫn là synth code-only (`app/studio/audio.py`, 22.05 kHz, 96 BPM, `renderHash`, semaphore riêng); MuseScore/audio queue vẫn chưa.
+
 - App dùng `expo-audio`, không có MIDI player.
 - Guitar audio đi qua `audio.py` → MuseScore.
 - `EXPORT_SLOTS` mặc định 1 (`audio.py:61`), nên preview sẽ tranh slot với nút Nghe.
@@ -1023,6 +1209,8 @@ preview.wav / rendered.json
 ---
 
 ## 9. Gemini vision
+
+> **Trạng thái code:** **backend + UI đã có**. `app/studio/vision.py`, upload/analyze/session/quota; UI upload + crop web (rect source px → `/analyze`) + notes table + TextureSpec draft/validate; validate/preview job queue (`jobs.py`). **Chưa có** native picker/crop, apply vào SentenceSpec editor, durable preview media.
 
 ### 9.1. Reuse client hiện có
 
@@ -1095,6 +1283,7 @@ Giới hạn:
 
 - bè bass/trung/cao khi bè ẩn
 - bè nào ăn price/volume
+- **micro-velocity offset** (Gemini có thể đọc accent/dynamic ký hiệu; người chuyển thành contour)
 - micro-timing, velocity, humanize
 - “nốt này ngân dài để nối bè”
 - quãng bè trung
@@ -1125,19 +1314,21 @@ Trước khi lưu `draft`:
 
 Hiện tại:
 
-- `src/musicalize/MusicalizeApp.tsx`: `Mode = 'replay' | 'live'`.
-- `TopBar` nhận `mode: 'replay' | 'live'`.
-- `ReplayRoom`, `LiveRoom`.
+- `src/musicalize/MusicalizeApp.tsx`: `Mode = 'replay' | 'live' | 'studio'`.
+- `TopBar` đã có pill **Studio**, luôn hiện (chưa có capability gate).
+- `src/studio/StudioRoom.tsx` (không phải `src/musicalize/StudioRoom.tsx`): JSON editor, examples API, Validate, Preview, Play preview (web), Publish + version list, Rollback.
+- Chưa có upload ảnh, crop, Gemini draft hay bảng review nốt.
 
-Đề xuất:
+Đề xuất còn lại:
 
-- `Mode = 'replay' | 'live' | 'studio'`.
-- `src/musicalize/StudioRoom.tsx`.
-- `TopBar` thêm pill **Studio**, hiện theo capability.
+- Capability gate cho pill Studio.
+- Upload/crop + Gemini draft + review table.
 - Studio dùng layout riêng, không dùng `RoomFrame` của phòng nghe.
 - Mọi HTTP đi qua `src/api/client.ts` (`getApiBaseUrl`, `absoluteApiUrl`). Không tạo fetch client thứ hai.
 
 ### 10.2. Session, không phải auth
+
+> **Trạng thái code:** `X-Studio-Session` + hash `owner_id` + quota upload/analyze + signed media token **đã có**; sentence specs cũng đã có `owner_id` + `visibility private/public` trong `studio_sentence_specs`, và publish/list/get/rollback/export scope theo session. Thiếu `X-Studio-Session` → namespace `anonymous` để tương thích cũ. Không trả `ownerId` ra response.
 
 Hiện tại backend **không có auth**; CORS `allow_origins=["*"]`. Vì vậy:
 
@@ -1211,6 +1402,8 @@ App chưa có image picker. Cần thêm (đọc Expo SDK 58 docs trước khi co
 │ [crop rectangle] │ confidence màu    │ price  → voice 1      │
 │ zoom / pan       │ sửa nốt           │ volume → voice 2      │
 │                  │                   │ bass → voice 3        │
+│                  │                   │ click figure → lane   │
+│                  │                   │ velocity offset       │
 ├──────────────────┴───────────────────┴───────────────────────┤
 │ Validate: meter, voice order, duration, playable authored     │
 ├──────────────────────────────────────────────────────────────┤
@@ -1233,6 +1426,8 @@ draft → reviewed → validated → previewed → exported
 
 ### 11.1. Production dùng `/data`
 
+> **Trạng thái code:** publish dùng bảng `studio_sentence_specs` trong DB chung (`app/store/db.py`, `VSTOCK_DB_PATH`). Upload dùng `VSTOCK_STUDIO_DIR` (default `backend/var/studio`, production `/data/studio`) + `studio_blobs`/`studio_uploads`. Chưa có preview job/queue hay export bundle trên đĩa.
+
 `backend/fly.toml` mount volume `vstock_data` tại `/data`; `VSTOCK_DB_PATH=/data/vstock.db`.
 
 Revision 1 đặt `backend/var/musicalize_studio.db` → mất sau deploy. Sửa:
@@ -1252,6 +1447,8 @@ Khuyến nghị: dùng chung `app/store/db.py`:
 `backend/var/` chỉ dùng local dev; không dùng production.
 
 ### 11.2. Publish không ghi repo từ server
+
+> **Trạng thái code:** compiler trả **bundle JSON** qua `POST /v1/studio/sentence/export` và `.../specs/{id}/export`; `export_bundle` (library) ghi 4 file `spec/fixture/rendered/registration`. **Chưa có** `preview.wav`, `/data/studio/exports`, hay PR automation.
 
 Trên Fly không có git working tree. Server không được ghi `backend/app/sonify/textures/`.
 
@@ -1277,6 +1474,46 @@ Test sinh ra phải **data-driven**:
 - không sinh Python source từ spec.
 
 ### 11.3. Backend layout và API
+
+**Hiện tại:**
+
+```
+backend/app/routers/studio.py          # validate, preview, examples
+backend/app/routers/studio_publish.py  # publish, specs, specs/{id}, rollback
+backend/app/routers/studio_audio.py    # audio + WAV
+backend/app/routers/studio_export.py   # compile/export bundle (JSON, no writes)
+backend/app/routers/studio_vision.py   # access, uploads, analyze
+backend/app/routers/studio_texture.py  # POST /texture/validate (offline)
+backend/app/routers/studio_jobs.py     # POST /v1/studio/jobs, GET /jobs/{id}
+backend/app/routers/studio_musicxml.py # import upload, summary, passage, audio link
+backend/app/studio/musicxml_import.py  # deterministic solo-guitar MusicXML importer
+backend/app/studio/musicxml_source.py  # parser dataclass <-> API note seam
+backend/app/studio/                    # sentence_spec, texture_spec, preview, dispatch, compiler, jobs, publish, audio, session, quota, store, vision, candidates
+```
+
+**MusicXML import (preview-only, đã code):** prefix `/v1/studio/import`. Upload file `.musicxml`/`.xml`, nhận summary + note (kể cả rest), chọn bar range 1-based inclusive, nhận passage `TextureSpec` + WAV. Parser chỉ đọc part đầu tiên; bar nội bộ 0-based; guitar written → sounding `-12`; repeats/endings/grace chỉ warning, không expand.
+
+| Method | Path | Việc |
+|---|---|---|
+| `POST` | `/musicxml` | Upload + parse (multipart `file`) |
+| `GET` | `/musicxml/{importId}` | Summary + notes + warnings |
+| `POST` | `/musicxml/{importId}/passage` | `{barStart, beatStart?, barEnd, beatEnd?, voices?}` → spec/notes/WAV |
+| `GET` | `/musicxml/passages/{passageId}` | Passage đã build |
+
+- `summary.measureMeters` index 0 = bar 1; `summary.meterChanges[].bar` 1-based và chỉ liệt kê thay đổi sau bar 1.
+- `beatStart`/`beatEnd` là offset quarter-note trong `barStart`/`barEnd`; `beatEnd` **exclusive**, bỏ trống = hết bar `barEnd`. Note overlap được cắt ở boundary và rebase để selection start = 0. Range kết thúc đúng barline không tính bar kế.
+- Meter hỗ trợ: `1/4`, `2/4`, `3/4`, `4/4`, `6/8` (`6/8` = 3 quarter beats). Range trộn meter → `ok:false`, `path:"meter"`. Meter không hỗ trợ chỉ bị chặn khi range **chạm** vào bar đó; các bar khác vẫn dùng độ dài thật để tính absolute tick.
+- Passage `spec` dùng literal MIDI, `materializer=null`, **không** tự ghi vào SentenceSpec; WAV dùng code-only synth. Response có `bpm` (96) để UI map playhead, không dùng `durationSec` vì WAV có tail.
+- UI matrix: role lane **Lead** (voice 1), **Mid** (chord tone còn lại), **Bass** (nốt thấp nhất mỗi onset); grid **24 tick/quarter**; pitch ẩn; ô trống = rest. Tie hiện trong accessibility label và spec/audio merge, **chưa vẽ connector** giữa các block. Zoom 50–300% chỉ đổi chiều rộng; kéo chuột chọn beat; playhead dọc chạy theo audio preview.
+- Note vắt qua virtual barline (beat selection bắt đầu giữa bar) được tách trong authored spec với `tie start/continue/stop`; synth note được merge lại để không tấn công lần hai.
+- Entity declaration (`<!ENTITY>`) bị từ chối trước khi parse XML.
+- Pickup/implicit measure hiện dùng **full meter length** để tính tick/layout; độ dài measure thực chưa được giữ — có warning.
+
+Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. Job queue là **in-memory/process-local** (không durable): cap global 64, cap 8 active/owner, `GET` scope theo owner (owner khác → 404), terminal job giải phóng `spec/fixture`; vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
+
+**Vận hành MVP:** production nên set `VSTOCK_STUDIO_SECRET`; thiếu env thì server dùng secret random per-process (token chết sau restart, không còn hardcoded secret). Upload có `Content-Length` guard + chunk cap; ngoài quota per-owner còn global cap `VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY`/`..._ANALYSES_PER_DAY`/`..._SPECS_PER_DAY` để chặn session rotation; publish cũng enforce `specsPerDay` (429 + Retry-After). Vision cache prune theo `VSTOCK_STUDIO_VISION_CACHE_DAYS` (default 30).
+
+**Đề xuất Phase 1:**
 
 ```
 backend/app/routers/musicalize_studio.py
@@ -1334,6 +1571,8 @@ Token ký theo `owner_id + resource_id + expiry`, TTL 5–15 phút, revoke khi s
 - Validate dùng **cùng global Studio queue**; nếu đang chờ render, trả `202 + validation_id`; nếu thiếu context, trả `200` với `partial: true` + `skipped_checks`.
 
 ### 11.4. DDL tối thiểu
+
+**Hiện tại:** bảng publish thật là `studio_sentence_specs(id, pattern, meter, version, payload, status, created_at, rollback_of, owner_id, visibility)` với `UNIQUE(pattern, meter, version)`; `owner_id` default `anonymous`, `visibility` default `private`, version vẫn global theo `(pattern, meter)`. Upload/blob dùng bảng riêng `studio_blobs`/`studio_uploads`/`studio_quota`. Phần DDL dưới đây là **đề xuất Phase 1**.
 
 ```sql
 CREATE TABLE IF NOT EXISTS studio_blobs (
@@ -1416,6 +1655,8 @@ Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc
 
 ### 12.2. Registry codegen
 
+> **Trạng thái code:** compiler checklist **đã có** (`app/studio/compiler.py`, `registration.md`); codegen **đã có** `scripts/gen_pattern_registry.py` + `src/sonify/patternRegistry.generated.ts` (44 row, `level`/`nameSource`, `--check` + pytest gate). `PATTERN_NAMES` **đã derive** từ registry, chỉ `level === 'topic'`; `Pedal` và texture names không vào set.
+
 Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.generated.ts` và có `--check`.
 
 Đề xuất:
@@ -1430,7 +1671,7 @@ Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.gen
 
 ### 12.3. Title coverage, không phải uniqueness toàn cục
 
-`PATTERN_NAMES` là set toàn cục theo title. **Không test uniqueness toàn cục** — hiện có 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
+`PATTERN_NAMES` là set toàn cục theo title, derive từ registry `level === 'topic'`: **35 title** distinct từ 38 topic row. Toàn bộ registry có 44 row / 39 title (gồm `Pedal`); 43 wave-profile row cho 38 title. **Không test uniqueness toàn cục** — 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
 
 ```python
 from collections import defaultdict
@@ -1524,7 +1765,16 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ## 13. Lộ trình
 
-### Phase 0 — Chứng minh schema, chưa UI, chưa Gemini
+**Trạng thái sau refactor sentence:**
+
+| Phase | Đã có | Còn thiếu |
+|---|---|---|
+| 0 | Sentence schema/JSON, loader/export, validate/preview per family; `MeterSpec`/`TextureSpec` schema + offline validator; `meter_runtime` resolver; `texture_resolve` pitch/playability bridge; sentence + pattern + render matrices; compiler bundle; registry codegen + derived `PATTERN_NAMES`; Suite palette preview | renderer-profile playability, Phase 3 runtime 12/8 |
+| 1 | Studio room, editor, examples, validate/preview, audio, publish/rollback; session/owner/quota, upload + signed media, Gemini analyze/cache, UI upload + **crop web** + draft table + TextureSpec draft/validate, **in-memory preview/validate job queue**, export bundle JSON, spec owner/visibility | native picker/crop, durable preview media, `preview.wav`/export files, PR automation |
+| 2 | Candidate preview Villa/Barrios/Brouwer; Barrios flag off; Bach preview; all 5 Suite candidates; `texture_registry.py`; two-bar `chord_melody` dispatch; all 5 Suite patterns behind default-off flags | Full interpreter/registry runtime consumer, multi-pattern interpreter, Bach production |
+| 3 | — | Library UI, auth thật, publish qua PR/GitHub App |
+
+### Phase 0 — Chứng minh schema, chưa UI, chưa Gemini (một phần)
 
 - `schema.py` với `MeterSpec` (6 field), `authored/derived`, `profiles`.
 - `resolve_runtime_meter()` dùng chung; cấm `active_meter()` ngoài `compose_meter`.
@@ -1537,7 +1787,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 **Gate**: authored round-trip **placement + pitch reference** đúng; golden hash kiểm absolute pitch; meter gate âm tính; matrix đầy đủ; Studio từ chối 12/8; không có thay đổi runtime.
 
-### Phase 1 — Studio room + Gemini + session
+### Phase 1 — Studio room + Gemini + session (một phần)
 
 - `StudioRoom`, mode `studio`, capability.
 - `X-Studio-Session`, owner check, quota.
@@ -1547,7 +1797,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 **Gate**: một người dùng thật upload ảnh, sửa draft, lưu spec, nghe preview, export bundle mà không sửa code.
 
-### Phase 2 — Suite Popular Brasileira + runtime interpreter
+### Phase 2 — Suite Popular Brasileira + runtime interpreter (chưa)
 
 - Sentence pipeline theo [`sonify-guitar-model.md`](./sonify-guitar-model.md) §13: migrate Torroba (4 archetype) + galop (period 4+4) trước, rồi authoring cho composer còn lại.
 - Audit Villa sentence: pattern nào có span thật.
@@ -1559,7 +1809,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 **Gate**: thêm một movement với meter đúng; ít nhất một pattern chạy từ spec.
 
-### Phase 3 — Thư viện + auth thật
+### Phase 3 — Thư viện + auth thật (chưa)
 
 - Library UI theo composer/status/meter coverage.
 - Auth + entitlement thật; thay session namespace.
@@ -1568,7 +1818,29 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ---
 
+### 13.10.1. Production flags (Sprint 13/16)
+
+- `VSTOCK_VILLA_PRODUCTION`, `VSTOCK_BROUWER_PRODUCTION`, `VSTOCK_SUITE_MAZURKA`, `VSTOCK_SUITE_VALSA`, `VSTOCK_SUITE_GAVOTTA`, `VSTOCK_SUITE_SCHOTTISH`, `VSTOCK_SUITE_CHOROS1` — default **off**, context-manager override.
+- Cả 5 Suite movement (Mazurka/Valsa/Gavotta/Schottish/Choros1) đã register metadata/title/profile/door; selection + render chỉ khi flag on. Schottish là 4/4 stand-in cho 2/4; Choros No.1 provisional 4/4; Gavotta bar-0 caveat.
+- Villa/Brouwer dùng candidate ABA hiện có; Barrios giữ flag riêng.
+- Gated Suite/Villa/Brouwer **và Barrios period** trả raw bar voices + plan cho shared tail: scale/bells/transitions/wave/hairpin/fans/pinned/divisions; Barrios khác ở `owns_preludio_bass=True` để không lặp pedal. Flag off byte-identical.
+- Slot override đã wire qua `plan_slots` → `SentenceVoices.slot_contours`; texture override có seam `texture_contour` nhưng chưa có runtime consumer. Cathedral default contour vẫn chưa wire vào writer.
+
+### 13.11. Quy trình `v2` (chốt 2026-11)
+
+- `v2` là **nhánh tích hợp + chạy local nội bộ**, không phải nhánh chờ merge và không deploy production trong giai đoạn này.
+- Feature branch merge **local vào `v2`** sau review + full test; không mở PR `main`.
+- Phase 1 xong **không** merge `main`; đánh dấu bằng tag `v2-studio-phase1` (và các tag phase sau).
+- Chạy `v2` local nội bộ (backend + `npm run web`) một thời gian, thu feedback, sửa lỗi trực tiếp trên `v2`.
+- Chỉ mở **một** PR `main ← v2` khi người phụ trách xác nhận `v2` ổn định; PR #163 đã đóng để tránh merge nhầm.
+- Tiêu chí ổn định tối thiểu: full backend + frontend tests xanh, không lỗi P0/P1 trong thời gian chạy local nội bộ, không regression ngoài Studio.
+- **E2E gate:** `backend/tests/test_studio_e2e.py` (13 test) phủ example→validate→preview→audio→publish→rollback→list/get, upload/analyze/signed media, job queue, owner/visibility; socket guard chặn network. Thêm `test_studio_stabilization_gate.py` (19 test) pin flag off/on digest, shared tail, slot/texture override, interpreter dispatch. Chạy focused trước, rồi `tests/test_studio_*.py`, rồi full backend.
+
+---
+
 ## 14. Tiêu chí nghiệm thu
+
+> Đây là **gate của toàn bộ Texture Studio**, không phải checklist đã pass. Đã pass sentence authoring, schema/validator, meter resolver, matrices, compiler, codegen, session/upload/analyze, owner/visibility, full production tail + slot override (flags off), Suite palette, two-bar interpreter dispatch, E2E/stabilization gates. Các mục Bach production, multi-pattern interpreter, native crop, durable queue/export, renderer-profile/derived golden, UI rule flatten và local stability vẫn là **mục tiêu**.
 
 1. **Meter exact**: spec lưu đủ 6 field `MeterSpec`; so canonical tuple, không so `id`/string.
 2. **Meter sau retarget**: spec khớp `resolve_runtime_meter()` sau `_guitar_meter` + `retarget_torroba_meter`; compiler không gọi `active_meter()` ngoài `compose_meter`.
@@ -1594,9 +1866,13 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 22. **Media token**: preview/export dùng signed token ngắn hạn; `GET /uploads/{id}` kiểm tra owner.
 23. **Global preview queue**: 1 worker Studio, render ngoài event loop, tách khỏi `EXPORT_SLOTS`; `previewsConcurrent` chỉ là per-session.
 24. **Level/nhãn**: mỗi pattern khai `level` (`topic` / `texture`) + `name_source`; chỉ `topic` được in tên. **Movement** là level trên pattern (`FormSpec` + plan + `title`), không phải `level`. Inventory 39 dòng và các quyết định tên nằm ở [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8, §12.
-24. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
-25. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
-26. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
+25. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
+26. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
+27. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
+
+28. **Micro-velocity optional:** mỗi figure/slot có thể có contour offset theo nốt; vắng/empty = 0 (kể cả thumb); layer sau chỉ dịch/clamp **trừ attack `pinned`** do absolute writer (snap/stab/fan/trim); Studio click figure → velocity lane và cho sửa.
+29. **Extraction zero-diff:** Tremolo 4/4–3/4, Galop 1/2, Etude1, Etude11, **Cathedral Preludio** phải cho cùng danh sách NoteEvent + golden digest/score artifact (production) hoặc renderHash (Studio preview); test baseline vs contour bắt buộc, không được “gần đúng”. Cathedral dùng rule context `canto_at`/`raw_at`/`beats_per_bar`, không lưu offset bịa.
+30. **Writer zero-diff:** `VSTOCK_MICRO_VELOCITY_WRITERS` default off; off byte-identical. On: figure defaults + slot override apply before the wave and pinned checks after the last absolute writer; every NoteEvent/golden digest identical. Cathedral writer path and texture override runtime consumer remain open.
 
 ---
 
@@ -1637,7 +1913,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 4. **Session token sống bao lâu?**
    Đề xuất 90 ngày, lưu AsyncStorage; hết hạn tạo mới, spec cũ vẫn thuộc owner cũ nếu có auth sau này.
 5. **Preview audio slot**
-   Tăng `VSTOCK_MUSESCORE_SLOTS` hay queue riêng? Đề xuất queue riêng cho Studio, không chiếm slot Nghe.
+   **Đã chốt cho MVP:** dùng synth code-only riêng (`app/studio/audio.py`), không đi qua MuseScore nên không tranh slot Nghe. Nếu sau này chuyển sang MuseScore thì mở queue riêng, không tăng `VSTOCK_MUSESCORE_SLOTS`.
 
 ---
 

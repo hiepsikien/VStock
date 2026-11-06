@@ -1,0 +1,603 @@
+{
+  "runtime": "code",
+  "schema_version": 1,
+  "specs": [
+    {
+      "id": "son_close_l1_3",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "close",
+        "length_max": 3,
+        "length_min": 1,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 3,
+          "figure": 3,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l2_t0",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 2,
+        "length_min": 2,
+        "n_mod": {
+          "mod": 3,
+          "value": 0
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l2_t1",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 2,
+        "length_min": 2,
+        "n_mod": {
+          "mod": 3,
+          "value": 1
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 2,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l2_t2",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 2,
+        "length_min": 2,
+        "n_mod": {
+          "mod": 3,
+          "value": 2
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l3_t0",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 3,
+        "length_min": 3,
+        "n_mod": {
+          "mod": 3,
+          "value": 0
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l3_t1",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 3,
+        "length_min": 3,
+        "n_mod": {
+          "mod": 3,
+          "value": 1
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 2,
+          "start": 1
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l3_t2",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 3,
+        "length_min": 3,
+        "n_mod": {
+          "mod": 3,
+          "value": 2
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 1,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_close_l4_5",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "close",
+        "length_max": 5,
+        "length_min": 4,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "end",
+          "bars": 3,
+          "figure": 3,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l4_t0",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 4,
+        "length_min": 4,
+        "n_mod": {
+          "mod": 3,
+          "value": 0
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l4_t1",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 4,
+        "length_min": 4,
+        "n_mod": {
+          "mod": 3,
+          "value": 1
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 2,
+          "start": 1
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l4_t2",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 4,
+        "length_min": 4,
+        "n_mod": {
+          "mod": 3,
+          "value": 2
+        },
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 2
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l5_even",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 5,
+        "length_min": 5,
+        "n_mod": null,
+        "n_parity": "even",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l5_odd",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 5,
+        "length_min": 5,
+        "n_mod": null,
+        "n_parity": "odd",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 2,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_close_l6",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "close",
+        "length_max": 6,
+        "length_min": 6,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 3,
+          "figure": 3,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l6_even",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 6,
+        "length_min": 6,
+        "n_mod": null,
+        "n_parity": "even",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 2,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l6_odd",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": 6,
+        "length_min": 6,
+        "n_mod": null,
+        "n_parity": "odd",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 2,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 3
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_close_l7plus",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "close",
+        "length_max": null,
+        "length_min": 7,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        },
+        {
+          "anchor": "end",
+          "bars": 3,
+          "figure": 3,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "son_open_l7plus",
+      "meter": "*",
+      "pattern": "sonatina",
+      "select": {
+        "closes": "open",
+        "length_max": null,
+        "length_min": 7,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 4,
+          "start": 0
+        },
+        {
+          "anchor": "start",
+          "bars": 1,
+          "figure": 1,
+          "start": 3
+        },
+        {
+          "anchor": "start",
+          "bars": 2,
+          "figure": 2,
+          "start": 5
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    }
+  ]
+}

@@ -131,6 +131,11 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("villa", "chord_melody"): _profile(26, 32, 54, 60, None, None, 0, 0, "none", 9),
     ("villa", "thumb_cantabile"): _profile(30, 36, 58, 63, 68, 70, 1, 2, "thumb", 9),
     ("villa", "villa_pattern"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
+    ("villa", "suite_mazurka"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
+    ("villa", "suite_valsa"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
+    ("villa", "suite_gavotta"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
+    ("villa", "suite_schottish"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
+    ("villa", "suite_choros1"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
     ("villa", "etude1"): _profile(30, 36, 58, 63, 68, 70, 1, 2, "etude1", 5),
     ("villa", "etude11"): _profile(30, 36, 58, 63, 70, 74, 1, 3, "etude11", 5),
     ("brouwer", "noviembre"): _profile(24, 30, 52, 58, None, None, 0, 0, "none", 9),
@@ -153,6 +158,21 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
 
 def profile_for(ensemble: str, pattern: str) -> PatternWaveProfile | None:
     return PROFILES.get((ensemble, pattern))
+
+
+# The Villa sentence ids share the 3/4 roll's accent and tresillo grouping.
+# The four Suite movements are unreachable unless their flags are on, so the
+# historical `villa_pattern` result is unchanged.
+_VILLA_SENTENCE_PATTERNS = frozenset(
+    {
+        "villa_pattern",
+        "suite_mazurka",
+        "suite_valsa",
+        "suite_gavotta",
+        "suite_schottish",
+        "suite_choros1",
+    }
+)
 
 
 # Sung rows. Dance rows already sit at 63 and are not rewritten here.
@@ -1052,7 +1072,7 @@ def _is_target(
         return voice == "lead" and event.accent
     if pattern == "vals":
         return voice == "lead" and event.accent and eighth == 4
-    if pattern == "villa_pattern":
+    if pattern in _VILLA_SENTENCE_PATTERNS:
         return voice == "lead" and (eighth in {0, 3, 6} or apex)
     if pattern == "etude1":
         slot = int(round(beat * 4))
@@ -1155,7 +1175,7 @@ def _collect_units(
                 if offsets[quarter] != max(offsets):
                     continue
             ceiling = _snap_ceiling(profile, wave.alpha_price, pattern)
-            if pattern == "villa_pattern" and int(round(event.beat * 2)) in {0, 3, 6}:
+            if pattern in _VILLA_SENTENCE_PATTERNS and int(round(event.beat * 2)) in {0, 3, 6}:
                 existing = tresillo.get(event.bar)
                 if existing is None:
                     tresillo[event.bar] = _Unit(score, pattern, event.bar, _phrase_key(phrase), voice, [index], ceiling)

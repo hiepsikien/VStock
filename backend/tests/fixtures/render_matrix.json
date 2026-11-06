@@ -1,0 +1,1112 @@
+{
+  "fixture_version": 1,
+  "kind": "sentence-render",
+  "renderer_version": 1,
+  "rows": [
+    {
+      "family": "barrios",
+      "fixture": {
+        "bars": 12,
+        "closes": false,
+        "length": 12,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "barrios_cathedral_period",
+      "meter": "4/4",
+      "note_count": 232,
+      "pattern": "preludio",
+      "renderHash": "sha256:c93dfe283f8ed25dda070da2b85630e0f65fd0c04b2f8d40964e8caf09008bdb",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 96,
+        "2": 96,
+        "3": 40,
+        "4": 0
+      }
+    },
+    {
+      "family": "brouwer",
+      "fixture": {
+        "bars": 3,
+        "closes": false,
+        "length": 3,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "brouwer_etude_noviembre_aba",
+      "meter": "4/4",
+      "note_count": 47,
+      "pattern": "brouwer_etude",
+      "renderHash": "sha256:5557aaa546a99e2847e05127a3c33a8200d0aee2d4ded4e709c92b58329eae9e",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 24,
+        "2": 15,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_choros1_arpeggio_abba",
+      "meter": "4/4",
+      "note_count": 56,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:d06860858d545ae48364b016f8fd0c858ee1bb96c1a99b01e2f0b8f903aa6a26",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 32,
+        "2": 16,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_gavotta_arpeggio_baab",
+      "meter": "4/4",
+      "note_count": 60,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:ed12313be73a723a2d40b3198ef9038dbccc614092cf84acda3e394915440409",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 32,
+        "2": 18,
+        "3": 10,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_mazurka_arpeggio_aaba",
+      "meter": "3/4",
+      "note_count": 41,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:355b8f14a64216aba65b8ef407bb9fdba6881ae1810d1dd8a9dbdc2b156a6f80",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 24,
+        "2": 10,
+        "3": 7,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_schottish_arpeggio_abab",
+      "meter": "4/4",
+      "note_count": 56,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:b2170f1a6d809f4965d5df451d8ec477f2735bd7f2efa25632f0ebacdba036cf",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 32,
+        "2": 16,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 8,
+        "closes": false,
+        "length": 8,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "suite_valsa_arpeggio_period",
+      "meter": "3/4",
+      "note_count": 79,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:9999e82430a4d5f9a2335651d2361403baa84166289c987195d539241270ff55",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 48,
+        "2": 18,
+        "3": 13,
+        "4": 0
+      }
+    },
+    {
+      "family": "villa",
+      "fixture": {
+        "bars": 3,
+        "closes": false,
+        "length": 3,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "villa_arpeggio_aba",
+      "meter": "4/4",
+      "note_count": 44,
+      "pattern": "villa_pattern",
+      "renderHash": "sha256:13d331aa610f39c840eb48b4330e03102fa24f5a37efa5717cf5b845871bdefe",
+      "renderer_version": 1,
+      "source": "candidate",
+      "voice_counts": {
+        "1": 24,
+        "2": 14,
+        "3": 6,
+        "4": 0
+      }
+    },
+    {
+      "family": "classic",
+      "fixture": {
+        "bars": 8,
+        "closes": false,
+        "n": 0,
+        "rise": 0,
+        "run_length": 8
+      },
+      "fixture_version": 1,
+      "id": "galop_cycle",
+      "meter": "*",
+      "note_count": 79,
+      "pattern": "galop",
+      "renderHash": "sha256:a84c548762612bd0841d0c84cd76b0dd69cfa4bf7eb05b931e76c4049470ed70",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 63,
+        "2": 0,
+        "3": 16,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 9,
+        "closes": false,
+        "length": 9,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_34_cadence",
+      "meter": "3/4",
+      "note_count": 30,
+      "pattern": "castillo",
+      "renderHash": "sha256:e86d4e404cacab40d63e4ef6374a89e98595de2d40a3de41e9cdfdf6b3142637",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 9,
+        "2": 12,
+        "3": 9,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 9,
+        "closes": false,
+        "length": 9,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_34_walk",
+      "meter": "3/4",
+      "note_count": 52,
+      "pattern": "castillo",
+      "renderHash": "sha256:0d9e696cf020f7f76b94eabc75aeb66d9391b3044d119f02ff79ad9e0e6aedfc",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 39,
+        "2": 3,
+        "3": 10,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 8,
+        "closes": false,
+        "length": 8,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_long_even",
+      "meter": "4/4",
+      "note_count": 77,
+      "pattern": "castillo",
+      "renderHash": "sha256:758a89ac150cd3f5e12ff241066025baec09d6e4cbdbc120fd48f2cabcbf8425",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 31,
+        "2": 18,
+        "3": 28,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 8,
+        "closes": false,
+        "length": 8,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_long_odd",
+      "meter": "4/4",
+      "note_count": 24,
+      "pattern": "castillo",
+      "renderHash": "sha256:d75a7cd6c5a2756db381c9e502d1bf0286b5b29877f63f69367173dbfee3f2db",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 8,
+        "2": 0,
+        "3": 16,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_pair_even",
+      "meter": "4/4",
+      "note_count": 27,
+      "pattern": "castillo",
+      "renderHash": "sha256:d6732ed360c490370982064e83f4d9c925b04c3c2a000875d5182fb1e5d065ea",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 16,
+        "2": 3,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_pair_odd",
+      "meter": "4/4",
+      "note_count": 12,
+      "pattern": "castillo",
+      "renderHash": "sha256:bb109f105856c2cb8acc6049b00c9e24fccae2c62d410355851fd4909914ee5c",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 4,
+        "2": 0,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 5,
+        "closes": false,
+        "length": 5,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_pairs_odd",
+      "meter": "4/4",
+      "note_count": 15,
+      "pattern": "castillo",
+      "renderHash": "sha256:af024ecc7ed594c4918e9c089e7a83ea4de2deef93c824968f67ae5e11ee2f35",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 5,
+        "2": 0,
+        "3": 10,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 2,
+        "closes": false,
+        "length": 2,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_short",
+      "meter": "4/4",
+      "note_count": 21,
+      "pattern": "castillo",
+      "renderHash": "sha256:09e79297cf12439d74634b6def3eed890c812cfdaf2ac05b05d90844131a63b9",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 14,
+        "2": 3,
+        "3": 4,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 5,
+        "closes": false,
+        "length": 5,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_type7_l5",
+      "meter": "4/4",
+      "note_count": 68,
+      "pattern": "castillo",
+      "renderHash": "sha256:69ffe1101097e2e2c234b5207c157bd571d14563e7139947276b754eebcada1c",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 28,
+        "2": 18,
+        "3": 22,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 6,
+        "closes": false,
+        "length": 6,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_type7_l6",
+      "meter": "4/4",
+      "note_count": 71,
+      "pattern": "castillo",
+      "renderHash": "sha256:e1bd6eab570c2a0d0e50d6bc294146ae0629e42afd8116d9c18c1e96b690f9ed",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 29,
+        "2": 18,
+        "3": 24,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 7,
+        "closes": false,
+        "length": 7,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "castillo_44_type7_l7",
+      "meter": "4/4",
+      "note_count": 74,
+      "pattern": "castillo",
+      "renderHash": "sha256:9865f15065eebb3f5524d6d2b86c602e5e38ea27e0e0b40b33383fc5dbfd67ad",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 30,
+        "2": 18,
+        "3": 26,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 5,
+        "closes": true,
+        "length": 5,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "danza_34_close",
+      "meter": "3/4",
+      "note_count": 40,
+      "pattern": "danza",
+      "renderHash": "sha256:ab547bbd544bf96a75aa950f68cfcc687dfaa54ce2063a0f715fe600221b6614",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 20,
+        "2": 15,
+        "3": 5,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "danza_34_open",
+      "meter": "3/4",
+      "note_count": 27,
+      "pattern": "danza",
+      "renderHash": "sha256:cacc5b3da54afd60b7f68b8bd2be2d1e8252a811960cda9ed3d412d8b4d5970f",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 17,
+        "2": 5,
+        "3": 5,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 5,
+        "closes": true,
+        "length": 5,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "danza_68_close",
+      "meter": "6/8",
+      "note_count": 50,
+      "pattern": "danza",
+      "renderHash": "sha256:a6a064830bc197b89e6586cd47562e3d9a9ccd2b82b232e6d3d8671bb18e86c3",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 30,
+        "2": 10,
+        "3": 10,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "danza_68_open",
+      "meter": "6/8",
+      "note_count": 27,
+      "pattern": "danza",
+      "renderHash": "sha256:cacc5b3da54afd60b7f68b8bd2be2d1e8252a811960cda9ed3d412d8b4d5970f",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 17,
+        "2": 5,
+        "3": 5,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 5,
+        "closes": true,
+        "length": 5,
+        "n": 0,
+        "rise": 1
+      },
+      "fixture_version": 1,
+      "id": "fan_even_close",
+      "meter": "*",
+      "note_count": 53,
+      "pattern": "fandanguillo",
+      "renderHash": "sha256:33338485e38fc193c4b0391e6ca21e8461031c990b90985b4dd69a8a4eac4cff",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 5,
+        "2": 42,
+        "3": 6,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 1
+      },
+      "fixture_version": 1,
+      "id": "fan_even_open",
+      "meter": "*",
+      "note_count": 32,
+      "pattern": "fandanguillo",
+      "renderHash": "sha256:12d7dacb8361ea633ec4a2d928bbb0ca7918dffa2ad9f1800325c5eab688aab1",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 9,
+        "2": 7,
+        "3": 16,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 3,
+        "closes": true,
+        "length": 3,
+        "n": 1,
+        "rise": 1
+      },
+      "fixture_version": 1,
+      "id": "fan_odd_close",
+      "meter": "*",
+      "note_count": 33,
+      "pattern": "fandanguillo",
+      "renderHash": "sha256:533cf92c5472cb547d788b016aae25cd3a54189e6e43149e5f6df648f73e5146",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 3,
+        "2": 26,
+        "3": 4,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 2,
+        "closes": false,
+        "length": 2,
+        "n": 1,
+        "rise": 1
+      },
+      "fixture_version": 1,
+      "id": "fan_odd_open",
+      "meter": "*",
+      "note_count": 23,
+      "pattern": "fandanguillo",
+      "renderHash": "sha256:6ca5b1b6e441345198c1258a1020d72f8cb9e3da5851701dbf527b32d5154ba5",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 2,
+        "2": 18,
+        "3": 3,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 1,
+        "closes": true,
+        "length": 1,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_close_l1_3",
+      "meter": "*",
+      "note_count": 8,
+      "pattern": "sonatina",
+      "renderHash": "sha256:bb159c51395a0c50f3b731b28b0b3b0ab797d76ef672223922657cf47a94a31d",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 4,
+        "2": 2,
+        "3": 2,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": true,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_close_l4_5",
+      "meter": "*",
+      "note_count": 26,
+      "pattern": "sonatina",
+      "renderHash": "sha256:d394e0317b14c81d9ab21454a912a73165ed63973d0f815b5c9b4981823cc539",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 10,
+        "2": 8,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 6,
+        "closes": true,
+        "length": 6,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_close_l6",
+      "meter": "*",
+      "note_count": 38,
+      "pattern": "sonatina",
+      "renderHash": "sha256:6dff62d419c24ca0ef37cb294b83e26dd52c96107ef56a2ae2fdc5913dc03a8f",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 14,
+        "2": 12,
+        "3": 12,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 7,
+        "closes": true,
+        "length": 7,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_close_l7plus",
+      "meter": "*",
+      "note_count": 44,
+      "pattern": "sonatina",
+      "renderHash": "sha256:341874461481cfbd41e9bd35294dd98d31170f7ae09441261d01e1ef1a8a93d8",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 16,
+        "2": 14,
+        "3": 14,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 2,
+        "closes": false,
+        "length": 2,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l2_t0",
+      "meter": "*",
+      "note_count": 27,
+      "pattern": "sonatina",
+      "renderHash": "sha256:8b4e3d179f35a5c0a9942ecc19ef2e885f6bd46e102b331e902b0d7891dfc24c",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 11,
+        "2": 11,
+        "3": 5,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 2,
+        "closes": false,
+        "length": 2,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l2_t1",
+      "meter": "*",
+      "note_count": 14,
+      "pattern": "sonatina",
+      "renderHash": "sha256:ae54897fe0466ea3caa6b4efcd47402a8f272b5fae27c17e2b357ac441137224",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 6,
+        "2": 4,
+        "3": 4,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 2,
+        "closes": false,
+        "length": 2,
+        "n": 2,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l2_t2",
+      "meter": "*",
+      "note_count": 14,
+      "pattern": "sonatina",
+      "renderHash": "sha256:d15eedc2d638ea2e3d230059440d909fd2663892ba86e91b314631d0dec6d7a1",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 6,
+        "2": 4,
+        "3": 4,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 3,
+        "closes": false,
+        "length": 3,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l3_t0",
+      "meter": "*",
+      "note_count": 35,
+      "pattern": "sonatina",
+      "renderHash": "sha256:43756f3f3af4de4cd21e1d1592cecdcc187d1f2ce22a0f3d4e4910ab75b6d7a7",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 15,
+        "2": 13,
+        "3": 7,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 3,
+        "closes": false,
+        "length": 3,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l3_t1",
+      "meter": "*",
+      "note_count": 20,
+      "pattern": "sonatina",
+      "renderHash": "sha256:75408805f0df5088a78e672461d1b1a0101694cf7f5623d9ed7796126743356e",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 8,
+        "2": 6,
+        "3": 6,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 3,
+        "closes": false,
+        "length": 3,
+        "n": 2,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l3_t2",
+      "meter": "*",
+      "note_count": 20,
+      "pattern": "sonatina",
+      "renderHash": "sha256:c3d6e60c652b181d0cd70d813c425ff8fcf61e5d31e865b51fb68f08459ecbaf",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 8,
+        "2": 6,
+        "3": 6,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l4_t0",
+      "meter": "*",
+      "note_count": 47,
+      "pattern": "sonatina",
+      "renderHash": "sha256:31eb142a573db25c8af070e87dc3ff20f55a4c071c0c9e75b0e9f6efacfbbf14",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 15,
+        "2": 23,
+        "3": 9,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l4_t1",
+      "meter": "*",
+      "note_count": 26,
+      "pattern": "sonatina",
+      "renderHash": "sha256:24332776ba95f217ae987eea5ef18dfc20677ff502aecab2356299c048914560",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 10,
+        "2": 8,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 4,
+        "closes": false,
+        "length": 4,
+        "n": 2,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l4_t2",
+      "meter": "*",
+      "note_count": 26,
+      "pattern": "sonatina",
+      "renderHash": "sha256:8b72010302dfca965c35db5f9cbb2e59e6318fa5fd45f4077bf92e4497c111c0",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 10,
+        "2": 8,
+        "3": 8,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 5,
+        "closes": false,
+        "length": 5,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l5_even",
+      "meter": "*",
+      "note_count": 55,
+      "pattern": "sonatina",
+      "renderHash": "sha256:f559f9a1b176cc4554468f5decb292d16a222ea1856abcde9ce6690af5feb927",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 19,
+        "2": 25,
+        "3": 11,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 5,
+        "closes": false,
+        "length": 5,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l5_odd",
+      "meter": "*",
+      "note_count": 32,
+      "pattern": "sonatina",
+      "renderHash": "sha256:2c28d776d1a55f8429469e9b0565d18acabbd700a014676ae2fcbbf1c5f2467c",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 12,
+        "2": 10,
+        "3": 10,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 6,
+        "closes": false,
+        "length": 6,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l6_even",
+      "meter": "*",
+      "note_count": 78,
+      "pattern": "sonatina",
+      "renderHash": "sha256:6b9699ed5126b9dcf273e133ee8947df71c952c99a9fb5b9bec54b6274ffbf44",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 34,
+        "2": 25,
+        "3": 19,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 6,
+        "closes": false,
+        "length": 6,
+        "n": 1,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l6_odd",
+      "meter": "*",
+      "note_count": 38,
+      "pattern": "sonatina",
+      "renderHash": "sha256:f3a3e5a88d2ab71774bf08eb96116ed13e41637f47cd5222515cda9792a68798",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 14,
+        "2": 12,
+        "3": 12,
+        "4": 0
+      }
+    },
+    {
+      "family": "torroba",
+      "fixture": {
+        "bars": 7,
+        "closes": false,
+        "length": 7,
+        "n": 0,
+        "rise": 0
+      },
+      "fixture_version": 1,
+      "id": "son_open_l7plus",
+      "meter": "*",
+      "note_count": 90,
+      "pattern": "sonatina",
+      "renderHash": "sha256:15660ebe68c3f5b5c4d4c791e510b3d0e2b9df7802d8efa8eda6156e58f054cd",
+      "renderer_version": 1,
+      "source": "registry",
+      "voice_counts": {
+        "1": 34,
+        "2": 35,
+        "3": 21,
+        "4": 0
+      }
+    }
+  ],
+  "version": 1
+}

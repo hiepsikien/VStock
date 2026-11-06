@@ -1,0 +1,62 @@
+{
+  "runtime": "code",
+  "schema_version": 1,
+  "specs": [
+    {
+      "id": "danza_34_open",
+      "meter": "3/4",
+      "pattern": "danza",
+      "select": {
+        "closes": "open",
+        "length_max": null,
+        "length_min": 4,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 4,
+          "figure": 6,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    },
+    {
+      "id": "danza_34_close",
+      "meter": "3/4",
+      "pattern": "danza",
+      "select": {
+        "closes": "close",
+        "length_max": null,
+        "length_min": 5,
+        "n_mod": null,
+        "n_parity": "any",
+        "rise_min": 0
+      },
+      "slots": [
+        {
+          "anchor": "start",
+          "bars": 4,
+          "figure": 6,
+          "start": 0
+        }
+      ],
+      "span": {
+        "cycle": false,
+        "exact": true,
+        "remainder": "exact",
+        "tile": null,
+        "truncate_to_length": true
+      }
+    }
+  ]
+}

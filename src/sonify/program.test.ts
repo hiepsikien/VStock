@@ -4,12 +4,14 @@ import {
   englishKey,
   instrumentLine,
   movementPulse,
+  PATTERN_NAMES,
   pieceCopy,
   pieceKey,
   playingLines,
   type MovementInput,
   type PieceInput,
 } from './program';
+import { PATTERN_REGISTRY } from './patternRegistry.generated';
 
 function equal<T>(actual: T, expected: T) {
   if (actual !== expected) {
@@ -43,6 +45,66 @@ function piece(partial: Partial<PieceInput> & Pick<PieceInput, 'variant' | 'span
     ...partial,
   };
 }
+
+// The generated registry is the only source for PATTERN_NAMES. 44 rows: one
+// per `PROFILES` entry plus the family-only `pedal`. `level`/`nameSource` come
+// from `pattern_registry.PATTERN_META`, so a texture is dropped without a
+// second hand-kept list.
+equal(PATTERN_REGISTRY.length, 44);
+
+const topicRows = PATTERN_REGISTRY.filter((row) => row.level === 'topic');
+const textureRows = PATTERN_REGISTRY.filter((row) => row.level === 'texture');
+equal(topicRows.length, 38);
+// Five texture ids; `thumb_cantabile` ships for Barrios and Villa.
+equal(textureRows.length, 6);
+
+for (const row of PATTERN_REGISTRY) {
+  const consistent = (row.level === 'topic') === (row.nameSource !== null);
+  if (!consistent) throw new Error(`level/nameSource disagree for ${row.pattern}`);
+}
+
+// 38 topic rows carry 35 distinct titles: `Etude`, `Prelude`, and `Sarabande`
+// each name a topic in two ensembles. PATTERN_NAMES is a Set, so it holds 35.
+const topicTitles = new Set(topicRows.map((row) => row.title));
+equal(topicTitles.size, 35);
+equal(PATTERN_NAMES.size, topicTitles.size);
+for (const title of topicTitles) {
+  if (!PATTERN_NAMES.has(title)) throw new Error(`missing topic title: ${title}`);
+}
+if (PATTERN_NAMES.has('Pedal')) {
+  throw new Error('Pedal is a texture and must not be a pattern name');
+}
+// Texture-only titles still exist in `_PATTERN_TITLE`, but they are not
+// printed topics, so they must not gate a pattern form.
+for (const title of ['Arpeggio', 'Chord Melody', 'Tremolo']) {
+  if (PATTERN_NAMES.has(title)) {
+    throw new Error(`texture title leaked into PATTERN_NAMES: ${title}`);
+  }
+}
+
+const pedal = PATTERN_REGISTRY.filter((row) => row.pattern === 'pedal');
+equal(pedal.length, 1);
+equal(pedal[0]?.level, 'texture');
+equal(pedal[0]?.nameSource, null);
+
+// Global repeats are allowed across ensembles (§12.3); the Set collapses them
+// for membership only. Four title families repeat across the 44 rows.
+const titleCounts = new Map<string, number>();
+for (const row of PATTERN_REGISTRY) {
+  titleCounts.set(row.title, (titleCounts.get(row.title) ?? 0) + 1);
+}
+const repeatedTitles = [...titleCounts]
+  .filter(([, count]) => count > 1)
+  .map(([title]) => title)
+  .sort();
+deepEqual(repeatedTitles, ['Cantabile', 'Etude', 'Prelude', 'Sarabande']);
+// 39 distinct titles over all rows, 38 over the wave-profile rows (no Pedal).
+equal(new Set(PATTERN_REGISTRY.map((row) => row.title)).size, 39);
+const printedTitles = new Set(
+  PATTERN_REGISTRY.filter((row) => row.waveProfile).map((row) => row.title),
+);
+equal(printedTitles.size, 38);
+if (printedTitles.has('Pedal')) throw new Error('Pedal must not print');
 
 equal(englishDate('2026-01-20'), '20/1');
 equal(englishKey('Mi♭'), 'E-flat');

@@ -1,0 +1,4737 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import type { PointerEvent as RNPointerEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { absoluteApiUrl, getApiBaseUrl } from '../api/client';
+import { palette, TOUCH_TARGET } from '../musicalize/palette';
+import { TopBar, type RoomMode } from '../musicalize/TopBar';
+import { type } from '../musicalize/type';
+import {
+  analyzeStudioImage,
+  fetchPublishedSpec,
+  fetchPublishedSpecs,
+  fetchSentenceExamples,
+  fetchStudioJob,
+  deleteStudioUpload,
+  fetchStudioAccess,
+  previewSentenceSpec,
+  publishSentenceSpec,
+  requestSentenceAudio,
+  rollbackSentenceSpec,
+  studioAccessUrl,
+  studioAnalyzeUrl,
+  studioJobsUrl,
+  studioMusicXmlImportUrl,
+  studioMusicXmlUrl,
+  studioSentenceUrl,
+  studioTextureValidateUrl,
+  studioUploadsUrl,
+  submitStudioJob,
+  uploadStudioImage,
+  validateSentenceSpec,
+  validateTextureSpec,
+  type StudioAccess,
+  type StudioAnalyzeDraft,
+  type StudioAnalysisNote,
+  type StudioError,
+  type StudioPreviewResponse,
+  type StudioPublishedSpec,
+  type StudioUpload,
+  type StudioValidateResponse,
+  type StudioVisibility,
+} from './api';
+import {
+  DEFAULT_STUDIO_VISIBILITY,
+  nextJobPollDelayMs,
+  normalizeVisibility,
+  resolveAudioUrl,
+} from './protocol';
+import { VelocityLane, type VelocityLaneSaveInfo } from './VelocityLane';
+import { MusicXmlPanel } from './MusicXmlPanel';
+import {
+  ruleContourStatus,
+  velocityLaneRows,
+  velocitySlotContours,
+  velocitySlotLabel,
+  type MicroVelocity,
+} from './velocity';
+import { saveVelocityContourToSpec } from './velocitySpec';
+import { sessionLabel } from './session';
+import { studioSessionId } from './sessionStorage';
+import {
+  DEFAULT_SAMPLE,
+  DEFAULT_PUBLISHED_FILTER,
+  SAMPLES,
+  STUDIO_FLOW_LABEL,
+  STUDIO_LOCAL_NOTICE,
+  accessReasonLabel,
+  accessStatusLabel,
+  audioStatusLabel,
+  byteSizeLabel,
+  copyValue,
+  draftJson,
+  draftNoteRows,
+  draftToTextureSpec,
+  examplesStatusLabel,
+  examplesToSamples,
+  checkSpecText,
+  containRect,
+  cropForUpload,
+  cropHandleAt,
+  cropRectBetween,
+  cropSizeLabel,
+  defaultSampleForPattern,
+  describeRequestFailure,
+  filterPublishedSpecs,
+  exampleLabel,
+  findSample,
+  findSampleById,
+  samplesForPatternMeter,
+  fixtureText as sampleFixtureText,
+  fixtureTextForSpec,
+  imageSizeError,
+  jobStatusLabel,
+  measureLines,
+  meterLabel,
+  metersForPattern,
+  moveCropRect,
+  nextPublishedList,
+  nextPublishedSort,
+  normalizeCropRect,
+  normalizeErrorPath,
+  notesLines,
+  parseJsonObject,
+  patternCatalogHint,
+  patternIds,
+  patternLabel,
+  planLines,
+  prefixErrorPaths,
+  publishedAtLabel,
+  publishedFilterEmptyLabel,
+  publishedFilterPatterns,
+  publishedFilterSummary,
+  publishedSortLabel,
+  publishedSpecLineage,
+  publishedSpecMeta,
+  publishedSpecTitle,
+  publishedVisibility,
+  publishSuccessLabel,
+  resizeCropRect,
+  rollbackLabel,
+  sampleText,
+  shortId,
+  studioBusyHint,
+  studioNextStep,
+  textStats,
+  textureDraftJson,
+  textureDraftSummary,
+  uploadMetaLabel,
+  valueLines,
+  visibilityHint,
+  visibilityLabel,
+  type CropBounds,
+  type CropHandle,
+  type CropPoint,
+  type CropRect,
+  type CropSelection,
+  type DisplayRect,
+  type PublishedFilter,
+  type PublishedListState,
+  type StatusLine,
+  type StudioSample,
+  type TextureSpecDraft,
+} from './spec';
+
+type Props = {
+  wide: boolean;
+  onMode: (mode: RoomMode) => void;
+};
+
+type RunAction = 'validate' | 'preview';
+
+type StudioResult =
+  | { kind: 'idle' }
+  | { kind: 'running'; action: RunAction }
+  | { kind: 'validate'; data: StudioValidateResponse; elapsedMs: number }
+  | { kind: 'preview'; data: StudioPreviewResponse; elapsedMs: number }
+  | {
+      kind: 'failure';
+      action: RunAction;
+      message: string;
+      errors: StudioError[];
+      /** false only when pre-flight stopped before any request was sent. */
+      sent: boolean;
+    };
+
+type Selection = {
+  key: string;
+  pattern: string;
+  meter: string;
+  title: string;
+  id?: string;
+};
+
+type PreviewSnapshot = {
+  spec: Record<string, unknown>;
+  fixture: Record<string, unknown>;
+  renderHash: string | null;
+};
+
+/** Polling state for the queued preview path; direct Preview ignores it. */
+type QueuedJobState =
+  | { kind: 'idle' }
+  | {
+      kind: 'waiting';
+      jobId: string;
+      status: 'queued' | 'running';
+      elapsedMs: number;
+    };
+
+/** 120 polls with the 5 s backoff cap stops before a ten-minute wait. */
+const MAX_JOB_POLLS = 120;
+
+type AudioState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | {
+      kind: 'ready';
+      url: string;
+      durationSec: number;
+      renderHash: string | null;
+      playing: boolean;
+    }
+  | { kind: 'error'; message: string; errors: StudioError[] };
+
+type PublishState =
+  | { kind: 'idle' }
+  | { kind: 'running'; visibility: StudioVisibility }
+  | {
+      kind: 'ok';
+      id: string;
+      pattern: string;
+      meter: string;
+      version: number;
+      visibility: StudioVisibility;
+    }
+  | { kind: 'failure'; message: string; errors: StudioError[] };
+
+type RollbackState =
+  | { kind: 'idle' }
+  | { kind: 'running'; id: string }
+  | {
+      kind: 'ok';
+      id: string;
+      version: number | null;
+      rollbackOf: string;
+      visibility: StudioVisibility;
+    }
+  | { kind: 'failure'; id: string; message: string; errors: StudioError[] };
+
+type CatalogState = {
+  loading: boolean;
+  source: 'api' | 'fallback';
+  note: string | null;
+};
+
+type AccessState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; access: StudioAccess }
+  | { kind: 'error'; message: string };
+
+type UploadState =
+  | { kind: 'idle' }
+  | { kind: 'uploading'; filename: string }
+  | { kind: 'deleting'; id: string }
+  | { kind: 'ready'; upload: StudioUpload }
+  | { kind: 'error'; message: string; errors: StudioError[] };
+
+type AnalyzeState =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | { kind: 'ready'; draft: StudioAnalyzeDraft }
+  | { kind: 'error'; message: string; errors: StudioError[] };
+
+type TextureValidateState =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | { kind: 'done'; data: StudioValidateResponse }
+  | { kind: 'failure'; message: string; errors: StudioError[] };
+
+/** Active pointer gesture on the web crop stage. */
+type CropDrag =
+  | { kind: 'new'; start: CropPoint }
+  | { kind: 'move'; start: CropPoint; origin: CropRect }
+  | { kind: 'resize'; start: CropPoint; origin: CropRect; handle: CropHandle };
+
+/** One live drag resolved in source-image pixels. */
+function dragCropRect(
+  drag: CropDrag,
+  point: CropPoint,
+  bounds: CropBounds,
+): CropRect {
+  if (drag.kind === 'new') return cropRectBetween(drag.start, point, bounds);
+  const dx = point.x - drag.start.x;
+  const dy = point.y - drag.start.y;
+  if (drag.kind === 'move') return moveCropRect(drag.origin, dx, dy, bounds);
+  return resizeCropRect(drag.origin, drag.handle, dx, dy, bounds);
+}
+
+/** Placement of a source-pixel crop inside the displayed image box. */
+function cropDisplayBox(
+  rect: CropRect,
+  bounds: CropBounds,
+  display: DisplayRect,
+): DisplayRect {
+  const scaleX = display.width / Math.max(1, bounds.width);
+  const scaleY = display.height / Math.max(1, bounds.height);
+  return {
+    left: rect.x * scaleX,
+    top: rect.y * scaleY,
+    width: rect.w * scaleX,
+    height: rect.h * scaleY,
+  };
+}
+
+const CONFIDENCE_COLOR = {
+  high: palette.data,
+  medium: palette.playhead,
+  low: palette.sound,
+  unknown: palette.textFaint,
+} as const;
+
+/** Resolve the relative media URL the upload/analyze endpoints may return. */
+function mediaUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  if (/^(https?:|blob:|data:)/i.test(raw)) return raw;
+  return absoluteApiUrl(raw);
+}
+
+/**
+ * Media elements cannot send `X-Studio-Session`, so the upload response also
+ * carries a short-lived token. Append it when the server did not bake it into
+ * the URL already.
+ */
+function uploadImageUri(upload: StudioUpload | null): string | null {
+  const base = mediaUrl(upload?.url ?? null);
+  if (!base) return null;
+  if (!upload?.token || /[?&]t=/.test(base)) return base;
+  return `${base}${base.includes('?') ? '&' : '?'}t=${encodeURIComponent(upload.token)}`;
+}
+
+const DEFAULT_STUDIO_SAMPLE = DEFAULT_SAMPLE;
+const DEFAULT_SELECTION: Selection = {
+  key: DEFAULT_STUDIO_SAMPLE.key,
+  pattern: DEFAULT_STUDIO_SAMPLE.pattern,
+  meter: DEFAULT_STUDIO_SAMPLE.meter,
+  title: DEFAULT_STUDIO_SAMPLE.title,
+  id: DEFAULT_STUDIO_SAMPLE.id,
+};
+
+function msLabel(ms: number): string {
+  return `${Math.max(1, Math.round(ms))} ms`;
+}
+
+/** Abortable poll delay; unmount/editor changes reject instead of polling. */
+function waitForJobPoll(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error('aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, Math.max(0, ms));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function selectionForSample(sample: StudioSample): Selection {
+  return {
+    key: sample.key,
+    pattern: sample.pattern,
+    meter: sample.meter,
+    title: sample.title,
+    id: sample.id,
+  };
+}
+
+export function StudioRoom({ wide, onMode }: Props) {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  // Below the two-column breakpoint the cards stack; tighten spacing and
+  // controls so the editor, result, and history stay reachable on a phone.
+  const compact = width < 720;
+  const [samples, setSamples] = useState<readonly StudioSample[]>(SAMPLES);
+  const [catalog, setCatalog] = useState<CatalogState>({
+    loading: true,
+    source: 'fallback',
+    note: null,
+  });
+  const [selection, setSelection] = useState<Selection>(DEFAULT_SELECTION);
+  const [specText, setSpecText] = useState(() => sampleText(DEFAULT_STUDIO_SAMPLE));
+  const [fixtureJson, setFixtureJson] = useState(() =>
+    sampleFixtureText(DEFAULT_STUDIO_SAMPLE),
+  );
+  const [showFixture, setShowFixture] = useState(false);
+  const [result, setResult] = useState<StudioResult>({ kind: 'idle' });
+  const [dirty, setDirty] = useState(false);
+  const [previewSnapshot, setPreviewSnapshot] = useState<PreviewSnapshot | null>(null);
+  const [queuedJob, setQueuedJob] = useState<QueuedJobState>({ kind: 'idle' });
+  const [audio, setAudio] = useState<AudioState>({ kind: 'idle' });
+  const [publishState, setPublishState] = useState<PublishState>({ kind: 'idle' });
+  const [publishVisibility, setPublishVisibility] = useState<StudioVisibility>(
+    DEFAULT_STUDIO_VISIBILITY,
+  );
+  const [showEndpoints, setShowEndpoints] = useState(false);
+  const [published, setPublished] = useState<PublishedListState>({
+    loading: true,
+    items: [],
+    error: null,
+  });
+  const [loadingSpecId, setLoadingSpecId] = useState<string | null>(null);
+  const [rollbackState, setRollbackState] = useState<RollbackState>({ kind: 'idle' });
+  const [confirmingRollbackId, setConfirmingRollbackId] = useState<string | null>(null);
+  const [access, setAccess] = useState<AccessState>({ kind: 'loading' });
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const [upload, setUpload] = useState<UploadState>({ kind: 'idle' });
+  const [draftState, setDraftState] = useState<AnalyzeState>({ kind: 'idle' });
+  const [showDraftJson, setShowDraftJson] = useState(false);
+  const [textureDraft, setTextureDraft] = useState<TextureSpecDraft | null>(null);
+  const [textureValidation, setTextureValidation] =
+    useState<TextureValidateState>({ kind: 'idle' });
+  const [copyNote, setCopyNote] = useState<string | null>(null);
+  const [crop, setCrop] = useState<CropSelection | null>(null);
+  const [cropPreview, setCropPreview] = useState<CropRect | null>(null);
+  const [cropDrag, setCropDrag] = useState<CropDrag | null>(null);
+  const [cropBounds, setCropBounds] = useState<CropBounds | null>(null);
+  const [cropStage, setCropStage] = useState<CropBounds>({ width: 0, height: 0 });
+
+  // The server URL wins once the upload succeeds, but the local blob preview
+  // covers the gap while the multipart request is in flight.
+  const uploaded = upload.kind === 'ready' ? upload.upload : null;
+  const previewUri = uploadImageUri(uploaded) ?? selectedPreview;
+  const imageBounds = useMemo(
+    () =>
+      cropBounds ??
+      (uploaded?.width && uploaded.height
+        ? { width: uploaded.width, height: uploaded.height }
+        : null),
+    [cropBounds, uploaded?.height, uploaded?.width],
+  );
+  const activeCrop = cropForUpload(crop, uploaded?.id ?? null);
+  const imageDisplay =
+    imageBounds && cropStage.width > 0 && cropStage.height > 0
+      ? containRect(imageBounds, cropStage)
+      : null;
+  const visibleCrop = cropPreview ?? activeCrop;
+  const cropBox =
+    visibleCrop && imageBounds && imageDisplay
+      ? cropDisplayBox(visibleCrop, imageBounds, imageDisplay)
+      : null;
+  const cropReady =
+    Platform.OS === 'web' && uploaded !== null && previewUri !== null && imageBounds !== null;
+
+  const inFlight = useRef<AbortController | null>(null);
+  const queueController = useRef<AbortController | null>(null);
+  const queueRunId = useRef(0);
+  const examplesController = useRef<AbortController | null>(null);
+  const specsController = useRef<AbortController | null>(null);
+  const publishController = useRef<AbortController | null>(null);
+  const specDetailController = useRef<AbortController | null>(null);
+  const rollbackController = useRef<AbortController | null>(null);
+  const audioController = useRef<AbortController | null>(null);
+  const accessController = useRef<AbortController | null>(null);
+  const uploadController = useRef<AbortController | null>(null);
+  const analyzeController = useRef<AbortController | null>(null);
+  const textureController = useRef<AbortController | null>(null);
+  // The upload an in-flight analyze belongs to; a new file invalidates it.
+  const uploadIdRef = useRef<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const cropSurfaceRef = useRef<React.ComponentRef<typeof View> | null>(null);
+  const audioPlayer = useRef<HTMLAudioElement | null>(null);
+  const audioRunId = useRef(0);
+  const runId = useRef(0);
+  const specTextRef = useRef(specText);
+  const fixtureJsonRef = useRef(fixtureJson);
+  const dirtyRef = useRef(dirty);
+  const selectionRef = useRef(selection);
+  // A run/publish started before the examples response lands must not be wiped
+  // by the palette swap.
+  const engagedRef = useRef(false);
+  specTextRef.current = specText;
+  fixtureJsonRef.current = fixtureJson;
+  dirtyRef.current = dirty;
+  selectionRef.current = selection;
+
+  const stopPlayer = useCallback(() => {
+    const player = audioPlayer.current;
+    audioPlayer.current = null;
+    if (player) {
+      try {
+        player.pause();
+        player.currentTime = 0;
+      } catch {
+        // The element may already be detached; nothing to release.
+      }
+    }
+  }, []);
+
+  const resetAudio = useCallback(() => {
+    audioRunId.current += 1;
+    audioController.current?.abort();
+    audioController.current = null;
+    stopPlayer();
+    setAudio({ kind: 'idle' });
+  }, [stopPlayer]);
+
+  const cancelQueuedJob = useCallback(() => {
+    queueRunId.current += 1;
+    queueController.current?.abort();
+    queueController.current = null;
+    setQueuedJob({ kind: 'idle' });
+  }, []);
+
+  const applyEditor = useCallback(
+    (nextSpecText: string, nextFixtureText: string, nextSelection: Selection) => {
+      inFlight.current?.abort();
+      inFlight.current = null;
+      runId.current += 1;
+      cancelQueuedJob();
+      resetAudio();
+      setSelection(nextSelection);
+      setSpecText(nextSpecText);
+      setFixtureJson(nextFixtureText);
+      setResult({ kind: 'idle' });
+      setPreviewSnapshot(null);
+      setDirty(false);
+    },
+    [cancelQueuedJob, resetAudio],
+  );
+
+  const applySample = useCallback(
+    (sample: StudioSample) => {
+      applyEditor(sampleText(sample), sampleFixtureText(sample), selectionForSample(sample));
+    },
+    [applyEditor],
+  );
+
+  useEffect(
+    () => () => {
+      inFlight.current?.abort();
+      queueController.current?.abort();
+      examplesController.current?.abort();
+      specsController.current?.abort();
+      publishController.current?.abort();
+      specDetailController.current?.abort();
+      rollbackController.current?.abort();
+      audioController.current?.abort();
+      accessController.current?.abort();
+      uploadController.current?.abort();
+      analyzeController.current?.abort();
+      if (
+        previewUrlRef.current &&
+        typeof URL !== 'undefined' &&
+        typeof URL.revokeObjectURL === 'function'
+      ) {
+        try {
+          URL.revokeObjectURL(previewUrlRef.current);
+        } catch {
+          // The blob URL may already be gone.
+        }
+        previewUrlRef.current = null;
+      }
+      stopPlayer();
+    },
+    [stopPlayer],
+  );
+
+  // Capability gate + quota. The editor keeps working if this fails; only the
+  // upload/analyze panel depends on `enabled`.
+  const loadAccess = useCallback(async () => {
+    accessController.current?.abort();
+    const controller = new AbortController();
+    accessController.current = controller;
+    setAccess({ kind: 'loading' });
+    try {
+      const next = await fetchStudioAccess(controller.signal);
+      if (controller.signal.aborted) return;
+      setAccess({ kind: 'ready', access: next });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setAccess({ kind: 'error', message: describeRequestFailure(error) });
+    } finally {
+      if (accessController.current === controller) accessController.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAccess();
+    return () => accessController.current?.abort();
+  }, [loadAccess]);
+
+  // One session id per install/browser. The panel shows a short form so a
+  // support report can name the namespace without leaking the full token.
+  useEffect(() => {
+    let alive = true;
+    void studioSessionId()
+      .then((id) => {
+        if (alive) setSessionId(id);
+      })
+      .catch(() => {
+        if (alive) setSessionId(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // A different upload (or a local → server URL swap) starts with no crop, and
+  // the pixel bounds are re-read so a stale rectangle cannot outlive the image.
+  useEffect(() => {
+    setCrop(null);
+    setCropPreview(null);
+    setCropDrag(null);
+    setCropBounds(null);
+    if (!previewUri || Platform.OS !== 'web') return;
+    let alive = true;
+    Image.getSize(
+      previewUri,
+      (width, height) => {
+        if (alive && width > 0 && height > 0) setCropBounds({ width, height });
+      },
+      () => {
+        // The upload response's width/height is the fallback; the preview still
+        // renders even when the browser cannot measure it.
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [previewUri]);
+
+  // Stop the browser from scrolling/selecting text while a crop drag is live.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = cropSurfaceRef.current as unknown as HTMLElement | null;
+    if (!node) return;
+    node.style.touchAction = 'none';
+    node.style.userSelect = 'none';
+  }, [cropReady, imageDisplay?.width, imageDisplay?.height]);
+
+  // The API examples are the palette. Embedded Torroba/Sor samples only fill in
+  // when the endpoint is missing, so the hand-copied list cannot silently drift.
+  useEffect(() => {
+    const controller = new AbortController();
+    examplesController.current = controller;
+    void (async () => {
+      try {
+        const data = await fetchSentenceExamples(controller.signal);
+        if (controller.signal.aborted) return;
+        const next = examplesToSamples(data.examples);
+        if (!next.length) {
+          setCatalog({
+            loading: false,
+            source: 'fallback',
+            note: 'Examples API returned no examples — using the embedded Torroba/Sor samples.',
+          });
+          return;
+        }
+        setSamples(next);
+        setCatalog({ loading: false, source: 'api', note: null });
+        if (!dirtyRef.current && !engagedRef.current) {
+          const match =
+            findSample(selectionRef.current.pattern, selectionRef.current.meter, next) ??
+            next[0];
+          applySample(match);
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setCatalog({
+          loading: false,
+          source: 'fallback',
+          note: `Examples API unavailable (${describeRequestFailure(error)}) — using embedded Torroba/Sor samples.`,
+        });
+      } finally {
+        if (examplesController.current === controller) examplesController.current = null;
+      }
+    })();
+    return () => controller.abort();
+  }, [applySample]);
+
+  const loadPublished = useCallback(async () => {
+    specsController.current?.abort();
+    const controller = new AbortController();
+    specsController.current = controller;
+    setPublished((prev) => nextPublishedList(prev, { kind: 'start' }));
+    try {
+      const items = await fetchPublishedSpecs(controller.signal);
+      if (controller.signal.aborted) return;
+      setPublished((prev) => nextPublishedList(prev, { kind: 'success', items }));
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPublished((prev) =>
+        nextPublishedList(prev, {
+          kind: 'failure',
+          message: describeRequestFailure(error),
+        }),
+      );
+    } finally {
+      if (specsController.current === controller) specsController.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPublished();
+    return () => specsController.current?.abort();
+  }, [loadPublished]);
+
+  const choosePattern = useCallback(
+    (pattern: string) => {
+      const sample =
+        findSample(pattern, selection.meter, samples) ??
+        defaultSampleForPattern(pattern, samples);
+      applySample(sample);
+    },
+    [applySample, samples, selection.meter],
+  );
+
+  const chooseMeter = useCallback(
+    (meter: string) => {
+      const sample = findSample(selection.pattern, meter, samples);
+      if (sample) applySample(sample);
+    },
+    [applySample, samples, selection.pattern],
+  );
+
+  const run = useCallback(
+    async (action: RunAction) => {
+      engagedRef.current = true;
+      cancelQueuedJob();
+      const checked = checkSpecText(specText);
+      if (!checked.ok) {
+        setResult({
+          kind: 'failure',
+          action,
+          message: 'Fix the spec JSON before sending it.',
+          errors: checked.errors,
+          sent: false,
+        });
+        return;
+      }
+
+      let fixture: Record<string, unknown> | null = null;
+      if (action === 'preview') {
+        const parsed = parseJsonObject(fixtureJson, 'Fixture');
+        if (!parsed.ok) {
+          setResult({
+            kind: 'failure',
+            action,
+            message: 'Fix the preview fixture before sending it.',
+            errors: prefixErrorPaths(parsed.errors, 'fixture'),
+            sent: false,
+          });
+          return;
+        }
+        fixture = parsed.value;
+      }
+
+      resetAudio();
+      setPreviewSnapshot(null);
+      inFlight.current?.abort();
+      const controller = new AbortController();
+      inFlight.current = controller;
+      const id = ++runId.current;
+      const startedAt = Date.now();
+      const startedSpec = specText;
+      const startedFixture = fixtureJson;
+      setResult({ kind: 'running', action });
+
+      try {
+        if (action === 'validate') {
+          const data = await validateSentenceSpec(checked.spec, controller.signal);
+          if (id !== runId.current) return;
+          setResult({ kind: 'validate', data, elapsedMs: Date.now() - startedAt });
+        } else {
+          const data = await previewSentenceSpec(
+            checked.spec,
+            fixture as Record<string, unknown>,
+            controller.signal,
+          );
+          if (id !== runId.current) return;
+          setResult({ kind: 'preview', data, elapsedMs: Date.now() - startedAt });
+          if (data.ok) {
+            setPreviewSnapshot({
+              spec: checked.spec,
+              fixture: fixture ?? {},
+              renderHash: data.renderHash,
+            });
+          }
+        }
+        if (
+          specTextRef.current === startedSpec &&
+          fixtureJsonRef.current === startedFixture
+        ) {
+          setDirty(false);
+        }
+      } catch (error) {
+        if (controller.signal.aborted || id !== runId.current) return;
+        setResult({
+          kind: 'failure',
+          action,
+          message: describeRequestFailure(error),
+          errors: [],
+          sent: true,
+        });
+      } finally {
+        if (inFlight.current === controller) inFlight.current = null;
+      }
+    },
+    [cancelQueuedJob, fixtureJson, resetAudio, specText],
+  );
+
+  const resetTextureDraft = useCallback(() => {
+    textureController.current?.abort();
+    textureController.current = null;
+    setTextureDraft(null);
+    setTextureValidation({ kind: 'idle' });
+  }, []);
+
+  /** Drop any committed or in-progress crop. */
+  const resetCrop = useCallback(() => {
+    setCrop(null);
+    setCropPreview(null);
+    setCropDrag(null);
+  }, []);
+
+  const cropPointFromClient = useCallback(
+    (clientX: number, clientY: number): CropPoint | null => {
+      if (!imageBounds) return null;
+      const node = cropSurfaceRef.current as unknown as HTMLElement | null;
+      if (!node || typeof node.getBoundingClientRect !== 'function') return null;
+      const box = node.getBoundingClientRect();
+      if (!(box.width > 0) || !(box.height > 0)) return null;
+      const scaleX = imageBounds.width / box.width;
+      const scaleY = imageBounds.height / box.height;
+      return {
+        x: Math.min(Math.max((clientX - box.left) * scaleX, 0), imageBounds.width),
+        y: Math.min(Math.max((clientY - box.top) * scaleY, 0), imageBounds.height),
+      };
+    },
+    [imageBounds],
+  );
+
+  const startCropDrag = useCallback(
+    (event: RNPointerEvent) => {
+      if (Platform.OS !== 'web' || !imageBounds) return;
+      const point = cropPointFromClient(
+        event.nativeEvent.clientX,
+        event.nativeEvent.clientY,
+      );
+      if (!point) return;
+      event.preventDefault?.();
+
+      const node = cropSurfaceRef.current as unknown as HTMLElement | null;
+      const box =
+        node && typeof node.getBoundingClientRect === 'function'
+          ? node.getBoundingClientRect()
+          : null;
+      const scale = box && box.width > 0 ? imageBounds.width / box.width : 1;
+      // A 10 CSS-pixel corner target in source-image pixels.
+      const tolerance = 10 / Math.max(scale, 0.0001);
+      const existing = cropForUpload(crop, uploaded?.id ?? null);
+      const target = existing ? cropHandleAt(existing, point, tolerance) : null;
+
+      setCropPreview(null);
+      if (existing && target === 'inside') {
+        setCropDrag({ kind: 'move', start: point, origin: existing });
+      } else if (existing && target !== null && target !== 'inside') {
+        setCropDrag({
+          kind: 'resize',
+          start: point,
+          origin: existing,
+          handle: target,
+        });
+      } else {
+        setCropDrag({ kind: 'new', start: point });
+      }
+    },
+    [crop, cropPointFromClient, imageBounds, uploaded?.id],
+  );
+
+  // Pointer moves/ups live on `window` so a drag can leave the image without
+  // losing the gesture. Release commits the normalized rectangle.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !cropDrag || !imageBounds) return;
+    const uploadId = uploaded?.id ?? null;
+
+    const pointFor = (event: PointerEvent): CropPoint | null =>
+      cropPointFromClient(event.clientX, event.clientY);
+
+    const onMove = (event: PointerEvent) => {
+      const point = pointFor(event);
+      if (!point) return;
+      event.preventDefault();
+      setCropPreview(dragCropRect(cropDrag, point, imageBounds));
+    };
+
+    const onUp = (event: PointerEvent) => {
+      const point = pointFor(event);
+      if (point && uploadId) {
+        const normalized = normalizeCropRect(
+          dragCropRect(cropDrag, point, imageBounds),
+          imageBounds,
+        );
+        if (normalized) {
+          setCrop({ uploadId, rect: normalized });
+        } else if (cropDrag.kind === 'new') {
+          // A click/tiny drag outside the old crop clears the selection.
+          setCrop(null);
+        }
+      }
+      setCropPreview(null);
+      setCropDrag(null);
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [cropDrag, cropPointFromClient, imageBounds, uploaded?.id]);
+  /**
+   * Queue the same preview through `POST /v1/studio/jobs` and poll until the
+   * single worker finishes. Direct Preview above stays the fast path.
+   */
+  const runQueued = useCallback(async () => {
+    engagedRef.current = true;
+    cancelQueuedJob();
+    const checked = checkSpecText(specText);
+    if (!checked.ok) {
+      setResult({
+        kind: 'failure',
+        action: 'preview',
+        message: 'Fix the spec JSON before sending it.',
+        errors: checked.errors,
+        sent: false,
+      });
+      return;
+    }
+
+    const parsed = parseJsonObject(fixtureJson, 'Fixture');
+    if (!parsed.ok) {
+      setResult({
+        kind: 'failure',
+        action: 'preview',
+        message: 'Fix the preview fixture before sending it.',
+        errors: prefixErrorPaths(parsed.errors, 'fixture'),
+        sent: false,
+      });
+      return;
+    }
+    const fixture = parsed.value;
+
+    resetAudio();
+    setPreviewSnapshot(null);
+    inFlight.current?.abort();
+    inFlight.current = null;
+    const controller = new AbortController();
+    queueController.current = controller;
+    const id = ++queueRunId.current;
+    const startedAt = Date.now();
+    const startedSpec = specText;
+    const startedFixture = fixtureJson;
+    setResult({ kind: 'running', action: 'preview' });
+    setQueuedJob({ kind: 'waiting', jobId: '', status: 'queued', elapsedMs: 0 });
+
+    try {
+      const accepted = await submitStudioJob(
+        'preview',
+        checked.spec,
+        fixture,
+        controller.signal,
+      );
+      if (id !== queueRunId.current) return;
+      setQueuedJob({
+        kind: 'waiting',
+        jobId: accepted.jobId,
+        status: accepted.status,
+        elapsedMs: Date.now() - startedAt,
+      });
+
+      let attempt = 0;
+      let poll = await fetchStudioJob(accepted.jobId, controller.signal);
+      while (poll.kind === 'pending') {
+        if (id !== queueRunId.current) return;
+        setQueuedJob({
+          kind: 'waiting',
+          jobId: accepted.jobId,
+          status: poll.status,
+          elapsedMs: Date.now() - startedAt,
+        });
+        if (attempt >= MAX_JOB_POLLS) {
+          throw new Error('Studio job is still queued. Try the direct Preview.');
+        }
+        await waitForJobPoll(
+          nextJobPollDelayMs(attempt, poll.retryAfterSec),
+          controller.signal,
+        );
+        if (id !== queueRunId.current) return;
+        attempt += 1;
+        poll = await fetchStudioJob(accepted.jobId, controller.signal);
+      }
+      if (id !== queueRunId.current) return;
+
+      setQueuedJob({ kind: 'idle' });
+      if (poll.status === 'error' || !poll.result) {
+        setResult({
+          kind: 'failure',
+          action: 'preview',
+          message: 'The queued preview job failed on the Studio worker.',
+          errors: poll.errors,
+          sent: true,
+        });
+        return;
+      }
+
+      const data = poll.result;
+      setResult({ kind: 'preview', data, elapsedMs: Date.now() - startedAt });
+      if (data.ok) {
+        setPreviewSnapshot({
+          spec: checked.spec,
+          fixture,
+          renderHash: data.renderHash,
+        });
+      }
+      if (
+        specTextRef.current === startedSpec &&
+        fixtureJsonRef.current === startedFixture
+      ) {
+        setDirty(false);
+      }
+    } catch (error) {
+      if (controller.signal.aborted || id !== queueRunId.current) return;
+      setQueuedJob({ kind: 'idle' });
+      setResult({
+        kind: 'failure',
+        action: 'preview',
+        message: describeRequestFailure(error),
+        errors: [],
+        sent: true,
+      });
+    } finally {
+      if (queueController.current === controller) queueController.current = null;
+    }
+  }, [cancelQueuedJob, fixtureJson, resetAudio, specText]);
+
+  const pickFile = useCallback(
+    (file: File | null) => {
+      // Replace flow is delete-then-pick; an already-uploaded file must not
+      // silently mint a second row/quota charge.
+      if (upload.kind === 'ready') return;
+      uploadController.current?.abort();
+      uploadController.current = null;
+      analyzeController.current?.abort();
+      analyzeController.current = null;
+      uploadIdRef.current = null;
+      if (
+        previewUrlRef.current &&
+        typeof URL !== 'undefined' &&
+        typeof URL.revokeObjectURL === 'function'
+      ) {
+        try {
+          URL.revokeObjectURL(previewUrlRef.current);
+        } catch {
+          // Nothing to release.
+        }
+        previewUrlRef.current = null;
+      }
+      setSelectedFile(null);
+      setSelectedPreview(null);
+      resetTextureDraft();
+      setDraftState({ kind: 'idle' });
+      setShowDraftJson(false);
+      setCopyNote(null);
+      resetCrop();
+
+      if (!file) {
+        setUpload({ kind: 'idle' });
+        return;
+      }
+      if (access.kind === 'loading' || (access.kind === 'ready' && !access.access.enabled)) {
+        setUpload({
+          kind: 'error',
+          message:
+            access.kind === 'ready'
+              ? 'Studio is disabled on this server; the sentence editor still works.'
+              : 'Checking Studio access before upload…',
+          errors: [],
+        });
+        return;
+      }
+
+      const mime = file.type.toLowerCase();
+      if (mime && !mime.startsWith('image/')) {
+        setUpload({
+          kind: 'error',
+          message: `Chỉ nhận file ảnh (${file.type}).`,
+          errors: [],
+        });
+        return;
+      }
+      const maxMb = access.kind === 'ready' ? access.access.quota.maxImageMb : 0;
+      const tooBig = imageSizeError(file.size, maxMb);
+      if (tooBig) {
+        setUpload({ kind: 'error', message: tooBig, errors: [] });
+        return;
+      }
+
+      let preview: string | null = null;
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        try {
+          preview = URL.createObjectURL(file);
+          previewUrlRef.current = preview;
+        } catch {
+          preview = null;
+        }
+      }
+      setSelectedFile(file);
+      setSelectedPreview(preview);
+      setUpload({ kind: 'idle' });
+    },
+    [access, resetTextureDraft, upload.kind, resetCrop],
+  );
+
+  const uploadSelected = useCallback(async () => {
+    if (!selectedFile) return;
+    uploadController.current?.abort();
+    analyzeController.current?.abort();
+    analyzeController.current = null;
+    uploadIdRef.current = null;
+    const controller = new AbortController();
+    uploadController.current = controller;
+    setUpload({ kind: 'uploading', filename: selectedFile.name || 'image' });
+    resetTextureDraft();
+    setDraftState({ kind: 'idle' });
+    setShowDraftJson(false);
+    setCopyNote(null);
+    resetCrop();
+    try {
+      const data = await uploadStudioImage(selectedFile, {
+        filename: selectedFile.name || undefined,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (!data.ok || !data.id) {
+        setUpload({
+          kind: 'error',
+          message: data.errors[0]?.message ?? 'Upload failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      uploadIdRef.current = data.id;
+      setUpload({ kind: 'ready', upload: data });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setUpload({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (uploadController.current === controller) uploadController.current = null;
+    }
+  }, [resetCrop, resetTextureDraft, selectedFile]);
+
+  const deleteUpload = useCallback(async () => {
+    if (upload.kind !== 'ready' || !upload.upload.id) return;
+    analyzeController.current?.abort();
+    analyzeController.current = null;
+    uploadIdRef.current = null;
+    uploadController.current?.abort();
+    const controller = new AbortController();
+    uploadController.current = controller;
+    const id = upload.upload.id;
+    setUpload({ kind: 'deleting', id });
+    resetCrop();
+    try {
+      const data = await deleteStudioUpload(id, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!data.ok) {
+        setUpload({
+          kind: 'error',
+          message: data.errors[0]?.message ?? 'Delete failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      if (
+        previewUrlRef.current &&
+        typeof URL !== 'undefined' &&
+        typeof URL.revokeObjectURL === 'function'
+      ) {
+        try {
+          URL.revokeObjectURL(previewUrlRef.current);
+        } catch {
+          // The blob URL may already be gone.
+        }
+        previewUrlRef.current = null;
+      }
+      setSelectedFile(null);
+      setSelectedPreview(null);
+      setUpload({ kind: 'idle' });
+      resetTextureDraft();
+      setDraftState({ kind: 'idle' });
+      setShowDraftJson(false);
+      setCopyNote(null);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setUpload({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (uploadController.current === controller) uploadController.current = null;
+    }
+  }, [resetCrop, resetTextureDraft, upload]);
+
+  const analyzeUpload = useCallback(async () => {
+    if (upload.kind !== 'ready' || !upload.upload.id) return;
+    const requestedId = upload.upload.id;
+    // Re-validate against the current image bounds and drop a rectangle that
+    // belongs to another upload. No crop means the whole image.
+    const storedCrop = cropForUpload(crop, requestedId);
+    const requestedCrop =
+      storedCrop && imageBounds
+        ? normalizeCropRect(storedCrop, imageBounds)
+        : null;
+    analyzeController.current?.abort();
+    const controller = new AbortController();
+    analyzeController.current = controller;
+    resetTextureDraft();
+    setDraftState({ kind: 'running' });
+    setShowDraftJson(false);
+    setCopyNote(null);
+    try {
+      const draft = await analyzeStudioImage(requestedId, {
+        crop: requestedCrop,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || uploadIdRef.current !== requestedId) return;
+      if (!draft.ok && draft.notes.length === 0 && draft.errors.length > 0) {
+        setDraftState({
+          kind: 'error',
+          message: draft.errors[0]?.message ?? 'Analyze failed.',
+          errors: draft.errors,
+        });
+        return;
+      }
+      setDraftState({ kind: 'ready', draft });
+    } catch (error) {
+      if (controller.signal.aborted || uploadIdRef.current !== requestedId) return;
+      setDraftState({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (analyzeController.current === controller) analyzeController.current = null;
+    }
+  }, [crop, imageBounds, resetTextureDraft, upload]);
+
+  const copyDraft = useCallback(async () => {
+    if (draftState.kind !== 'ready') return;
+    const text = draftJson(draftState.draft);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopyNote('Draft JSON copied.');
+        return;
+      }
+    } catch {
+      // Fall through to the selectable block.
+    }
+    setCopyNote('Clipboard unavailable — select the read-only JSON instead.');
+    setShowDraftJson(true);
+  }, [draftState]);
+
+  /**
+   * Build the TextureSpec panel from the current Gemini draft. This only fills
+   * that panel; the SentenceSpec editor and its dirty state stay untouched.
+   */
+  const applyTextureDraft = useCallback(() => {
+    if (draftState.kind !== 'ready') return;
+    textureController.current?.abort();
+    textureController.current = null;
+    setTextureDraft(draftToTextureSpec(draftState.draft));
+    setTextureValidation({ kind: 'idle' });
+  }, [draftState]);
+
+  const validateTextureDraft = useCallback(async () => {
+    if (!textureDraft) return;
+    textureController.current?.abort();
+    const controller = new AbortController();
+    textureController.current = controller;
+    setTextureValidation({ kind: 'running' });
+    try {
+      const data = await validateTextureSpec(textureDraft.spec, controller.signal);
+      if (controller.signal.aborted) return;
+      setTextureValidation({ kind: 'done', data });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setTextureValidation({
+        kind: 'failure',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (textureController.current === controller) textureController.current = null;
+    }
+  }, [textureDraft]);
+
+  const copyTextureDraft = useCallback(async () => {
+    if (!textureDraft) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textureDraftJson(textureDraft));
+        setCopyNote('TextureSpec draft JSON copied.');
+        return;
+      }
+    } catch {
+      // The panel is already selectable; fall through silently.
+    }
+    setCopyNote('Clipboard unavailable — select the TextureSpec JSON instead.');
+  }, [textureDraft]);
+
+  const playAudio = useCallback(async () => {
+    if (!previewSnapshot) return;
+    if (Platform.OS !== 'web') {
+      setAudio({
+        kind: 'error',
+        message: 'Audio playback is web-only in this sprint.',
+        errors: [],
+      });
+      return;
+    }
+
+    audioController.current?.abort();
+    const controller = new AbortController();
+    audioController.current = controller;
+    const id = ++audioRunId.current;
+    stopPlayer();
+    setAudio({ kind: 'loading' });
+
+    try {
+      const data = await requestSentenceAudio(
+        { spec: previewSnapshot.spec, fixture: previewSnapshot.fixture },
+        controller.signal,
+      );
+      if (controller.signal.aborted || id !== audioRunId.current) return;
+      if (!data.ok || !data.audioUrl) {
+        setAudio({
+          kind: 'error',
+          message: data.errors[0]?.message ?? 'Audio preview failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      const url = resolveAudioUrl(getApiBaseUrl(), data.audioUrl);
+      if (!url) {
+        setAudio({
+          kind: 'error',
+          message: 'The audio response did not include a usable URL.',
+          errors: [],
+        });
+        return;
+      }
+
+      const player = new Audio(url);
+      audioPlayer.current = player;
+      player.onended = () => {
+        if (id === audioRunId.current) {
+          setAudio((prev) => (prev.kind === 'ready' ? { ...prev, playing: false } : prev));
+        }
+      };
+      player.onerror = () => {
+        if (id === audioRunId.current) {
+          setAudio({
+            kind: 'error',
+            message: 'The browser could not play the preview WAV.',
+            errors: [],
+          });
+        }
+      };
+      await player.play();
+      if (controller.signal.aborted || id !== audioRunId.current) {
+        player.pause();
+        return;
+      }
+      setAudio({
+        kind: 'ready',
+        url,
+        durationSec: data.durationSec,
+        renderHash: data.renderHash ?? previewSnapshot.renderHash,
+        playing: true,
+      });
+    } catch (error) {
+      if (controller.signal.aborted || id !== audioRunId.current) return;
+      setAudio({
+        kind: 'error',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (audioController.current === controller) audioController.current = null;
+    }
+  }, [previewSnapshot, stopPlayer]);
+
+  const publish = useCallback(async () => {
+    engagedRef.current = true;
+    const checked = checkSpecText(specTextRef.current);
+    if (!checked.ok) {
+      setPublishState({
+        kind: 'failure',
+        message: 'Fix the spec JSON before publishing.',
+        errors: checked.errors,
+      });
+      return;
+    }
+
+    publishController.current?.abort();
+    const controller = new AbortController();
+    publishController.current = controller;
+    setPublishState({ kind: 'running', visibility: publishVisibility });
+    try {
+      const data = await publishSentenceSpec(
+        checked.spec,
+        publishVisibility,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if (!data.ok || !data.id) {
+        setPublishState({
+          kind: 'failure',
+          message: data.errors[0]?.message ?? 'Publish failed.',
+          errors: data.errors,
+        });
+        return;
+      }
+      setPublishState({
+        kind: 'ok',
+        id: data.id,
+        pattern: data.pattern ?? String(checked.spec.pattern ?? ''),
+        meter: data.meter ?? String(checked.spec.meter ?? ''),
+        version: data.version ?? 0,
+        visibility: normalizeVisibility(data.visibility),
+      });
+      void loadPublished();
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPublishState({
+        kind: 'failure',
+        message: describeRequestFailure(error),
+        errors: [],
+      });
+    } finally {
+      if (publishController.current === controller) publishController.current = null;
+    }
+  }, [loadPublished, publishVisibility]);
+
+  const openPublished = useCallback(
+    async (id: string) => {
+      specDetailController.current?.abort();
+      const controller = new AbortController();
+      specDetailController.current = controller;
+      setLoadingSpecId(id);
+      setPublished((prev) => ({ ...prev, error: null }));
+      try {
+        const detail = await fetchPublishedSpec(id, controller.signal);
+        if (controller.signal.aborted) return;
+        applyEditor(
+          JSON.stringify(detail.payload, null, 2),
+          fixtureTextForSpec(detail.payload),
+          {
+            key: `${detail.pattern}:${detail.meter}`,
+            pattern: detail.pattern,
+            meter: detail.meter,
+            title: `${publishedSpecTitle(detail)} · v${detail.version}`,
+            id: detail.id,
+          },
+        );
+        setPublishState({ kind: 'idle' });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setPublished((prev) => ({
+          ...prev,
+          error: `Could not load ${shortId(id)}: ${describeRequestFailure(error)}`,
+        }));
+      } finally {
+        if (specDetailController.current === controller) {
+          specDetailController.current = null;
+        }
+        setLoadingSpecId((current) => (current === id ? null : current));
+      }
+    },
+    [applyEditor],
+  );
+
+  const rollback = useCallback(
+    async (id: string) => {
+      setConfirmingRollbackId(null);
+      rollbackController.current?.abort();
+      const controller = new AbortController();
+      rollbackController.current = controller;
+      setRollbackState({ kind: 'running', id });
+      try {
+        const data = await rollbackSentenceSpec(id, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!data.ok || !data.id) {
+          setRollbackState({
+            kind: 'failure',
+            id,
+            message: data.errors[0]?.message ?? 'Rollback failed.',
+            errors: data.errors,
+          });
+          return;
+        }
+        setRollbackState({
+          kind: 'ok',
+          id: data.id,
+          version: data.version,
+          rollbackOf: data.rollbackOf ?? id,
+          visibility: normalizeVisibility(data.visibility),
+        });
+        void loadPublished();
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setRollbackState({
+          kind: 'failure',
+          id,
+          message: describeRequestFailure(error),
+          errors: [],
+        });
+      } finally {
+        if (rollbackController.current === controller) {
+          rollbackController.current = null;
+        }
+      }
+    },
+    [loadPublished],
+  );
+
+  const running = result.kind === 'running';
+  const publishing = publishState.kind === 'running';
+  const stale =
+    dirty &&
+    (result.kind === 'validate' ||
+      result.kind === 'preview' ||
+      result.kind === 'failure');
+  const stats = textStats(specText);
+
+  const accessLoading = access.kind === 'loading';
+  const uploadEnabled =
+    access.kind === 'ready' ? access.access.enabled : access.kind === 'error';
+  const uploadBusy = upload.kind === 'uploading' || upload.kind === 'deleting';
+  const analyzeBusy = draftState.kind === 'running';
+  const canUpload =
+    uploadEnabled && selectedFile !== null && !uploadBusy && upload.kind !== 'ready';
+  const canAnalyze = uploadEnabled && Boolean(uploaded?.id) && !analyzeBusy && !uploadBusy;
+  const accessLine = accessStatusLabel(
+    access.kind,
+    access.kind === 'ready' ? access.access : undefined,
+    access.kind === 'error' ? access.message : undefined,
+  );
+  const catalogStatus = examplesStatusLabel({
+    loading: catalog.loading,
+    source: catalog.source,
+    count: samples.length,
+    note: catalog.note,
+  });
+  const staleHint =
+    result.kind === 'preview'
+      ? 'Spec changed since this preview — rerun Preview to refresh the plan, hash, and audio.'
+      : result.kind === 'validate'
+        ? 'Spec changed since validation — rerun Validate or Preview.'
+        : 'Spec changed since the last run — run it again to check the current JSON.';
+  const busyHint = studioBusyHint(
+    publishing ? 'publish' : result.kind === 'running' ? result.action : null,
+  );
+
+  const catalogPatterns = patternIds(samples);
+  const exampleChoices = samplesForPatternMeter(
+    selection.pattern,
+    selection.meter,
+    samples,
+  );
+  const selectedExample = findSampleById(selection.id, samples);
+  const patternChoices = catalogPatterns.includes(selection.pattern)
+    ? catalogPatterns
+    : [selection.pattern, ...catalogPatterns];
+  const catalogMeters = metersForPattern(samples, selection.pattern);
+  const meterChoices = catalogMeters.includes(selection.meter)
+    ? catalogMeters
+    : [selection.meter, ...catalogMeters];
+
+  return (
+    <View
+      style={[
+        styles.root,
+        { paddingTop: insets.top, paddingBottom: insets.bottom },
+      ]}
+    >
+      <TopBar mode="studio" onMode={onMode} searchEnabled={false} />
+
+      <ScrollView
+        contentContainerStyle={[styles.scroll, compact && styles.scrollCompact]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={[styles.shell, compact && styles.shellCompact]}>
+          <View style={styles.header}>
+            <View style={styles.eyebrowRow}>
+              <Text style={[type.section, styles.eyebrow]}>Studio · sentence JSON</Text>
+              <View style={styles.devBadge}>
+                <Text style={styles.devBadgeText}>DEV</Text>
+              </View>
+            </View>
+            <Text style={[type.displayNarrow, styles.title]}>Sentence lab</Text>
+            <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>
+              Flow: pick an example → edit the spec JSON → Validate/Preview → play the
+              short WAV → Publish. The JSON editor is the source of truth. The score
+              photo panel is a separate front half and never overwrites this JSON.
+            </Text>
+          </View>
+
+          <View style={[styles.localNotice, compact && styles.localNoticeCompact]}>
+            <View style={styles.localNoticeTitleRow}>
+              <Text style={styles.localNoticeTitle}>{STUDIO_LOCAL_NOTICE.title}</Text>
+              <View style={styles.localBadge}>
+                <Text style={styles.localBadgeText}>LOCAL</Text>
+              </View>
+            </View>
+            <Text style={styles.localNoticeText}>{STUDIO_LOCAL_NOTICE.text}</Text>
+            <View style={styles.flowRow}>
+              <Text style={styles.flowLabel}>Flow</Text>
+              <Text selectable style={styles.flowText}>
+                {STUDIO_FLOW_LABEL}
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.statusStrip, compact && styles.statusStripCompact]}>
+            <View style={styles.statusCell}>
+              <Text style={styles.statusLabel}>Session</Text>
+              <Text selectable numberOfLines={1} style={styles.statusValue}>
+                {sessionLabel(sessionId)}
+              </Text>
+              <CopyButton value={sessionId} label="Copy session" />
+            </View>
+            <View style={[styles.statusCell, styles.statusCellGrow]}>
+              <Text style={styles.statusLabel}>Access & quota</Text>
+              <StatusText line={accessLine} />
+              {access.kind === 'error' ? (
+                <MiniButton label="Retry access" onPress={() => void loadAccess()} />
+              ) : null}
+            </View>
+          </View>
+
+          <View style={[styles.columns, wide && !compact && styles.columnsWide]}>
+            <View style={[styles.column, wide && !compact && styles.columnWide]}>
+              <View style={[styles.card, compact && styles.cardCompact]}>
+                <View style={styles.resultHeader}>
+                  <Text style={[type.section, styles.cardLabel]}>IMG · Score photo</Text>
+                  <Text style={styles.actionLabel}>Gemini</Text>
+                </View>
+                <Text style={styles.cardTitle}>Score photo → draft notes</Text>
+                <Text style={styles.hint}>
+                  Upload one page (PNG, JPEG, WebP). The server stores it under
+                  this session and returns a TextureSpec note draft. It never
+                  replaces the SentenceSpec JSON below.
+                </Text>
+
+                {access.kind === 'ready' && !access.access.enabled ? (
+                  <View style={styles.noticeBox}>
+                    <Text style={styles.noticeTitle}>
+                      Studio disabled · {accessReasonLabel(access.access.reason)}
+                    </Text>
+                    <Text style={styles.noticeText}>
+                      Upload and Analyze are turned off. The sentence JSON editor
+                      below still works.
+                    </Text>
+                  </View>
+                ) : access.kind === 'error' ? (
+                  <View style={styles.noticeBox}>
+                    <Text style={styles.noticeTitle}>Access check failed</Text>
+                    <Text style={styles.noticeText}>
+                      {access.message} — upload stays enabled and the server
+                      enforces session quota.
+                    </Text>
+                  </View>
+                ) : null}
+
+                {Platform.OS === 'web' ? (
+                  <View style={styles.importRow}>
+                    {React.createElement('input', {
+                      type: 'file',
+                      accept: 'image/png,image/jpeg,image/webp',
+                      disabled:
+                        !uploadEnabled ||
+                        uploadBusy ||
+                        accessLoading ||
+                        upload.kind === 'ready',
+                      'aria-label': 'Choose a score image',
+                      onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+                        const file = event.target.files?.[0] ?? null;
+                        // Reset so choosing the same file after an error fires
+                        // onChange again.
+                        event.target.value = '';
+                        pickFile(file);
+                      },
+                      style: { color: palette.textMuted, fontSize: 12, maxWidth: '100%' },
+                    })}
+                    <Text numberOfLines={1} style={styles.fileName}>
+                      {selectedFile
+                        ? `${selectedFile.name || 'image'} · ${byteSizeLabel(selectedFile.size)}`
+                        : 'No file selected'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.noticeText}>
+                    Image import is web-only in this pass. Use the JSON editor
+                    below on native.
+                  </Text>
+                )}
+
+                {cropReady && previewUri ? (
+                  <View
+                    onLayout={(event) => {
+                      const { width, height } = event.nativeEvent.layout;
+                      setCropStage((prev) =>
+                        prev.width === width && prev.height === height
+                          ? prev
+                          : { width, height },
+                      );
+                    }}
+                    style={[styles.cropStage, compact && styles.cropStageCompact]}
+                  >
+                    {imageDisplay && imageDisplay.width > 0 ? (
+                      <View
+                        ref={cropSurfaceRef}
+                        onPointerDown={startCropDrag}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel="Crop the score image"
+                        accessibilityHint="Drag to draw a rectangle; drag inside to move; drag a corner to resize."
+                        style={[
+                          styles.cropSurface,
+                          {
+                            left: imageDisplay.left,
+                            top: imageDisplay.top,
+                            width: imageDisplay.width,
+                            height: imageDisplay.height,
+                          },
+                        ]}
+                      >
+                        <Image
+                          source={{ uri: previewUri }}
+                          style={styles.cropImage}
+                          resizeMode="stretch"
+                          pointerEvents="none"
+                          accessibilityLabel="Selected score image preview"
+                        />
+                        {visibleCrop && cropBox ? (
+                          <>
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: 0,
+                                  top: 0,
+                                  width: imageDisplay.width,
+                                  height: cropBox.top,
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: 0,
+                                  top: cropBox.top + cropBox.height,
+                                  width: imageDisplay.width,
+                                  height: Math.max(
+                                    0,
+                                    imageDisplay.height - (cropBox.top + cropBox.height),
+                                  ),
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: 0,
+                                  top: cropBox.top,
+                                  width: cropBox.left,
+                                  height: cropBox.height,
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropShade,
+                                {
+                                  left: cropBox.left + cropBox.width,
+                                  top: cropBox.top,
+                                  width: Math.max(
+                                    0,
+                                    imageDisplay.width - (cropBox.left + cropBox.width),
+                                  ),
+                                  height: cropBox.height,
+                                },
+                              ]}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                styles.cropSelection,
+                                {
+                                  left: cropBox.left,
+                                  top: cropBox.top,
+                                  width: cropBox.width,
+                                  height: cropBox.height,
+                                },
+                              ]}
+                            >
+                              <View style={[styles.cropHandle, styles.cropHandleNw]} />
+                              <View style={[styles.cropHandle, styles.cropHandleNe]} />
+                              <View style={[styles.cropHandle, styles.cropHandleSw]} />
+                              <View style={[styles.cropHandle, styles.cropHandleSe]} />
+                            </View>
+                          </>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+                ) : previewUri ? (
+                  <Image
+                    source={{ uri: previewUri }}
+                    style={styles.imagePreview}
+                    resizeMode="contain"
+                    accessibilityLabel="Selected score image preview"
+                  />
+                ) : null}
+
+                {cropReady ? (
+                  <View style={styles.cropToolbar}>
+                    <Text style={styles.cropMeta}>
+                      {activeCrop
+                        ? `Crop ${cropSizeLabel(activeCrop)}`
+                        : 'Whole image'}
+                    </Text>
+                    {activeCrop ? (
+                      <ActionButton
+                        label="Clear crop"
+                        onPress={resetCrop}
+                        disabled={cropDrag !== null}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+                {previewUri && Platform.OS === 'web' && uploaded ? (
+                  <Text style={styles.composerHint}>
+                    {activeCrop
+                      ? 'Analyze reads only this rectangle. Drag inside to move it, or drag a corner to resize.'
+                      : 'Drag on the image to select a staff region. Without a crop, Analyze reads the whole page.'}
+                  </Text>
+                ) : null}
+
+                <View style={styles.actions}>
+                  <ActionButton
+                    label="Upload ảnh"
+                    primary
+                    onPress={() => void uploadSelected()}
+                    disabled={!canUpload}
+                    busy={upload.kind === 'uploading'}
+                    busyLabel="Uploading…"
+                  />
+                  <ActionButton
+                    label="Analyze"
+                    onPress={() => void analyzeUpload()}
+                    disabled={!canAnalyze}
+                    busy={analyzeBusy}
+                    busyLabel="Analyzing…"
+                  />
+                  {upload.kind === 'ready' ? (
+                    <ActionButton
+                      label="Xoá ảnh"
+                      onPress={() => void deleteUpload()}
+                      disabled={uploadBusy || analyzeBusy}
+                    />
+                  ) : null}
+                  {accessLoading ? (
+                    <Text style={styles.composerHint}>Checking access…</Text>
+                  ) : null}
+                </View>
+
+                {upload.kind === 'ready' ? (
+                  <View style={styles.uploadMeta}>
+                    <Text selectable style={styles.metaText}>
+                      {uploadMetaLabel(upload.upload)}
+                    </Text>
+                    <Text selectable style={styles.metaText}>
+                      upload {shortId(upload.upload.id ?? '', 12)} ·{' '}
+                      {upload.upload.mime ?? 'unknown mime'}
+                    </Text>
+                    <View style={styles.copyRow}>
+                      <CopyButton
+                        value={upload.upload.id}
+                        label="Copy upload id"
+                      />
+                      <CopyButton value={upload.upload.sha256} label="Copy sha256" />
+                    </View>
+                  </View>
+                ) : upload.kind === 'uploading' ? (
+                  <Text style={styles.composerHint}>
+                    Uploading {upload.filename}…
+                  </Text>
+                ) : upload.kind === 'deleting' ? (
+                  <Text style={styles.composerHint}>Removing image…</Text>
+                ) : upload.kind === 'error' ? (
+                  <View style={styles.publishStatus}>
+                    <Text style={styles.publishFailure}>{upload.message}</Text>
+                    <ErrorList errors={upload.errors} />
+                  </View>
+                ) : (
+                  <Text style={styles.composerHint}>
+                    {uploadEnabled
+                      ? 'Pick a score photo, upload it, then Analyze.'
+                      : 'Upload and Analyze are disabled until access is known.'}
+                  </Text>
+                )}
+
+                <Text style={styles.composerHint}>
+                  Draft review state starts at pending. Nothing is published from
+                  this panel.
+                </Text>
+              </View>
+
+              <View style={[styles.card, compact && styles.cardCompact]}>
+                <Text style={[type.section, styles.cardLabel]}>1 · Example</Text>
+                <Text style={styles.cardTitle}>{selection.title}</Text>
+                {selection.id ? (
+                  <View style={styles.copyRow}>
+                    <Text selectable numberOfLines={1} style={styles.templateId}>
+                      id {selection.id}
+                    </Text>
+                    <CopyButton value={selection.id} label="Copy example id" />
+                  </View>
+                ) : null}
+                <Text style={styles.hint}>
+                  Picking a pattern or meter loads a known-good example and replaces
+                  the editor contents. The JSON below is always the source of truth
+                  for a run.
+                </Text>
+                <View style={styles.statusRow}>
+                  {catalog.loading ? (
+                    <ActivityIndicator color={palette.data} size="small" />
+                  ) : null}
+                  <StatusText line={catalogStatus} />
+                </View>
+
+                <Text style={styles.fieldLabel}>Pattern</Text>
+                <View style={styles.chips}>
+                  {patternChoices.map((pattern) => (
+                    <Chip
+                      key={pattern}
+                      label={patternLabel(pattern)}
+                      active={selection.pattern === pattern}
+                      accessibilityLabel={patternLabel(pattern)}
+                      onPress={() => choosePattern(pattern)}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.composerHint}>{patternCatalogHint(samples)}</Text>
+
+                <Text style={styles.fieldLabel}>Meter</Text>
+                <View style={styles.chips}>
+                  {meterChoices.map((meter) => (
+                    <Chip
+                      key={meter}
+                      label={meterLabel(meter)}
+                      active={selection.meter === meter}
+                      accessibilityLabel={meterLabel(meter)}
+                      onPress={() => chooseMeter(meter)}
+                    />
+                  ))}
+                </View>
+
+                {exampleChoices.length > 1 ? (
+                  <>
+                    <Text style={styles.fieldLabel}>Example</Text>
+                    <View style={styles.chips}>
+                      {exampleChoices.map((sample) => (
+                        <Chip
+                          key={sample.id ?? sample.key}
+                          label={exampleLabel(sample)}
+                          active={
+                            selectedExample
+                              ? selectedExample.id === sample.id
+                              : selection.key === sample.key
+                          }
+                          accessibilityLabel={exampleLabel(sample)}
+                          onPress={() => applySample(sample)}
+                        />
+                      ))}
+                    </View>
+                  </>
+                ) : null}
+
+                <View style={styles.editorHeader}>
+                  <View>
+                    <Text style={[type.section, styles.cardLabel]}>2 · Spec JSON</Text>
+                    <Text style={styles.hint}>One sentence spec mapping.</Text>
+                  </View>
+                  <Text style={styles.stats}>
+                    {stats.lines} lines · {stats.chars} chars
+                  </Text>
+                </View>
+
+                <TextInput
+                  multiline
+                  value={specText}
+                  onChangeText={(next) => {
+                    setSpecText(next);
+                    setDirty(true);
+                  }}
+                  style={[styles.editor, compact && styles.editorCompact]}
+                  accessibilityLabel="Sentence spec JSON"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  placeholder="Paste one sentence spec mapping…"
+                  placeholderTextColor={palette.textFaint}
+                  selectionColor={palette.data}
+                  textAlignVertical="top"
+                />
+
+                <View style={styles.actions}>
+                  <ActionButton
+                    label="Validate"
+                    onPress={() => void run('validate')}
+                    disabled={running || publishing}
+                    busy={result.kind === 'running' && result.action === 'validate'}
+                    busyLabel="Validating…"
+                  />
+                  <ActionButton
+                    label="Preview"
+                    primary
+                    onPress={() => void run('preview')}
+                    disabled={running || publishing}
+                    busy={result.kind === 'running' && result.action === 'preview' && queuedJob.kind === 'idle'}
+                    busyLabel="Previewing…"
+                  />
+                  <ActionButton
+                    label="Queued preview"
+                    onPress={() => void runQueued()}
+                    disabled={running || publishing}
+                    busy={queuedJob.kind === 'waiting'}
+                    busyLabel="Queued…"
+                  />
+                  <View style={styles.publishGroup}>
+                    <ActionButton
+                      label="Publish"
+                      onPress={() => void publish()}
+                      disabled={running || publishing}
+                      busy={publishing}
+                      busyLabel="Publishing…"
+                    />
+                    <View style={styles.visibilityPicker}>
+                      <Text style={styles.pickerLabel}>Publish as</Text>
+                      <Chip
+                        label="Private"
+                        active={publishVisibility === 'private'}
+                        accessibilityLabel="Publish as private"
+                        onPress={() => setPublishVisibility('private')}
+                        disabled={publishing}
+                      />
+                      <Chip
+                        label="Public"
+                        active={publishVisibility === 'public'}
+                        accessibilityLabel="Publish as public"
+                        onPress={() => setPublishVisibility('public')}
+                        disabled={publishing}
+                      />
+                    </View>
+                  </View>
+                </View>
+                {busyHint ? (
+                  <Text style={styles.composerHint}>{busyHint}</Text>
+                ) : null}
+                <Text style={styles.composerHint}>{visibilityHint(publishVisibility)}</Text>
+                {stale ? <Text style={styles.stale}>{staleHint}</Text> : null}
+
+                <PublishStatus state={publishState} visibility={publishVisibility} />
+              </View>
+
+              <View style={[styles.card, compact && styles.cardCompact]}>
+                <Pressable
+                  onPress={() => setShowFixture((open) => !open)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showFixture }}
+                  accessibilityLabel="Preview fixture"
+                  style={({ pressed }) => [
+                    styles.fixtureHeader,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.fixtureHeaderText}>
+                    <Text style={[type.section, styles.cardLabel]}>
+                      3 · Preview fixture
+                    </Text>
+                    <Text style={styles.cardTitle}>
+                      {showFixture ? 'Fixture JSON' : 'Show the fixture sent with Preview'}
+                    </Text>
+                  </View>
+                  <Text style={styles.fixtureToggle}>{showFixture ? '−' : '+'}</Text>
+                </Pressable>
+                <Text style={styles.hint}>
+                  Figure sentences use <Text style={styles.code}>length</Text>,{' '}
+                  <Text style={styles.code}>n</Text>,{' '}
+                  <Text style={styles.code}>closes</Text>, and{' '}
+                  <Text style={styles.code}>rise</Text>. Cell/cycle specs use{' '}
+                  <Text style={styles.code}>run_length</Text>. API examples derive a
+                  fixture from the spec; edit it for a different render.
+                </Text>
+                {showFixture ? (
+                  <TextInput
+                    multiline
+                    value={fixtureJson}
+                    onChangeText={(next) => {
+                      setFixtureJson(next);
+                      setDirty(true);
+                    }}
+                    style={[
+                      styles.editor,
+                      styles.fixtureEditor,
+                      compact && styles.editorCompact,
+                    ]}
+                    accessibilityLabel="Preview fixture JSON"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    placeholder="Preview fixture JSON…"
+                    placeholderTextColor={palette.textFaint}
+                    selectionColor={palette.data}
+                    textAlignVertical="top"
+                  />
+                ) : null}
+              </View>
+            </View>
+
+            <View style={[styles.column, wide && !compact && styles.columnWide]}>
+              <MusicXmlPanel compact={compact} />
+              <View style={[styles.card, styles.resultCard, compact && styles.cardCompact]}>
+                <View style={styles.resultHeader}>
+                  <Text style={[type.section, styles.cardLabel]}>IMG · Gemini draft</Text>
+                  <Text style={styles.actionLabel}>TextureSpec notes</Text>
+                </View>
+
+                {draftState.kind === 'idle' ? (
+                  <>
+                    <Text style={styles.cardTitle}>Nothing analyzed yet</Text>
+                    <Text style={styles.hint}>
+                      Upload a score image on the left, then Analyze. The draft is
+                      read-only here: it is a TextureSpec note list, not one
+                      SentenceSpec, so it must not be loaded into the editor
+                      automatically.
+                    </Text>
+                  </>
+                ) : draftState.kind === 'running' ? (
+                  <View style={styles.loadingRow}>
+                    <ActivityIndicator color={palette.data} />
+                    <Text style={styles.loadingText}>
+                      Reading the image with Gemini…
+                    </Text>
+                  </View>
+                ) : draftState.kind === 'error' ? (
+                  <>
+                    <Text style={styles.failureTitle}>{draftState.message}</Text>
+                    <ErrorList errors={draftState.errors} />
+                    <Text style={styles.hint}>
+                      Fix the upload or try again. The sentence editor is
+                      unaffected.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.badgeRow}>
+                      <Badge
+                        ok={draftState.draft.ok}
+                        label={draftState.draft.ok ? 'DRAFT OK' : 'ANALYZE FAILED'}
+                      />
+                      {draftState.draft.cached ? <Badge ok label="CACHED" /> : null}
+                      {draftState.draft.partial ? (
+                        <Badge ok={false} label="PARTIAL" />
+                      ) : null}
+                    </View>
+                    {draftState.draft.errors.length ? (
+                      <ErrorList errors={draftState.draft.errors} />
+                    ) : null}
+                    {draftState.draft.partial ? (
+                      <Text style={styles.catalogWarning}>
+                        Partial draft: skipped{' '}
+                        {draftState.draft.skippedChecks.length
+                          ? draftState.draft.skippedChecks.join(', ')
+                          : 'some checks'}{' '}
+                        — no render context yet.
+                      </Text>
+                    ) : null}
+                    {draftState.draft.warnings.length ? (
+                      <View style={styles.warningList}>
+                        <Text style={[type.section, styles.blockLabel]}>
+                          Warnings
+                        </Text>
+                        {draftState.draft.warnings.map((warning, index) => (
+                          <Text key={`warning:${index}`} style={styles.warningText}>
+                            {warning}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    <ResultBlock
+                      label="Measures"
+                      lines={measureLines(draftState.draft.measures)}
+                      empty="No measures returned."
+                    />
+
+                    <View style={styles.block}>
+                      <View style={styles.blockHeader}>
+                        <Text style={[type.section, styles.blockLabel]}>Notes</Text>
+                        <Text style={styles.blockCount}>
+                          {draftState.draft.notes.length}
+                        </Text>
+                      </View>
+                      <DraftNotesTable notes={draftState.draft.notes} />
+                    </View>
+
+                    <View style={styles.actions}>
+                      <ActionButton
+                        label="Apply draft to TextureSpec"
+                        onPress={applyTextureDraft}
+                        primary
+                      />
+                      <ActionButton
+                        label="Copy draft JSON"
+                        onPress={() => void copyDraft()}
+                      />
+                      <ActionButton
+                        label={showDraftJson ? 'Hide draft JSON' : 'Show draft JSON'}
+                        onPress={() => setShowDraftJson((open) => !open)}
+                      />
+                    </View>
+                    {copyNote ? (
+                      <Text style={styles.composerHint}>{copyNote}</Text>
+                    ) : null}
+                    {showDraftJson ? (
+                      <Text selectable style={styles.codeBlock}>
+                        {valueLines(draftJson(draftState.draft), 120).join('\n')}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.composerHint}>
+                      Draft state is pending review. Apply draft builds a separate
+                      TextureSpec draft below; the sentence editor is untouched.
+                    </Text>
+                  </>
+                )}
+              </View>
+
+              {textureDraft ? (
+                <View style={[styles.card, styles.resultCard, compact && styles.cardCompact]}>
+                  <View style={styles.resultHeader}>
+                    <Text style={[type.section, styles.cardLabel]}>
+                      IMG · TextureSpec draft
+                    </Text>
+                    <Text style={styles.actionLabel}>
+                      {textureDraftSummary(textureDraft)}
+                    </Text>
+                  </View>
+                  <Text style={styles.hint}>
+                    Converted from the Gemini notes, not from the sentence editor.
+                    Notes are pending review and pitch is literal MIDI; nothing is
+                    registered or published.
+                  </Text>
+
+                  {textureDraft.warnings.length ? (
+                    <View style={styles.warningList}>
+                      <Text style={[type.section, styles.blockLabel]}>
+                        Conversion warnings
+                      </Text>
+                      {textureDraft.warnings.map((warning, index) => (
+                        <Text key={`texture-warning:${index}`} style={styles.warningText}>
+                          {warning}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  <Text selectable style={styles.codeBlock}>
+                    {valueLines(textureDraftJson(textureDraft), 160).join('\n')}
+                  </Text>
+
+                  <View style={styles.actions}>
+                    <ActionButton
+                      label="Validate TextureSpec"
+                      onPress={() => void validateTextureDraft()}
+                      primary
+                      busy={textureValidation.kind === 'running'}
+                      busyLabel="Validating…"
+                      disabled={textureValidation.kind === 'running'}
+                    />
+                    <ActionButton
+                      label="Copy TextureSpec JSON"
+                      onPress={() => void copyTextureDraft()}
+                    />
+                    <ActionButton
+                      label="Clear TextureSpec draft"
+                      onPress={resetTextureDraft}
+                    />
+                  </View>
+
+                  {textureValidation.kind === 'running' ? (
+                    <View style={styles.loadingRow}>
+                      <ActivityIndicator color={palette.data} />
+                      <Text style={styles.loadingText}>Validating texture spec…</Text>
+                    </View>
+                  ) : textureValidation.kind === 'failure' ? (
+                    <>
+                      <Text style={styles.failureTitle}>
+                        {textureValidation.message}
+                      </Text>
+                      <ErrorList errors={textureValidation.errors} />
+                    </>
+                  ) : textureValidation.kind === 'done' ? (
+                    <>
+                      <View style={styles.badgeRow}>
+                        <Badge
+                          ok={textureValidation.data.ok}
+                          label={
+                            textureValidation.data.ok
+                              ? 'TEXTURE SPEC OK'
+                              : 'TEXTURE SPEC ERRORS'
+                          }
+                        />
+                      </View>
+                      <ErrorList errors={textureValidation.data.errors} />
+                    </>
+                  ) : (
+                    <Text style={styles.composerHint}>
+                      Validate runs the offline TextureSpec parser/validator. It
+                      does not render, register, or publish.
+                    </Text>
+                  )}
+                </View>
+              ) : null}
+
+              <ResultPanel
+                result={result}
+                job={queuedJob}
+                stale={stale}
+                staleHint={staleHint}
+                audio={audio}
+                audioSupported={Platform.OS === 'web'}
+                canPlayAudio={previewSnapshot !== null}
+                onPlayAudio={() => void playAudio()}
+                onRerunPreview={() => void run('preview')}
+                previewBusy={running || publishing}
+                compact={compact}
+                specText={specText}
+                onSpecSaved={(nextSpecText) => {
+                  setSpecText(nextSpecText);
+                  setDirty(true);
+                }}
+              />
+              <PublishedPanel
+                state={published}
+                loadingId={loadingSpecId}
+                rollback={rollbackState}
+                confirmingId={confirmingRollbackId}
+                onRefresh={() => void loadPublished()}
+                onOpen={(id) => void openPublished(id)}
+                onAskRollback={(id) => setConfirmingRollbackId(id)}
+                onCancelRollback={() => setConfirmingRollbackId(null)}
+                onConfirmRollback={(id) => void rollback(id)}
+                compact={compact}
+              />
+              <View style={styles.card}>
+                <Pressable
+                  onPress={() => setShowEndpoints((open) => !open)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showEndpoints }}
+                  accessibilityLabel="Studio API endpoints"
+                  style={({ pressed }) => [
+                    styles.fixtureHeader,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.fixtureHeaderText}>
+                    <Text style={[type.section, styles.cardLabel]}>DEV · Endpoints</Text>
+                    <Text style={styles.hint}>
+                      {showEndpoints
+                        ? 'Routes this screen calls.'
+                        : 'Show the Studio routes this screen calls.'}
+                    </Text>
+                  </View>
+                  <Text style={styles.fixtureToggle}>{showEndpoints ? '−' : '+'}</Text>
+                </Pressable>
+                {showEndpoints ? (
+                  <View style={styles.endpoints}>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioAccessUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioUploadsUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioAnalyzeUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioMusicXmlUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioMusicXmlImportUrl('<id>')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioMusicXmlImportUrl('<id>')}/passage
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioSentenceUrl('examples')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('validate')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioTextureValidateUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('preview')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioJobsUrl()}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioJobsUrl()}/{'<id>'}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('audio')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('publish')}?visibility=private|public
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      GET {studioSentenceUrl('specs')}
+                    </Text>
+                    <Text selectable style={styles.endpoint}>
+                      POST {studioSentenceUrl('specs')}/{'<id>'}/rollback
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function Chip({
+  label,
+  active,
+  onPress,
+  accessibilityLabel,
+  disabled = false,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  accessibilityLabel: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected: active, disabled }}
+      style={({ pressed }) => [
+        styles.chip,
+        active && styles.chipActive,
+        pressed && !disabled ? styles.pressed : null,
+        disabled ? styles.buttonDisabled : null,
+      ]}
+    >
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** Copy a full id/hash (not the shortened display form) to the clipboard. */
+function CopyButton({
+  value,
+  label,
+  accessibilityLabel,
+}: {
+  value: string | null | undefined;
+  label: string;
+  accessibilityLabel?: string;
+}) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const text = copyValue(value);
+
+  useEffect(() => {
+    setState('idle');
+  }, [text]);
+
+  const onPress = async () => {
+    if (!text) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setState('copied');
+        return;
+      }
+    } catch {
+      // Fall through to the failed state; the value stays selectable on screen.
+    }
+    setState('failed');
+  };
+
+  return (
+    <Pressable
+      onPress={() => void onPress()}
+      disabled={!text}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: !text }}
+      style={({ pressed }) => [
+        styles.copyButton,
+        pressed && text ? styles.pressed : null,
+        !text ? styles.buttonDisabled : null,
+      ]}
+    >
+      <Text style={styles.copyButtonText}>
+        {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Small inline action used by status rows and collapsed dev panels. */
+function MiniButton({
+  label,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [
+        styles.copyButton,
+        pressed && !disabled ? styles.pressed : null,
+        disabled ? styles.buttonDisabled : null,
+      ]}
+    >
+      <Text style={styles.copyButtonText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function StatusText({ line }: { line: StatusLine }) {
+  const tone =
+    line.tone === 'ok'
+      ? styles.statusOk
+      : line.tone === 'warn'
+        ? styles.statusWarn
+        : line.tone === 'error'
+          ? styles.statusError
+          : line.tone === 'loading'
+            ? styles.statusLoading
+            : null;
+  return <Text style={[styles.statusText, tone]}>{line.text}</Text>;
+}
+
+function VisibilityBadge({ visibility }: { visibility: StudioVisibility }) {
+  const isPublic = normalizeVisibility(visibility) === 'public';
+  return (
+    <View style={[styles.visBadge, isPublic ? styles.visBadgePublic : null]}>
+      <Text
+        style={[styles.visBadgeText, isPublic ? styles.visBadgeTextPublic : null]}
+      >
+        {visibilityLabel(visibility)}
+      </Text>
+    </View>
+  );
+}
+
+function ActionButton({
+  label,
+  onPress,
+  primary = false,
+  disabled = false,
+  busy = false,
+  busyLabel,
+}: {
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+  busy?: boolean;
+  busyLabel?: string;
+}) {
+  const text = busy && busyLabel ? busyLabel : label;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled, busy }}
+      style={({ pressed }) => [
+        styles.button,
+        primary ? styles.buttonPrimary : styles.buttonSecondary,
+        pressed && !disabled ? styles.pressed : null,
+        disabled ? styles.buttonDisabled : null,
+      ]}
+    >
+      <View style={styles.buttonContent}>
+        {busy ? (
+          <ActivityIndicator
+            color={primary ? palette.background : palette.data}
+            size="small"
+          />
+        ) : null}
+        <Text style={[styles.buttonText, primary && styles.buttonTextPrimary]}>
+          {text}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function ErrorList({ errors }: { errors: StudioError[] }) {
+  if (errors.length === 0) return null;
+  return (
+    <View style={styles.errorList}>
+      {errors.map((error, index) => (
+        <View key={`${error.path}:${index}`} style={styles.errorRow}>
+          <Text selectable style={styles.errorPath}>
+            {normalizeErrorPath(error.path)}
+          </Text>
+          <Text selectable style={styles.errorMessage}>
+            {error.message}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Badge({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <View style={[styles.badge, ok ? styles.badgePass : styles.badgeFail]}>
+      <Text style={[styles.badgeText, ok ? styles.badgeTextPass : styles.badgeTextFail]}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/** Compact draft table; confidence is coloured by band. */
+function DraftNotesTable({ notes }: { notes: StudioAnalysisNote[] }) {
+  const rows = draftNoteRows(notes);
+  if (!notes.length) {
+    return <Text style={styles.empty}>No notes in the draft.</Text>;
+  }
+  return (
+    <View style={styles.table}>
+      <View style={[styles.tableRow, styles.tableHead]}>
+        <Text style={[styles.th, styles.colBar]}>Bar</Text>
+        <Text style={[styles.th, styles.colBeat]}>Beat</Text>
+        <Text style={[styles.th, styles.colVoice]}>Voice</Text>
+        <Text style={[styles.th, styles.colPitch]}>Pitch</Text>
+        <Text style={[styles.th, styles.colConf]}>Conf</Text>
+        <Text style={[styles.th, styles.colConflict]}>Confl</Text>
+      </View>
+      {rows.map((row) => (
+        <View key={`note:${row.index}`} style={styles.tableRow}>
+          <Text style={[styles.td, styles.colBar]}>{row.bar}</Text>
+          <Text style={[styles.td, styles.colBeat]}>{row.beat}</Text>
+          <Text numberOfLines={1} style={[styles.td, styles.colVoice]}>
+            {row.voice}
+          </Text>
+          <Text numberOfLines={1} style={[styles.td, styles.colPitch]}>
+            {row.pitch}
+            {row.position ? ` · ${row.position}` : ''}
+          </Text>
+          <Text
+            style={[
+              styles.td,
+              styles.colConf,
+              { color: CONFIDENCE_COLOR[row.band] },
+            ]}
+          >
+            {row.confidence}
+          </Text>
+          <Text
+            style={[
+              styles.td,
+              styles.colConflict,
+              row.conflict ? styles.conflictCell : null,
+            ]}
+          >
+            {row.conflict ? 'yes' : '—'}
+          </Text>
+        </View>
+      ))}
+      {notes.length > rows.length ? (
+        <Text style={styles.composerHint}>
+          … {notes.length - rows.length} more notes
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function ResultBlock({
+  label,
+  lines,
+  empty,
+}: {
+  label: string;
+  lines: string[];
+  empty: string;
+}) {
+  return (
+    <View style={styles.block}>
+      <View style={styles.blockHeader}>
+        <Text style={[type.section, styles.blockLabel]}>{label}</Text>
+        {lines.length ? <Text style={styles.blockCount}>{lines.length}</Text> : null}
+      </View>
+      {lines.length ? (
+        <Text selectable style={styles.codeBlock}>
+          {lines.join('\n')}
+        </Text>
+      ) : (
+        <Text style={styles.empty}>{empty}</Text>
+      )}
+    </View>
+  );
+}
+
+function PublishStatus({
+  state,
+  visibility,
+}: {
+  state: PublishState;
+  visibility: StudioVisibility;
+}) {
+  if (state.kind === 'idle') {
+    return (
+      <View style={styles.publishStatus}>
+        <Text style={styles.statusLabel}>Publish status</Text>
+        <Text style={styles.publishStatusText}>
+          Not published yet in this session. The next publish uses{' '}
+          {visibilityLabel(visibility)} — {visibilityHint(visibility)}
+        </Text>
+      </View>
+    );
+  }
+  if (state.kind === 'running') {
+    return (
+      <View style={styles.publishStatus}>
+        <View style={styles.audioRow}>
+          <ActivityIndicator color={palette.data} size="small" />
+          <Text style={styles.publishStatusText}>
+            Publishing as {visibilityLabel(state.visibility)}…
+          </Text>
+        </View>
+      </View>
+    );
+  }
+  if (state.kind === 'failure') {
+    return (
+      <View style={styles.publishStatus}>
+        <Text style={styles.publishFailure}>Publish failed · {state.message}</Text>
+        {state.errors.length ? (
+          <ErrorList errors={state.errors} />
+        ) : (
+          <Text style={styles.publishStatusText}>
+            No error path was returned. Check the backend log and retry.
+          </Text>
+        )}
+      </View>
+    );
+  }
+  return (
+    <View style={styles.publishStatus}>
+      <View style={styles.badgeRow}>
+        <Badge ok label="PUBLISHED" />
+        <VisibilityBadge visibility={state.visibility} />
+      </View>
+      <Text selectable style={styles.publishOk}>
+        {publishSuccessLabel(state.visibility, state.version, state.id)}
+      </Text>
+      <Text style={styles.publishStatusText}>
+        {patternLabel(state.pattern)} · {meterLabel(state.meter)} ·{' '}
+        {visibilityHint(state.visibility)}
+      </Text>
+      <View style={styles.copyRow}>
+        <CopyButton value={state.id} label="Copy published id" />
+      </View>
+    </View>
+  );
+}
+
+function AudioControls({
+  state,
+  supported,
+  canPlay,
+  onPlay,
+}: {
+  state: AudioState;
+  supported: boolean;
+  canPlay: boolean;
+  onPlay: () => void;
+}) {
+  if (!supported) {
+    return (
+      <View style={styles.audioRow}>
+        <Text style={styles.audioText}>
+          Audio playback is web-only in this sprint. The render hash and duration
+          still identify the server-side WAV.
+        </Text>
+      </View>
+    );
+  }
+  if (!canPlay) {
+    return (
+      <View style={styles.audioRow}>
+        <Text style={styles.audioText}>
+          {studioNextStep('audio')}
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.audioPanel}>
+      <View style={styles.audioRow}>
+        <ActionButton
+          label={state.kind === 'loading' ? 'Rendering audio…' : 'Play preview'}
+          onPress={onPlay}
+          disabled={state.kind === 'loading'}
+          busy={state.kind === 'loading'}
+        />
+        <Text style={styles.audioText}>
+          {audioStatusLabel(
+            state.kind,
+            state.kind === 'ready' ? state.durationSec : 0,
+            state.kind === 'ready' ? state.playing : false,
+          )}
+        </Text>
+      </View>
+      {state.kind === 'error' ? (
+        <>
+          <Text style={styles.catalogWarning}>{state.message}</Text>
+          <ErrorList errors={state.errors} />
+          <Text style={styles.composerHint}>
+            Rerun Preview to refresh the render hash, then play again.
+          </Text>
+        </>
+      ) : state.kind === 'idle' ? (
+        <Text style={styles.composerHint}>
+          Calls /sentence/audio for this preview&apos;s spec and fixture and caches
+          by render hash.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+type VelocitySaveState =
+  | { kind: 'idle' }
+  | { kind: 'saved'; slot: number; omitted: boolean }
+  | { kind: 'error'; errors: StudioError[] };
+
+function PreviewVelocityPanel({
+  data,
+  specText,
+  onSpecSaved,
+}: {
+  data: StudioPreviewResponse;
+  specText: string;
+  onSpecSaved: (nextSpecText: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [saveState, setSaveState] = useState<VelocitySaveState>({ kind: 'idle' });
+  const notes = Array.isArray(data.notes) ? data.notes : [];
+  const slots = useMemo(
+    () => velocitySlotContours(data.microVelocity),
+    [data.microVelocity],
+  );
+  const activeSlot =
+    slots.find((item) => item.slot === selectedSlot) ??
+    slots.find((item) => item.contour != null) ??
+    slots[0] ??
+    null;
+  const contour = activeSlot?.contour ?? null;
+  const activeSlotNumber = activeSlot?.slot ?? null;
+  const slotOrigin = activeSlot?.start ?? 0;
+  const slotBars = activeSlot?.bars ?? 0;
+  // The backend reports the sentence tile plus whether the span is exact, so
+  // the lane wraps only a genuinely repeating slot and never past a
+  // non-repeating slot's last bar.
+  const slotWindow = useMemo(
+    () =>
+      activeSlot == null
+        ? null
+        : {
+            start: activeSlot.start,
+            bars: activeSlot.bars,
+            tile: activeSlot.tile,
+            exact: activeSlot.exact,
+          },
+    [activeSlot],
+  );
+  // A rule contour stays code-owned. Detect rows without a flatten entry so the
+  // panel can explain that Save to spec is blocked, even while the lane is shut.
+  const ruleNeedsFlatten = useMemo(
+    () =>
+      contour?.kind === 'rule' &&
+      velocityLaneRows(notes, contour, { slot: slotWindow }).some(
+        (row) => row.needsRule,
+      ),
+    [contour, notes, slotWindow],
+  );
+  const ruleStatus = ruleContourStatus(contour, ruleNeedsFlatten);
+
+  useEffect(() => {
+    setSaveState({ kind: 'idle' });
+  }, [data.microVelocity, activeSlotNumber]);
+
+  if (!data.ok || notes.length === 0) return null;
+
+  const slotRange =
+    slotBars > 0
+      ? slotBars === 1
+        ? `bar ${slotOrigin + 1}`
+        : `bars ${slotOrigin + 1}–${slotOrigin + slotBars}`
+      : null;
+  const status =
+    contour == null
+      ? slots.length > 1
+        ? 'This slot has no authored contour · realized velocities only'
+        : 'Realized velocities only · no authored offsets'
+      : contour.kind === 'rule'
+        ? `Rule contour ${contour.ruleId} v${contour.ruleVersion} · needs a flatten table`
+        : slots.length > 1
+          ? `Authored micro-velocity offsets · ${slots.length} slots`
+          : 'Authored micro-velocity offsets loaded';
+  const statusText = slotRange ? `${status} · ${slotRange}` : status;
+
+  const saveContour = (next: MicroVelocity, info: VelocityLaneSaveInfo) => {
+    if (!activeSlot) return;
+    const saved = saveVelocityContourToSpec({
+      specText,
+      slot: activeSlot.slot,
+      contour: next,
+      needsRule: info.needsRule,
+      hasEdits: info.hasEdits,
+    });
+    if (!saved.ok) {
+      setSaveState({ kind: 'error', errors: saved.errors });
+      return;
+    }
+    onSpecSaved(saved.text);
+    setSaveState({ kind: 'saved', slot: saved.slot, omitted: saved.omitted });
+  };
+
+  return (
+    <View style={styles.velocityPanel}>
+      <Pressable
+        onPress={() => setOpen((current) => !current)}
+        accessibilityRole="button"
+        accessibilityLabel={`${open ? 'Hide' : 'Show'} velocity lane`}
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [styles.velocityToggle, pressed && styles.pressed]}
+      >
+        <View style={styles.velocityHeaderText}>
+          <Text style={[type.section, styles.velocityTitle]}>Velocity lane</Text>
+          <Text style={styles.velocityHint}>{statusText}</Text>
+        </View>
+        <Text style={styles.velocityToggleText}>{open ? 'Hide' : 'Show'}</Text>
+      </Pressable>
+      {ruleStatus ? (
+        <View
+          style={[
+            styles.ruleBox,
+            ruleStatus.blocked ? styles.ruleBoxBlocked : null,
+          ]}
+        >
+          <Text style={styles.ruleTitle}>{ruleStatus.label}</Text>
+          <Text style={styles.ruleDetail}>{ruleStatus.detail}</Text>
+        </View>
+      ) : null}
+      {open ? (
+        <>
+          {slots.length > 1 ? (
+            <View style={styles.chips}>
+              <Text style={styles.fieldLabel}>Slot</Text>
+              {slots.map((item) => (
+                <Chip
+                  key={item.slot}
+                  label={velocitySlotLabel(item.slot, item)}
+                  active={activeSlotNumber === item.slot}
+                  onPress={() => setSelectedSlot(item.slot)}
+                  accessibilityLabel={`Show slot ${item.slot} velocity contour at bar ${
+                    item.start + 1
+                  }`}
+                />
+              ))}
+            </View>
+          ) : null}
+          <VelocityLane
+            notes={notes}
+            contour={contour}
+            editable={contour != null}
+            title="Preview velocity"
+            slot={slotWindow}
+            onSaveContour={saveContour}
+          />
+          {saveState.kind === 'saved' ? (
+            <View style={styles.filledBox}>
+              <Text style={styles.successText}>
+                Saved slot {saveState.slot} to the spec JSON
+                {saveState.omitted ? ' · empty microVelocity removed' : ''}. Rerun
+                Preview to reload the authored contour.
+              </Text>
+            </View>
+          ) : null}
+          {saveState.kind === 'error' ? <ErrorList errors={saveState.errors} /> : null}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function ResultPanel({
+  result,
+  job,
+  stale,
+  staleHint,
+  audio,
+  audioSupported,
+  canPlayAudio,
+  onPlayAudio,
+  onRerunPreview,
+  previewBusy,
+  compact,
+  specText,
+  onSpecSaved,
+}: {
+  result: StudioResult;
+  job: QueuedJobState;
+  stale: boolean;
+  staleHint: string;
+  audio: AudioState;
+  audioSupported: boolean;
+  canPlayAudio: boolean;
+  onPlayAudio: () => void;
+  onRerunPreview: () => void;
+  previewBusy: boolean;
+  compact: boolean;
+  specText: string;
+  onSpecSaved: (nextSpecText: string) => void;
+}) {
+  const cardStyle = [styles.card, styles.resultCard, compact && styles.cardCompact];
+  const staleNotice = stale ? (
+    <View style={styles.staleNotice}>
+      <Text style={styles.stale}>{staleHint}</Text>
+      <MiniButton label="Rerun preview" onPress={onRerunPreview} disabled={previewBusy} />
+    </View>
+  ) : null;
+
+  if (result.kind === 'idle') {
+    return (
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
+        <Text style={styles.cardTitle}>No preview yet</Text>
+        <Text style={styles.hint}>
+          Validate checks the spec without rendering. Preview sends the spec plus a
+          fixture and returns a plan, row, matrix, note list, and render hash.
+        </Text>
+        <View style={styles.emptyBox}>
+          <Text style={styles.empty}>
+            Nothing has run. Validate or Preview above to see output here; audio and
+            the velocity lane appear after a successful preview.
+          </Text>
+          <Text style={styles.nextStep}>{studioNextStep('preview')}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (result.kind === 'running') {
+    return (
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
+        <View style={styles.loadingRow}>
+          <ActivityIndicator color={palette.data} />
+          <Text style={styles.loadingText}>
+            {job.kind === 'waiting'
+              ? jobStatusLabel(job.status)
+              : result.action === 'validate'
+                ? 'Validating spec…'
+                : 'Rendering preview…'}
+          </Text>
+        </View>
+        {job.kind === 'waiting' ? (
+          <>
+            <Text style={styles.hint}>
+              {job.jobId
+                ? `Job ${shortId(job.jobId)} · ${msLabel(job.elapsedMs)}`
+                : 'Submitting job…'}
+            </Text>
+            {job.jobId ? (
+              <View style={styles.copyRow}>
+                <CopyButton value={job.jobId} label="Copy job id" />
+              </View>
+            ) : null}
+            <Text style={styles.hint}>
+              Polling the job endpoint with Retry-After and backoff. Direct
+              Preview still works while this is queued.
+            </Text>
+          </>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (result.kind === 'failure') {
+    return (
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
+        <View style={styles.resultHeader}>
+          <Badge ok={false} label={result.sent ? 'REQUEST FAILED' : 'NOT SENT'} />
+          <Text style={styles.actionLabel}>
+            {result.action === 'validate' ? 'Validate' : 'Preview'}
+          </Text>
+        </View>
+        <Text style={styles.failureTitle}>{result.message}</Text>
+        {result.errors.length ? (
+          <ErrorList errors={result.errors} />
+        ) : (
+          <Text style={styles.hint}>
+            No error path was returned for this failure.
+          </Text>
+        )}
+        <Text style={styles.hint}>
+          {result.sent
+            ? 'The request was sent but the Studio API did not answer successfully. Check the backend and try again.'
+            : 'The request was stopped in the app. Fix the highlighted JSON and run it again.'}
+        </Text>
+        <View style={styles.actions}>
+          <MiniButton label="Rerun preview" onPress={onRerunPreview} disabled={previewBusy} />
+        </View>
+      </View>
+    );
+  }
+
+  if (result.kind === 'validate') {
+    const { data } = result;
+    return (
+      <View style={cardStyle}>
+        <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
+        <View style={styles.resultHeader}>
+          <Badge ok={data.ok} label={data.ok ? 'VALID' : 'INVALID'} />
+          <Text style={styles.actionLabel}>Validate · {msLabel(result.elapsedMs)}</Text>
+        </View>
+        {staleNotice}
+        <ErrorList errors={data.errors} />
+        {data.ok && data.errors.length === 0 ? (
+          <View style={styles.filledBox}>
+            <Text style={styles.successText}>
+              Spec accepted by the server. Run Preview to render a plan, hash, and
+              audio.
+            </Text>
+          </View>
+        ) : !data.ok && data.errors.length === 0 ? (
+          <View style={styles.filledBox}>
+            <Text style={styles.empty}>
+              Server rejected the spec without returning an error path.
+            </Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  const { data } = result;
+  const plan = planLines(data.plan);
+  const row = valueLines(data.row, 24);
+  const matrix = valueLines(data.matrix, 40);
+  const notes = notesLines(data.notes);
+  const planEmpty =
+    Array.isArray(data.plan) && data.plan.length === 0
+      ? 'No spans matched this fixture. The select did not match, or the pattern/meter pair has no plan.'
+      : 'No plan returned.';
+
+  return (
+    <View style={cardStyle}>
+      <Text style={[type.section, styles.cardLabel]}>4 · Preview result</Text>
+      <View style={styles.resultHeader}>
+        <Badge ok={data.ok} label={data.ok ? 'PREVIEW OK' : 'PREVIEW FAILED'} />
+        <Text style={styles.actionLabel}>Preview · {msLabel(result.elapsedMs)}</Text>
+      </View>
+      {staleNotice}
+      <ErrorList errors={data.errors} />
+      {!data.ok && data.errors.length === 0 ? (
+        <Text style={styles.hint}>
+          Preview failed without an error path. Check the backend log, then rerun.
+        </Text>
+      ) : null}
+
+      <View style={styles.hashRow}>
+        <Text style={[type.section, styles.blockLabel]}>Render hash</Text>
+        <Text selectable style={styles.hash}>
+          {data.renderHash ?? 'not returned'}
+        </Text>
+        <CopyButton value={data.renderHash} label="Copy hash" />
+      </View>
+
+      <AudioControls
+        state={audio}
+        supported={audioSupported}
+        canPlay={canPlayAudio && data.ok}
+        onPlay={onPlayAudio}
+      />
+
+      <ResultBlock label="Plan" lines={plan} empty={planEmpty} />
+      <ResultBlock label="Row" lines={row} empty="No row returned." />
+      <ResultBlock label="Matrix" lines={matrix} empty="No matrix returned." />
+      <ResultBlock label="Notes" lines={notes} empty="No notes returned." />
+
+      <PreviewVelocityPanel
+        data={data}
+        specText={specText}
+        onSpecSaved={onSpecSaved}
+      />
+    </View>
+  );
+}
+
+function PublishedPanel({
+  state,
+  loadingId,
+  rollback,
+  confirmingId,
+  onRefresh,
+  onOpen,
+  onAskRollback,
+  onCancelRollback,
+  onConfirmRollback,
+  compact,
+}: {
+  state: PublishedListState;
+  loadingId: string | null;
+  rollback: RollbackState;
+  confirmingId: string | null;
+  onRefresh: () => void;
+  onOpen: (id: string) => void;
+  onAskRollback: (id: string) => void;
+  onCancelRollback: () => void;
+  onConfirmRollback: (id: string) => void;
+  compact: boolean;
+}) {
+  const [filter, setFilter] = useState<PublishedFilter>(DEFAULT_PUBLISHED_FILTER);
+  const patterns = useMemo(() => publishedFilterPatterns(state.items), [state.items]);
+  const visibleItems = useMemo(
+    () => filterPublishedSpecs(state.items, filter),
+    [state.items, filter],
+  );
+  const filtersActive =
+    filter.visibility !== 'all' || filter.pattern != null || filter.sort !== 'listed';
+
+  return (
+    <View style={[styles.card, compact && styles.cardCompact]}>
+      <View style={styles.publishedHeader}>
+        <View style={styles.fixtureHeaderText}>
+          <Text style={[type.section, styles.cardLabel]}>5 · Published versions</Text>
+          <Text style={styles.cardTitle}>
+            {publishedFilterSummary(state.items.length, visibleItems.length, filter)}
+          </Text>
+        </View>
+        <Pressable
+          onPress={onRefresh}
+          disabled={state.loading}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh published specs"
+          style={({ pressed }) => [
+            styles.refreshButton,
+            pressed && styles.pressed,
+            state.loading ? styles.buttonDisabled : null,
+          ]}
+        >
+          <Text style={styles.refreshText}>{state.loading ? 'Loading…' : 'Refresh'}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.filterRow}>
+        <Text style={styles.filterLabel}>Show</Text>
+        {(['all', 'private', 'public'] as const).map((visibility) => (
+          <Chip
+            key={visibility}
+            label={visibility === 'all' ? 'All' : visibilityLabel(visibility)}
+            active={filter.visibility === visibility}
+            accessibilityLabel={`Show ${visibility === 'all' ? 'all' : visibility} versions`}
+            onPress={() => setFilter((current) => ({ ...current, visibility }))}
+            disabled={state.loading && state.items.length === 0}
+          />
+        ))}
+        <Chip
+          label={`Sort: ${publishedSortLabel(filter.sort)}`}
+          active={filter.sort !== 'listed'}
+          accessibilityLabel={`Sort ${publishedSortLabel(filter.sort)}; press to change`}
+          onPress={() =>
+            setFilter((current) => ({
+              ...current,
+              sort: nextPublishedSort(current.sort),
+            }))
+          }
+          disabled={state.loading && state.items.length === 0}
+        />
+        {filtersActive ? (
+          <MiniButton
+            label="Clear filter"
+            onPress={() => setFilter(DEFAULT_PUBLISHED_FILTER)}
+          />
+        ) : null}
+      </View>
+
+      {patterns.length > 1 ? (
+        <View style={styles.filterRow}>
+          <Text style={styles.filterLabel}>Pattern</Text>
+          <Chip
+            label="Any"
+            active={filter.pattern == null}
+            accessibilityLabel="Show every pattern"
+            onPress={() => setFilter((current) => ({ ...current, pattern: null }))}
+            disabled={state.loading && state.items.length === 0}
+          />
+          {patterns.map((pattern) => (
+            <Chip
+              key={pattern}
+              label={patternLabel(pattern)}
+              active={filter.pattern === pattern}
+              accessibilityLabel={`Show ${patternLabel(pattern)} versions`}
+              onPress={() =>
+                setFilter((current) => ({ ...current, pattern }))
+              }
+              disabled={state.loading && state.items.length === 0}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {rollback.kind === 'ok' ? (
+        <View style={styles.filledBox}>
+          <View style={styles.badgeRow}>
+            <Badge ok label="ROLLED BACK" />
+            <VisibilityBadge visibility={rollback.visibility} />
+          </View>
+          <Text selectable style={styles.rollbackOk}>
+            {rollbackLabel(rollback.version, rollback.rollbackOf) ?? 'Rollback complete.'}
+          </Text>
+          <View style={styles.copyRow}>
+            <CopyButton value={rollback.id} label="Copy new version id" />
+          </View>
+        </View>
+      ) : null}
+
+      {state.loading && state.items.length === 0 ? (
+        <View style={styles.statusRow}>
+          <ActivityIndicator color={palette.data} size="small" />
+          <Text style={styles.loadingText}>Loading published versions…</Text>
+        </View>
+      ) : null}
+      {state.error ? (
+        <View style={styles.noticeBox}>
+          <Text style={styles.noticeTitle}>Could not load versions</Text>
+          <Text style={styles.noticeText}>{state.error}</Text>
+        </View>
+      ) : null}
+      {visibleItems.length === 0 && !state.loading && !state.error ? (
+        <View style={styles.emptyBox}>
+          <Text style={styles.empty}>
+            {publishedFilterEmptyLabel(state.items.length, filter)}
+          </Text>
+          {state.items.length === 0 ? (
+            <Text style={styles.nextStep}>{studioNextStep('publish')}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {visibleItems.map((item) => {
+        const lineage = publishedSpecLineage(item);
+        const visibility = publishedVisibility(item);
+        return (
+          <View key={item.id} style={styles.publishedRow}>
+            <Pressable
+              onPress={() => onOpen(item.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Load published ${publishedSpecTitle(item)}, ${publishedSpecMeta(item)}, id ${item.id}, ${visibilityLabel(visibility)}`}
+              style={({ pressed }) => [
+                styles.publishedOpen,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.publishedRowMain}>
+                <View style={styles.publishedTitleRow}>
+                  <Text style={styles.publishedTitle}>{publishedSpecTitle(item)}</Text>
+                  <VisibilityBadge visibility={visibility} />
+                </View>
+                <Text selectable numberOfLines={1} style={styles.publishedId}>
+                  {item.id}
+                </Text>
+                {lineage ? (
+                  <Text selectable numberOfLines={1} style={styles.publishedLineage}>
+                    {lineage}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.publishedRight}>
+                <Text style={styles.publishedVersion}>v{item.version}</Text>
+                <Text style={styles.publishedTime}>
+                  {publishedAtLabel(item.createdAt)}
+                </Text>
+              </View>
+              {loadingId === item.id ? (
+                <ActivityIndicator color={palette.data} size="small" />
+              ) : null}
+            </Pressable>
+            <View style={styles.publishedRowSide}>
+              <CopyButton value={item.id} label="Copy id" />
+              <RollbackControl
+                item={item}
+                confirming={confirmingId === item.id}
+                busy={rollback.kind === 'running' && rollback.id === item.id}
+                failure={
+                  rollback.kind === 'failure' && rollback.id === item.id
+                    ? rollback.message
+                    : null
+                }
+                failureErrors={
+                  rollback.kind === 'failure' && rollback.id === item.id
+                    ? rollback.errors
+                    : []
+                }
+                disabled={rollback.kind === 'running'}
+                onAsk={() => onAskRollback(item.id)}
+                onCancel={onCancelRollback}
+                onConfirm={() => onConfirmRollback(item.id)}
+              />
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function RollbackControl({
+  item,
+  confirming,
+  busy,
+  failure,
+  failureErrors,
+  disabled,
+  onAsk,
+  onCancel,
+  onConfirm,
+}: {
+  item: StudioPublishedSpec;
+  confirming: boolean;
+  busy: boolean;
+  failure: string | null;
+  failureErrors: StudioError[];
+  disabled: boolean;
+  onAsk: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (busy) {
+    return (
+      <View style={styles.rollbackArea}>
+        <ActivityIndicator color={palette.data} size="small" />
+        <Text style={styles.rollbackHint}>Rolling back…</Text>
+      </View>
+    );
+  }
+  if (confirming) {
+    return (
+      <View style={styles.rollbackArea}>
+        <Text style={styles.rollbackHint}>Roll back to v{item.version}?</Text>
+        <Pressable
+          onPress={onConfirm}
+          accessibilityRole="button"
+          accessibilityLabel={`Confirm rollback to version ${item.version}`}
+          style={({ pressed }) => [
+            styles.rollbackButton,
+            styles.rollbackConfirm,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.rollbackText, styles.rollbackConfirmText]}>Confirm</Text>
+        </Pressable>
+        <Pressable
+          onPress={onCancel}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel rollback"
+          style={({ pressed }) => [
+            styles.rollbackButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.rollbackText}>Cancel</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.rollbackArea}>
+      {failure ? (
+        <View style={styles.rollbackFailureBox}>
+          <Text style={styles.rollbackFailure}>Rollback failed · {failure}</Text>
+          <ErrorList errors={failureErrors} />
+        </View>
+      ) : null}
+      <Pressable
+        onPress={onAsk}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Roll back to ${publishedSpecTitle(item)}, version ${item.version}`}
+        style={({ pressed }) => [
+          styles.rollbackButton,
+          pressed && !disabled ? styles.pressed : null,
+          disabled ? styles.buttonDisabled : null,
+        ]}
+      >
+        <Text style={styles.rollbackText}>Rollback</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: palette.background,
+  },
+  scroll: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  scrollCompact: {
+    padding: 12,
+    paddingBottom: 28,
+  },
+  shell: {
+    width: '100%',
+    maxWidth: 1280,
+    alignSelf: 'center',
+    gap: 16,
+  },
+  shellCompact: {
+    gap: 12,
+  },
+  header: {
+    gap: 6,
+  },
+  eyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  eyebrow: {
+    color: palette.data,
+  },
+  devBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: palette.playhead,
+  },
+  devBadgeText: {
+    color: palette.playhead,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  title: {
+    color: palette.text,
+  },
+  subtitle: {
+    maxWidth: 760,
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  subtitleCompact: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  localNotice: {
+    gap: 6,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.data,
+    backgroundColor: palette.surface,
+  },
+  localNoticeCompact: {
+    padding: 10,
+  },
+  localNoticeTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  localNoticeTitle: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  localBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: palette.data,
+  },
+  localBadgeText: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  localNoticeText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  flowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingTop: 2,
+  },
+  flowLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  flowText: {
+    flex: 1,
+    minWidth: 200,
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  statusStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.panel,
+  },
+  statusStripCompact: {
+    padding: 10,
+  },
+  statusCell: {
+    minWidth: 140,
+    gap: 4,
+  },
+  statusCellGrow: {
+    flex: 1,
+    minWidth: 220,
+  },
+  statusLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  statusValue: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  statusText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  statusOk: {
+    color: palette.data,
+  },
+  statusWarn: {
+    color: palette.playhead,
+  },
+  statusError: {
+    color: palette.sound,
+  },
+  statusLoading: {
+    color: palette.textMuted,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  copyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  copyButton: {
+    minHeight: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  copyButtonText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  columns: {
+    gap: 16,
+  },
+  columnsWide: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  column: {
+    gap: 16,
+  },
+  columnWide: {
+    flex: 1,
+    minWidth: 0,
+  },
+  card: {
+    backgroundColor: palette.panel,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    borderRadius: 10,
+    padding: 14,
+    gap: 10,
+  },
+  cardCompact: {
+    padding: 10,
+    gap: 8,
+  },
+  resultCard: {
+    minHeight: 260,
+  },
+  cardLabel: {
+    color: palette.textFaint,
+  },
+  cardTitle: {
+    color: palette.text,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  templateId: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  catalogNote: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  catalogWarning: {
+    color: palette.playhead,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  hint: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  code: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+  },
+  fieldLabel: {
+    marginTop: 4,
+    color: palette.textMuted,
+    fontFamily: type.section.fontFamily,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surface,
+  },
+  chipActive: {
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  chipText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+  chipTextActive: {
+    color: palette.text,
+  },
+  composerHint: {
+    color: palette.textFaint,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  editorHeader: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  stats: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+  },
+  editor: {
+    minHeight: 360,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  editorCompact: {
+    minHeight: 260,
+    padding: 10,
+    fontSize: 11,
+    lineHeight: 17,
+  },
+  fixtureEditor: {
+    minHeight: 140,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  publishGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  visibilityPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  pickerLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  button: {
+    minHeight: TOUCH_TARGET,
+    minWidth: 104,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  buttonSecondary: {
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surface,
+  },
+  buttonPrimary: {
+    borderColor: palette.data,
+    backgroundColor: palette.data,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  buttonText: {
+    color: palette.text,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  buttonTextPrimary: {
+    color: palette.background,
+  },
+  pressed: {
+    opacity: 0.8,
+  },
+  stale: {
+    color: palette.playhead,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  staleNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 8,
+    borderRadius: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: palette.playhead,
+    backgroundColor: palette.surface,
+  },
+  publishStatus: {
+    gap: 6,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+  },
+  publishStatusText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  publishOk: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  publishFailure: {
+    color: palette.sound,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  fixtureHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  fixtureHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
+  fixtureToggle: {
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  resultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  badgePass: {
+    backgroundColor: palette.dataFill,
+  },
+  badgeFail: {
+    backgroundColor: palette.soundSoft,
+  },
+  badgeText: {
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  badgeTextPass: {
+    color: palette.data,
+  },
+  badgeTextFail: {
+    color: palette.sound,
+  },
+  visBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  visBadgePublic: {
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  visBadgeText: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  visBadgeTextPublic: {
+    color: palette.data,
+  },
+  actionLabel: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  failureTitle: {
+    color: palette.sound,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  errorList: {
+    gap: 8,
+  },
+  errorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: palette.surface,
+    borderLeftWidth: 2,
+    borderLeftColor: palette.sound,
+  },
+  errorPath: {
+    color: palette.playhead,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  errorMessage: {
+    flex: 1,
+    minWidth: 160,
+    color: palette.text,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  filledBox: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+  },
+  emptyBox: {
+    marginTop: 6,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: palette.hairlineStrong,
+  },
+  successText: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 24,
+  },
+  loadingText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 13,
+  },
+  hashRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: palette.surface,
+    flexWrap: 'wrap',
+  },
+  hash: {
+    flex: 1,
+    minWidth: 160,
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  audioPanel: {
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  velocityPanel: {
+    gap: 4,
+    paddingTop: 4,
+  },
+  velocityToggle: {
+    minHeight: TOUCH_TARGET,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  velocityHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  velocityTitle: {
+    color: palette.textFaint,
+  },
+  velocityHint: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  velocityToggleText: {
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
+  ruleBox: {
+    gap: 3,
+    padding: 9,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  ruleBoxBlocked: {
+    borderColor: palette.playhead,
+    borderLeftWidth: 3,
+  },
+  ruleTitle: {
+    color: palette.playhead,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  ruleDetail: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  audioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  audioText: {
+    flex: 1,
+    minWidth: 160,
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  publishedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  refreshButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surface,
+  },
+  refreshText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  publishedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  publishedOpen: {
+    flex: 1,
+    minWidth: 180,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  publishedRowMain: {
+    flex: 1,
+    minWidth: 150,
+    gap: 2,
+  },
+  publishedTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  publishedRowSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  publishedTitle: {
+    color: palette.text,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  publishedId: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  publishedLineage: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  rollbackArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  rollbackButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  rollbackConfirm: {
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  rollbackText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  rollbackConfirmText: {
+    color: palette.text,
+  },
+  rollbackHint: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  rollbackFailure: {
+    color: palette.sound,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+    maxWidth: 260,
+  },
+  rollbackFailureBox: {
+    flex: 1,
+    minWidth: 180,
+    gap: 6,
+    padding: 8,
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: palette.sound,
+    backgroundColor: palette.surface,
+  },
+  rollbackOk: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  publishedRight: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  publishedVersion: {
+    color: palette.data,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
+  publishedTime: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  block: {
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
+    paddingTop: 10,
+    gap: 6,
+  },
+  blockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  blockLabel: {
+    color: palette.textFaint,
+  },
+  blockCount: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  codeBlock: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 17,
+    padding: 10,
+    borderRadius: 6,
+    backgroundColor: palette.background,
+  },
+  empty: {
+    color: palette.textFaint,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  nextStep: {
+    marginTop: 6,
+    color: palette.data,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  sessionText: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  noticeBox: {
+    gap: 4,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.playhead,
+    backgroundColor: palette.surface,
+  },
+  noticeTitle: {
+    color: palette.playhead,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  noticeText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  importRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.background,
+  },
+  fileName: {
+    flex: 1,
+    minWidth: 160,
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  imagePreview: {
+    width: '100%',
+    height: 180,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.background,
+  },
+  cropStage: {
+    width: '100%',
+    height: 280,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.background,
+    overflow: 'hidden',
+  },
+  cropStageCompact: {
+    height: 200,
+  },
+  cropSurface: {
+    position: 'absolute',
+    overflow: 'hidden',
+  },
+  cropImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cropShade: {
+    position: 'absolute',
+    backgroundColor: 'rgba(8, 9, 12, 0.58)',
+  },
+  cropSelection: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: palette.data,
+    backgroundColor: palette.dataFill,
+  },
+  cropHandle: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: palette.background,
+    backgroundColor: palette.data,
+  },
+  cropHandleNw: {
+    left: -6,
+    top: -6,
+  },
+  cropHandleNe: {
+    right: -6,
+    top: -6,
+  },
+  cropHandleSw: {
+    left: -6,
+    bottom: -6,
+  },
+  cropHandleSe: {
+    right: -6,
+    bottom: -6,
+  },
+  cropToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  cropMeta: {
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+  },
+  uploadMeta: {
+    gap: 2,
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: palette.background,
+  },
+  metaText: {
+    color: palette.textMuted,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  warningList: {
+    gap: 4,
+    padding: 8,
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: palette.playhead,
+    backgroundColor: palette.surface,
+  },
+  warningText: {
+    color: palette.textMuted,
+    fontFamily: type.sans.fontFamily,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
+  },
+  tableHead: {
+    borderTopWidth: 0,
+    backgroundColor: palette.surface,
+  },
+  th: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 9,
+    lineHeight: 13,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  td: {
+    color: palette.text,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  conflictCell: {
+    color: palette.sound,
+    fontWeight: '700',
+  },
+  colBar: {
+    flex: 0.7,
+  },
+  colBeat: {
+    flex: 0.7,
+  },
+  colVoice: {
+    flex: 1,
+  },
+  colPitch: {
+    flex: 1.8,
+  },
+  colConf: {
+    flex: 0.8,
+    textAlign: 'right',
+  },
+  colConflict: {
+    flex: 0.8,
+    textAlign: 'right',
+  },
+  endpoints: {
+    gap: 4,
+    paddingHorizontal: 2,
+  },
+  endpointLabel: {
+    color: palette.textFaint,
+    fontFamily: type.section.fontFamily,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  endpoint: {
+    color: palette.textFaint,
+    fontFamily: type.mono.fontFamily,
+    fontSize: 10,
+    lineHeight: 15,
+  },
+});

@@ -155,7 +155,7 @@ def test_a_slot_needs_exactly_one_realizer() -> None:
         span=Span(tile=9),
         slots=(Slot(0, 9),),
     )
-    with pytest.raises(ValueError, match="exactly one of figure or cell"):
+    with pytest.raises(ValueError, match="exactly one of figure, cell, or procedure"):
         register("unit_slot_empty", "3/4", empty, replace=True)
 
     both = _spec(
@@ -164,7 +164,7 @@ def test_a_slot_needs_exactly_one_realizer() -> None:
         span=Span(tile=9),
         slots=(Slot(0, 9, figure=1, cell="a"),),
     )
-    with pytest.raises(ValueError, match="exactly one of figure or cell"):
+    with pytest.raises(ValueError, match="exactly one of figure, cell, or procedure"):
         register("unit_slot_both", "3/4", both, replace=True)
 
 
@@ -302,7 +302,7 @@ def test_registered_figures_exist() -> None:
     for specs in SENTENCE_SPECS.values():
         for spec in specs:
             for slot in spec.slots:
-                if slot.cell is not None:
+                if slot.cell is not None or slot.procedure is not None:
                     continue
                 assert slot.figure in _FIGURES, (spec.id, slot.figure)
 

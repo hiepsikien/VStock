@@ -13,11 +13,17 @@ bar-level figure renderers stay in `guitar_torroba.py`; the galop cells stay in
 `plan_sentence()` returns `None` when the pattern/meter pair has no data yet, so
 callers fall back to the code path during the migration. An empty list means the
 registry covers the pair but the length/selection does not match.
+`plan_slots()` runs the same selection and returns one `PlannedSlot` per
+occurrence with its authored slot index, absolute origin, and optional
+micro-velocity contour; `plan_sentence()` keeps its `(figure, bars)` shape.
 
-A slot holds either a `figure` (an id the owner renders through its figure
-table) or a `cell` (an id the owner resolves itself, like the galop cells). Only
-figures are planned by `plan_sentence`; `plan_run()` plans cells for a run-based
-`cycle` archetype, which has no phrase turn to select on.
+A slot holds exactly one realizer: a `figure` (an id the owner renders through
+its figure table), a `cell` (an id the owner resolves itself, like the galop
+cells), or a `procedure` (an id the owner/renderer resolves through
+`procedure_specs.PROCEDURES`). Only figures are planned by `plan_sentence`;
+`plan_run()` plans cells for a run-based `cycle` archetype, which has no phrase
+turn to select on. Neither planner emits a span for a procedure slot: a
+procedure describes how a later renderer realizes a span, it does not fill one.
 
 `previous_figure` is not an input here: `select_torroba_spans` rotates `n` when
 the first figure repeats, which is a plan-level post-pass.
@@ -26,12 +32,38 @@ the first figure repeats, which is a plan-level post-pass.
 from __future__ import annotations
 
 import importlib
-from collections.abc import Callable, Collection
+import json
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.studio.micro_velocity import MicroVelocity
 
 # Owner modules call register() at import. plan_sentence() imports them lazily
 # so a caller that only imports this module still gets a plan.
 _OWNER_MODULES = ("app.sonify.guitar_torroba", "app.sonify.guitar_sor")
+
+# Preview/authoring code can plan against a local snapshot without mutating the
+# global table. ContextVar keeps it async/thread-local, like compose_meter.
+_PLAN_REGISTRY: ContextVar[
+    Mapping[tuple[str, str], tuple["SentenceSpec", ...]] | None
+] = ContextVar("sentence_plan_registry", default=None)
+
+
+@contextmanager
+def use_registry(
+    registry: Mapping[tuple[str, str], tuple["SentenceSpec", ...]],
+) -> Iterator[None]:
+    """Plan from `registry` for the duration of the context."""
+    token = _PLAN_REGISTRY.set(registry)
+    try:
+        yield
+    finally:
+        _PLAN_REGISTRY.reset(token)
 
 METER_ANY = "*"
 _N_PARITY = frozenset({"any", "even", "odd"})
@@ -53,16 +85,25 @@ class Slot:
     `start=-1`). It also requires an exact span, and `start` is an offset from
     the middle, so it may be negative.
 
-    Exactly one of `figure` and `cell` is set. `figure` resolves through the
-    owner's `_FIGURES`; `cell` is an id the owner resolves on its own (galop).
-    `plan_sentence` only emits figure spans; `plan_run` only emits cells.
+    Exactly one of `figure`, `cell`, and `procedure` is set. `figure` resolves
+    through the owner's `_FIGURES`; `cell` is an id the owner resolves on its
+    own (galop); `procedure` is an id the owner/renderer resolves through
+    `procedure_specs.PROCEDURES`. `plan_sentence` only emits figure spans;
+    `plan_run` only emits cells; neither emits a procedure span.
+
+    `micro_velocity` is an optional authored velocity contour for this slot.
+    It is data only: the planner and the runtime renderer ignore it, and the
+    preview returns it unchanged so the Studio can show it. Coordinates are
+    relative to the slot; `bars` bounds the contour's bar index.
     """
 
     start: int
     bars: int
     figure: int | None = None
     cell: str | None = None
+    procedure: str | None = None
     anchor: str = "start"
+    micro_velocity: MicroVelocity | None = None
 
 
 @dataclass(frozen=True)
@@ -106,7 +147,53 @@ class SentenceSpec:
     slots: tuple[Slot, ...]
 
 
+@dataclass(frozen=True)
+class PlannedSlot:
+    """One realized slot occurrence, with the data a renderer needs to voice it.
+
+    ``plan_sentence`` deliberately returns only ``(figure, bars)`` spans. The
+    micro-velocity layer needs two more facts that are not in that shape: which
+    authored slot produced the occurrence (``slot_index``) and the absolute bar
+    its contour origin sits on (``slot_start``). ``bars`` are absolute too.
+
+    ``slot_start`` is the occurrence origin before clipping, so a contour entry
+    authored on a bar this occurrence clipped away simply matches nothing. A
+    repeating tile emits one instance per chunk, each with its own origin.
+
+    ``micro_velocity`` is the authored slot contour, unchanged. It is data:
+    planning never applies it.
+    """
+
+    slot_index: int
+    slot_start: int
+    bars: tuple[int, ...]
+    figure: int | None = None
+    cell: str | None = None
+    procedure: str | None = None
+    micro_velocity: MicroVelocity | None = None
+
+
 SENTENCE_SPECS: dict[tuple[str, str], tuple[SentenceSpec, ...]] = {}
+
+
+def quarter_beats(meter: str) -> float | None:
+    """Quarter-note beats in one bar of a ``"n/d"`` meter label.
+
+    Returns ``None`` for the ``"*"`` (meter-any) label, so callers can skip
+    beat bounds they cannot know. This is the same unit as
+    ``MeterSpec.quarter_beats`` and the micro-velocity ``beat`` coordinate.
+    """
+    if not isinstance(meter, str) or "/" not in meter:
+        return None
+    numerator, _, denominator = meter.partition("/")
+    try:
+        beats = int(numerator)
+        beat_type = int(denominator)
+    except ValueError:
+        return None
+    if beats < 1 or beat_type < 1:
+        return None
+    return beats * 4 / beat_type
 
 
 def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
@@ -155,15 +242,48 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         raise ValueError(f"{spec.id}: a cycle cannot select on n, closes, or rise")
     if not spec.slots:
         raise ValueError(f"{spec.id}: at least one slot is required")
-    for slot in spec.slots:
+    beats_per_bar = quarter_beats(spec.meter)
+    for index, slot in enumerate(spec.slots):
+        if slot.micro_velocity is not None:
+            from app.studio.micro_velocity import validate_micro_velocity
+
+            slot_bars = (
+                slot.bars
+                if isinstance(slot.bars, int)
+                and not isinstance(slot.bars, bool)
+                and slot.bars >= 1
+                else None
+            )
+            micro_errors = validate_micro_velocity(
+                slot.micro_velocity,
+                bars=slot_bars,
+                beats_per_bar=beats_per_bar,
+                path=f"slots[{index}].microVelocity",
+            )
+            if micro_errors:
+                # The record already carries the authored slot path; the spec
+                # id prefix matches every other `_validate` failure.
+                raise ValueError(f"{spec.id}: {micro_errors[0]}")
         if slot.anchor not in _ANCHORS:
             raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
-        if (slot.figure is None) == (slot.cell is None):
-            raise ValueError(f"{spec.id}: a slot needs exactly one of figure or cell")
+        if (
+            sum(
+                realizer is not None
+                for realizer in (slot.figure, slot.cell, slot.procedure)
+            )
+            != 1
+        ):
+            raise ValueError(
+                f"{spec.id}: a slot needs exactly one of figure, cell, or procedure"
+            )
         if slot.cell is not None and (
             not isinstance(slot.cell, str) or not slot.cell
         ):
             raise ValueError(f"{spec.id}: a cell id must be a non-empty string")
+        if slot.procedure is not None and (
+            not isinstance(slot.procedure, str) or not slot.procedure
+        ):
+            raise ValueError(f"{spec.id}: a procedure id must be a non-empty string")
         if span.cycle and slot.cell is None:
             raise ValueError(f"{spec.id}: a cycle slot needs a cell realizer")
         if not span.cycle and slot.cell is not None:
@@ -248,6 +368,7 @@ def register(
     replace: bool = False,
     valid_figures: Collection[int] | None = None,
     valid_cells: Collection[str] | None = None,
+    valid_procedures: Collection[str] | None = None,
 ) -> None:
     """Add archetypes for one pattern/meter pair.
 
@@ -255,7 +376,8 @@ def register(
     no-op, so `importlib.reload` keeps working; a different value raises unless
     `replace=True`. When `valid_figures` is given, every slot figure must exist
     in it (the owner passes its `_FIGURES` keys); `valid_cells` does the same
-    for a cell realizer, so an owner's typo cannot register.
+    for a cell realizer and `valid_procedures` for a procedure id, so an
+    owner's typo cannot register.
     """
     key = (pattern, meter)
     ordered = tuple(
@@ -284,6 +406,17 @@ def register(
         } - set(valid_cells)
         if missing_cells:
             raise ValueError(f"{key}: cells {sorted(missing_cells)} are not registered")
+    if valid_procedures is not None:
+        missing_procedures = {
+            slot.procedure
+            for spec in ordered
+            for slot in spec.slots
+            if slot.procedure is not None
+        } - set(valid_procedures)
+        if missing_procedures:
+            raise ValueError(
+                f"{key}: procedures {sorted(missing_procedures)} are not registered"
+            )
 
     existing = SENTENCE_SPECS.get(key)
     if existing is not None:
@@ -292,6 +425,51 @@ def register(
         if not replace:
             raise ValueError(f"sentence specs already registered for {key}")
     SENTENCE_SPECS[key] = ordered
+
+
+def load_specs(
+    path: str | Path, replace: bool = False
+) -> tuple[SentenceSpec, ...]:
+    """Load a v1 JSON wrapper and register its specs.
+
+    Identical re-registration is a no-op, a new `(pattern, meter)` pair is
+    added, and a changed existing pair raises unless `replace=True`. The whole
+    file is checked before anything is registered, so a rejected file does not
+    leave a partial update behind.
+
+    The JSON is an authoring source and test fixture only: this function
+    registers code specs, it does not install an interpreter. Use
+    `app.studio.sentence_spec.parse_payload` to build specs without touching
+    the global registry.
+    """
+    from app.studio.sentence_spec import parse_payload
+
+    source = Path(path)
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    specs = parse_payload(payload)
+
+    groups: dict[tuple[str, str], list[SentenceSpec]] = {}
+    for spec in specs:
+        groups.setdefault((spec.pattern, spec.meter), []).append(spec)
+
+    ordered_groups = [
+        (
+            key,
+            tuple(sorted(group, key=lambda spec: (spec.select.length_min, spec.id))),
+        )
+        for key, group in sorted(groups.items())
+    ]
+    for key, ordered in ordered_groups:
+        existing = SENTENCE_SPECS.get(key)
+        if existing is not None and existing != ordered and not replace:
+            raise ValueError(
+                f"{source}: sentence specs already registered for {key}; "
+                "use replace=True to replace them"
+            )
+
+    for (pattern, meter), group in ordered_groups:
+        register(pattern, meter, *group, replace=replace)
+    return specs
 
 
 def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -> bool:
@@ -326,8 +504,10 @@ def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -
     return rise >= select.rise_min
 
 
-def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
-    """The clipped `(low, high)` bar range a slot covers inside one chunk."""
+def _placement(
+    slot: Slot, chunk: int, total: int
+) -> tuple[int, int, int] | None:
+    """The slot's unclipped origin plus the clipped `(low, high)` bar range."""
     if slot.anchor == "end":
         base = total - slot.bars
     elif slot.anchor == "middle":
@@ -338,13 +518,26 @@ def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
     high = min(base + slot.bars, chunk)
     if low >= high:
         return None
+    return base, low, high
+
+
+def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
+    """The clipped `(low, high)` bar range a slot covers inside one chunk."""
+    found = _placement(slot, chunk, total)
+    if found is None:
+        return None
+    _base, low, high = found
     return low, high
 
 
 def _slots(
     spec: SentenceSpec, offset: int, chunk: int, total: int
 ) -> list[tuple[int, tuple[int, ...]]]:
-    """Figure spans only. A cell slot is planned by `plan_run` instead."""
+    """Figure spans only.
+
+    A cell slot is planned by `plan_run` instead, and a procedure slot is
+    resolved by the owner/renderer, so neither is emitted here.
+    """
     spans: list[tuple[int, tuple[int, ...]]] = []
     for slot in spec.slots:
         if slot.figure is None:
@@ -354,6 +547,35 @@ def _slots(
             low, high = found
             spans.append((slot.figure, tuple(range(offset + low, offset + high))))
     return spans
+
+
+def _slot_entries(
+    spec: SentenceSpec, offset: int, chunk: int, total: int
+) -> list[PlannedSlot]:
+    """Every slot occurrence in this chunk, with its contour origin.
+
+    Unlike `_slots`, this keeps the authored slot index and the unclipped
+    origin, and it includes cell/procedure slots so an owner can see the whole
+    layout. `plan_sentence` still emits figure spans only.
+    """
+    entries: list[PlannedSlot] = []
+    for index, slot in enumerate(spec.slots):
+        found = _placement(slot, chunk, total)
+        if found is None:
+            continue
+        base, low, high = found
+        entries.append(
+            PlannedSlot(
+                slot_index=index,
+                slot_start=offset + base,
+                bars=tuple(range(offset + low, offset + high)),
+                figure=slot.figure,
+                cell=slot.cell,
+                procedure=slot.procedure,
+                micro_velocity=slot.micro_velocity,
+            )
+        )
+    return entries
 
 
 def _cells(
@@ -374,8 +596,8 @@ def _cells(
 def _tile(
     spec: SentenceSpec,
     length: int,
-    place: Callable[[SentenceSpec, int, int, int], list[tuple]] | None = None,
-) -> list[tuple]:
+    place: Callable[[SentenceSpec, int, int, int], list] | None = None,
+) -> list:
     if place is None:
         place = _slots
     span = spec.span
@@ -402,10 +624,19 @@ def _tile(
     return spans
 
 
-def _lookup(pattern: str, meter: str) -> tuple[SentenceSpec, ...] | None:
-    exact = SENTENCE_SPECS.get((pattern, meter))
+def _lookup(
+    pattern: str,
+    meter: str,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
+) -> tuple[SentenceSpec, ...] | None:
+    active = registry if registry is not None else _PLAN_REGISTRY.get()
+    table = SENTENCE_SPECS if active is None else active
+    exact = table.get((pattern, meter))
     if exact is not None:
         return exact
+    if active is not None:
+        # A sandbox registry is already complete; do not import owners into it.
+        return table.get((pattern, METER_ANY))
     # Owner modules register at import. A caller that imports only this module
     # still gets the table once the owners have been loaded. Retry the exact key
     # before the wildcard, so a meter-specific registration always wins.
@@ -425,14 +656,41 @@ def plan_sentence(
     *,
     closes: bool = False,
     rise: int = 0,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
 ) -> list[tuple[int, tuple[int, ...]]] | None:
     """Figure spans for one phrase, or `None` when the pair has no data yet."""
-    specs = _lookup(pattern, meter)
+    specs = _lookup(pattern, meter, registry)
     if specs is None:
         return None
     for spec in specs:
         if _matches(spec, length, n, closes, rise):
             return _tile(spec, length)
+    return []
+
+
+def plan_slots(
+    pattern: str,
+    meter: str,
+    length: int,
+    n: int,
+    *,
+    closes: bool = False,
+    rise: int = 0,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
+) -> list[PlannedSlot] | None:
+    """Slot occurrences for one phrase, or `None` when the pair has no data.
+
+    This is the planner seam for consumers that need more than a figure span:
+    the authored slot index, its absolute origin, and its `micro_velocity`.
+    The selection and tiling are identical to `plan_sentence`, so the two
+    planners always cover the same bars for the same inputs.
+    """
+    specs = _lookup(pattern, meter, registry)
+    if specs is None:
+        return None
+    for spec in specs:
+        if _matches(spec, length, n, closes, rise):
+            return _tile(spec, length, _slot_entries)
     return []
 
 
@@ -448,7 +706,13 @@ def _run_cells(spec: SentenceSpec, run_length: int) -> list[str]:
     return [cell for cell in cells if cell is not None]
 
 
-def plan_run(pattern: str, meter: str, run_length: int) -> list[str] | None:
+def plan_run(
+    pattern: str,
+    meter: str,
+    run_length: int,
+    *,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
+) -> list[str] | None:
     """One cell id per bar of a run, or `None` when the pair has no run data.
 
     A run is a maximal stretch of consecutive bars the caller treats as one
@@ -458,7 +722,7 @@ def plan_run(pattern: str, meter: str, run_length: int) -> list[str] | None:
     no entry at all (the caller stays on the code path); `[]` means the registry
     covers the pair but has no cycle that fills every bar at this run length.
     """
-    specs = _lookup(pattern, meter)
+    specs = _lookup(pattern, meter, registry)
     if specs is None:
         return None
     if run_length < 1:

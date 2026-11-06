@@ -1,0 +1,1198 @@
+{
+  "grid": {
+    "bands": [
+      "mf",
+      "p",
+      "f"
+    ],
+    "bars": 8,
+    "bpms": [
+      96,
+      84,
+      108,
+      72,
+      60,
+      120
+    ],
+    "drivers": [
+      "select_body",
+      "patterns"
+    ],
+    "first_body": [
+      true,
+      false
+    ],
+    "meters": [
+      "3/4",
+      "4/4",
+      "6/8"
+    ],
+    "moods": [
+      "calm",
+      "rally",
+      "selloff",
+      "volatile",
+      null
+    ],
+    "previous": [
+      [],
+      [
+        "tremolo",
+        "tremolo"
+      ]
+    ],
+    "rel_span": [
+      0.02,
+      0.004
+    ],
+    "sections": [
+      "none",
+      "trio",
+      "bridge",
+      "framed",
+      "pedal"
+    ]
+  },
+  "kind": "pattern-selection",
+  "phase": "current",
+  "rows": [
+    {
+      "ctx_kind": "3/4",
+      "driver": "patterns",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "*",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "pedal",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": [
+          {
+            "bridge": false,
+            "end": 8,
+            "kind": "intro",
+            "regime_slot": 0,
+            "start": 0,
+            "trio": false
+          }
+        ]
+      },
+      "phase": "current",
+      "selected_pattern": "pedal",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "patterns",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "4/4",
+        "mood": "calm",
+        "pattern": "bach_allemande",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": [
+          {
+            "bridge": false,
+            "end": 1,
+            "kind": "intro",
+            "regime_slot": 0,
+            "start": 0,
+            "trio": false
+          },
+          {
+            "bridge": false,
+            "end": 8,
+            "kind": "phrase",
+            "regime_slot": 0,
+            "start": 1,
+            "trio": false
+          }
+        ]
+      },
+      "phase": "current",
+      "selected_pattern": "bach_allemande",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "4/4",
+        "mood": "rally",
+        "pattern": "bach_bourree",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "bach_bourree",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "bach_chaconne",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 0,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "bach_chaconne",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "6/8",
+      "driver": "patterns",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "6/8",
+        "mood": "calm",
+        "pattern": "bach_courante",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": [
+          {
+            "bridge": false,
+            "end": 1,
+            "kind": "intro",
+            "regime_slot": 0,
+            "start": 0,
+            "trio": false
+          },
+          {
+            "bridge": false,
+            "end": 8,
+            "kind": "phrase",
+            "regime_slot": 0,
+            "start": 1,
+            "trio": false
+          }
+        ]
+      },
+      "phase": "current",
+      "selected_pattern": "bach_courante",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "4/4",
+        "mood": "calm",
+        "pattern": "bach_fuga",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 0,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "bach_fuga",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "4/4",
+        "mood": "calm",
+        "pattern": "bach_gavotte",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "bach_gavotte",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "6/8",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "6/8",
+        "mood": "calm",
+        "pattern": "bach_gigue",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "bach_gigue",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "patterns",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "4/4",
+        "mood": "calm",
+        "pattern": "bach_prelude",
+        "previous": [],
+        "rel_span": 0.004,
+        "section": null,
+        "sections": [
+          {
+            "bridge": false,
+            "end": 1,
+            "kind": "intro",
+            "regime_slot": 0,
+            "start": 0,
+            "trio": false
+          },
+          {
+            "bridge": false,
+            "end": 8,
+            "kind": "phrase",
+            "regime_slot": 0,
+            "start": 1,
+            "trio": false
+          }
+        ]
+      },
+      "phase": "current",
+      "selected_pattern": "bach_prelude",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "bach",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "bach_sarabande",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "bach_sarabande",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 84,
+        "ensemble": "barrios",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "andante",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "andante",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 108,
+        "ensemble": "barrios",
+        "first_body": false,
+        "meter": "4/4",
+        "mood": "rally",
+        "pattern": "choro",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "choro",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "6/8",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "f",
+        "bars": 8,
+        "bpm": 108,
+        "ensemble": "barrios",
+        "first_body": false,
+        "meter": "6/8",
+        "mood": "rally",
+        "pattern": "hemiola",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "hemiola",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "6/8",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 108,
+        "ensemble": "barrios",
+        "first_body": false,
+        "meter": "6/8",
+        "mood": "rally",
+        "pattern": "polca",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "polca",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "barrios",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "preludio",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "preludio",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "barrios",
+        "first_body": false,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "thumb_cantabile",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 1,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "thumb_cantabile",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "patterns",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "barrios",
+        "first_body": true,
+        "meter": "4/4",
+        "mood": "selloff",
+        "pattern": "tremolo",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": [
+          {
+            "bridge": false,
+            "end": 1,
+            "kind": "intro",
+            "regime_slot": 0,
+            "start": 0,
+            "trio": false
+          },
+          {
+            "bridge": false,
+            "end": 8,
+            "kind": "phrase",
+            "regime_slot": 0,
+            "start": 1,
+            "trio": false
+          }
+        ]
+      },
+      "phase": "current",
+      "selected_pattern": "tremolo",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "6/8",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 108,
+        "ensemble": "barrios",
+        "first_body": false,
+        "meter": "6/8",
+        "mood": "rally",
+        "pattern": "vals",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 1,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "vals",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "brouwer",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "brouwer_etude",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 0,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "brouwer_etude",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "brouwer",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "volatile",
+        "pattern": "elogio_pizz",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "elogio_pizz",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "brouwer",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "noviembre",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "noviembre",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 72,
+        "ensemble": "brouwer",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "rally",
+        "pattern": "sarabande",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "sarabande",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "classic",
+        "first_body": false,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "cantabile",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "cantabile",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 72,
+        "ensemble": "classic",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "elegiaque",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "elegiaque",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "patterns",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "classic",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "rally",
+        "pattern": "galop",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": [
+          {
+            "bridge": false,
+            "end": 1,
+            "kind": "intro",
+            "regime_slot": 0,
+            "start": 0,
+            "trio": false
+          },
+          {
+            "bridge": false,
+            "end": 8,
+            "kind": "phrase",
+            "regime_slot": 0,
+            "start": 1,
+            "trio": false
+          }
+        ]
+      },
+      "phase": "current",
+      "selected_pattern": "galop",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "classic",
+        "first_body": false,
+        "meter": "3/4",
+        "mood": "volatile",
+        "pattern": "mozart_var",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "mozart_var",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "classic",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "study",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "study",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "6/8",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "torroba",
+        "first_body": true,
+        "meter": "6/8",
+        "mood": "calm",
+        "pattern": "alcaniz",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 0,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "alcaniz",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "torroba",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "castillo",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "castillo",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "torroba",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "rally",
+        "pattern": "danza",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 0,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "danza",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "6/8",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "torroba",
+        "first_body": true,
+        "meter": "6/8",
+        "mood": "selloff",
+        "pattern": "fandanguillo",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "fandanguillo",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "torroba",
+        "first_body": true,
+        "meter": "4/4",
+        "mood": "calm",
+        "pattern": "olite",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "olite",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": true,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "torroba",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "sonatina",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "observed_pattern": "castillo",
+      "phase": "current",
+      "reason": "no Torroba selector emits sonatina: TORROBA_PRIMARY_RULES and TORROBA_CONTRAST_RULES never return it, and the technique knob in _dominant_pattern returns castillo/torroba_tremolo/danza. The only sonatina returns are naming fallbacks in _owning_pattern, _fallback_body_pattern, and headline_id, not selection. Its sentence specs belong to the sentence-level matrix.",
+      "selected_pattern": null,
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "torroba",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "torroba_tremolo",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 0,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "torroba_tremolo",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": false,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "chord_melody",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "chord_melody",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": false,
+        "meter": "4/4",
+        "mood": "rally",
+        "pattern": "etude1",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "etude1",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "4/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": false,
+        "meter": "4/4",
+        "mood": "volatile",
+        "pattern": "etude11",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "etude11",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": true,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "suite_choros1",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "observed_pattern": "villa_pattern",
+      "phase": "current",
+      "reason": "Villa returns suite_choros1 only when VSTOCK_SUITE_CHOROS1 is on and the movement is a whole 4/4 Villa body of at least four bars with no pedal bars. This matrix runs with the flag off, so the historical Villa ladder answers.",
+      "selected_pattern": null,
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": true,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "suite_gavotta",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "observed_pattern": "villa_pattern",
+      "phase": "current",
+      "reason": "Villa returns suite_gavotta only when VSTOCK_SUITE_GAVOTTA is on and the movement is a whole 4/4 Villa body of at least four bars with no pedal bars. This matrix runs with the flag off, so the historical Villa ladder answers.",
+      "selected_pattern": null,
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": true,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "suite_mazurka",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "observed_pattern": "villa_pattern",
+      "phase": "current",
+      "reason": "Villa returns suite_mazurka only when VSTOCK_SUITE_MAZURKA is on and the movement is a whole 3/4 Villa body with no pedal bars. This matrix runs with the flag off, so the historical Villa ladder answers.",
+      "selected_pattern": null,
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": true,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "suite_schottish",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "observed_pattern": "villa_pattern",
+      "phase": "current",
+      "reason": "Villa returns suite_schottish only when VSTOCK_SUITE_SCHOTTISH is on and the movement is a whole 4/4 Villa body of at least four bars with no pedal bars. This matrix runs with the flag off, so the historical Villa ladder answers.",
+      "selected_pattern": null,
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": true,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "suite_valsa",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "observed_pattern": "villa_pattern",
+      "phase": "current",
+      "reason": "Villa returns suite_valsa only when VSTOCK_SUITE_VALSA is on and the movement is a whole 3/4 Villa body of at least eight bars with no pedal bars. This matrix runs with the flag off, so the historical Villa ladder answers.",
+      "selected_pattern": null,
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": false,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "thumb_cantabile",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": {
+          "bridge": false,
+          "end": 8,
+          "kind": "phrase",
+          "regime_slot": 1,
+          "start": 0,
+          "trio": true
+        },
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "thumb_cantabile",
+      "selected_sentence": null
+    },
+    {
+      "ctx_kind": "3/4",
+      "driver": "select_body",
+      "expected_empty": false,
+      "input": {
+        "band": "mf",
+        "bars": 8,
+        "bpm": 96,
+        "ensemble": "villa",
+        "first_body": true,
+        "meter": "3/4",
+        "mood": "calm",
+        "pattern": "villa_pattern",
+        "previous": [],
+        "rel_span": 0.02,
+        "section": null,
+        "sections": null
+      },
+      "phase": "current",
+      "selected_pattern": "villa_pattern",
+      "selected_sentence": null
+    }
+  ],
+  "version": 1
+}

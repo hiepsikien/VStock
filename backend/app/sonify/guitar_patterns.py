@@ -75,6 +75,11 @@ _FAMILY = {
     "polca": "dance",
     "hemiola": "dance",
     "vals": "dance",
+    "suite_mazurka": "dance",
+    "suite_valsa": "dance",
+    "suite_gavotta": "dance",
+    "suite_schottish": "dance",
+    "suite_choros1": "dance",
     "noviembre": "brouwer",
     "brouwer_etude": "brouwer",
     "elogio_pizz": "brouwer",
@@ -115,6 +120,11 @@ _PROFILE = {
     "polca": "barrios_dance",
     "hemiola": "barrios_dance",
     "vals": "barrios_dance",
+    "suite_mazurka": "villa_pattern",
+    "suite_valsa": "villa_pattern",
+    "suite_gavotta": "villa_pattern",
+    "suite_schottish": "villa_pattern",
+    "suite_choros1": "villa_pattern",
     "noviembre": "brouwer",
     "brouwer_etude": "brouwer",
     "elogio_pizz": "brouwer",
@@ -910,6 +920,31 @@ def _select_body(
     previous: list[str],
     section,
 ) -> str:
+    # Feature-gated Suite movements. Off by default, so the historical Villa
+    # ladder below is untouched. The Mazurka keeps its historical first place;
+    # the four remaining movements follow in the shared precedence table. On,
+    # each answers only a whole movement that the renderer can also carry;
+    # every other case keeps the old selection.
+    if ctx.ensemble == "villa":
+        if ctx.kind == "3/4":
+            from app.sonify.production_flags import suite_mazurka_enabled
+
+            if suite_mazurka_enabled():
+                from app.sonify.guitar_suite_mazurka import (
+                    SUITE_MAZURKA_PATTERN,
+                    selectable as mazurka_selectable,
+                )
+
+                if mazurka_selectable(ctx):
+                    return SUITE_MAZURKA_PATTERN
+        from app.sonify.production_flags import any_suite_movement_enabled
+
+        if any_suite_movement_enabled():
+            from app.sonify.guitar_suite_movements import selectable_pattern
+
+            pattern = selectable_pattern(ctx)
+            if pattern is not None:
+                return pattern
     hold = _has_hold(ctx.melody, phrase)
     running = _running(ctx.melody, phrase)
     apex_bar = min(ctx.bars - 1, phrase.apex.start // ctx.epb)
@@ -3312,6 +3347,56 @@ def headline_id(ctx: _Ctx, patterns: list[str]) -> str:
     return max(counts, key=lambda name: (counts[name], name == first))
 
 
+def _chord_melody_velocity(
+    ctx: _Ctx,
+    phrase: Phrase | None,
+    event: NoteEvent,
+    breaks: set[int],
+) -> int | None:
+    """Written velocity for one interpreted chord_melody attack.
+
+    The spec deliberately does not own velocity (docs §6.1/§6.5). This is the
+    host resolver the interpreter asks for, and it mirrors the existing
+    ``_render_block_bar``/``_sustain`` level policy exactly.
+    """
+    eighth = event.bar * ctx.epb + int(round(event.beat * 2))
+    lead_velocity = _covering_melody_velocity(ctx, eighth, breaks)
+    if event.voice == 1:
+        return lead_velocity
+    band = ctx.band(event.bar)
+    if phrase is not None and _rises(phrase):
+        band = _swell_band(swell(phrase, min(eighth, phrase.end - 1)))
+    support, bass = _under_lead(lead_velocity, band)
+    if event.voice == 3:
+        return bass
+    if event.voice == 2:
+        return support
+    return None
+
+
+def _interpreted_chord_melody(
+    ctx: _Ctx,
+    bar: int,
+    phrase: Phrase | None,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]] | None:
+    """One interpreted chord_melody bar, or ``None`` to keep the code path.
+
+    Import is lazy so flag-off renders do not load the Studio schema module.
+    """
+    from app.sonify import texture_interpreter
+
+    if not texture_interpreter.interpreter_enabled():
+        return None
+    return texture_interpreter.render_chord_melody_bar(
+        ctx,
+        bar,
+        phrase,
+        velocity_at=lambda event, breaks: _chord_melody_velocity(
+            ctx, phrase, event, breaks
+        ),
+    )
+
+
 def render_patterned_voices(
     *,
     melody: list[int],
@@ -3389,8 +3474,32 @@ def render_patterned_voices(
         return [], [], [], 2
     _TRACE_OWNED.set([])
     _TRACE_SUPPRESS.set(set())
+    from app.sonify.micro_velocity_writer import (
+        apply_etude1,
+        apply_etude11,
+        apply_tremolo,
+        begin_occurrences,
+        writers_enabled,
+    )
+
+    micro_velocity_writers = writers_enabled()
+    micro_velocity_token = begin_occurrences() if micro_velocity_writers else None
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
+    # Feature-gated Villa sentence, Suite movements, and Brouwer A-B-A. Off by
+    # default, so the existing bar loop below is byte-identical. Each gate
+    # returns raw bar voices only for a whole movement it can cover; the shared
+    # tail below then shapes them exactly like the historical bar loop.
+    sentence = _gated_sentence(ctx)
+    if sentence is not None:
+        return _render_sentence_tail(
+            ctx,
+            patterns,
+            sentence,
+            levels=levels,
+            micro_velocity_writers=micro_velocity_writers,
+            micro_velocity_token=micro_velocity_token,
+        )
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
@@ -3409,6 +3518,16 @@ def render_patterned_voices(
             ctx.mid_high,
             phrases,
         )
+        if micro_velocity_writers:
+            rebuilt = apply_tremolo(
+                trem_lead,
+                trem_inner,
+                trem_bass,
+                meter_kind=ctx.kind,
+                bars=tremolo_bars,
+            )
+            if rebuilt is not None:
+                trem_lead, trem_inner, trem_bass = rebuilt
     else:
         trem_lead, trem_inner, trem_bass = (), (), ()
     rendered: set[int] = set()
@@ -3497,6 +3616,8 @@ def render_patterned_voices(
             part_lead, part_support, part_low = _render_etude1_bar(
                 ctx, bar, phrase_here, _leaving_pattern(ctx, bar, patterns)
             )
+            if micro_velocity_writers and ctx.kind == "4/4":
+                part_support = apply_etude1(part_support, origin_bar=bar)
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -3504,6 +3625,13 @@ def render_patterned_voices(
             part_lead, part_support, part_low = _render_etude11_bar(
                 ctx, bar, phrase_here, _leaving_pattern(ctx, bar, patterns)
             )
+            if micro_velocity_writers and ctx.kind == "4/4":
+                part_support = apply_etude11(
+                    part_support,
+                    origin_bar=bar,
+                    hairpin_at=_etude11_hairpin_at(part_lead),
+                    band_at=lambda event: ctx.band(event.bar),
+                )
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -3526,10 +3654,13 @@ def render_patterned_voices(
             low.extend(part_low)
         elif pattern == "chord_melody":
             phrase = phrase_here
-            points, spans = _chord_grid(ctx, bar, phrase)
-            part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="color", phrase=phrase)
-            lead.extend(
-                _sustain(
+            interpreted = _interpreted_chord_melody(ctx, bar, phrase)
+            if interpreted is not None:
+                part_lead, part_support, part_low = interpreted
+            else:
+                points, spans = _chord_grid(ctx, bar, phrase)
+                part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="color", phrase=phrase)
+                part_lead = _sustain(
                     ctx.melody,
                     bar * epb,
                     (bar + 1) * epb,
@@ -3538,7 +3669,7 @@ def render_patterned_voices(
                     {bar * epb + point for point in points},
                     phrase,
                 )
-            )
+            lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "elegiaque":
@@ -3694,12 +3825,156 @@ def render_patterned_voices(
             low.extend(part_low)
         else:
             lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
+    return _finish_voices(
+        ctx,
+        patterns,
+        lead,
+        support,
+        low,
+        levels=levels,
+        micro_velocity_writers=micro_velocity_writers,
+        micro_velocity_token=micro_velocity_token,
+        original_melody=original_melody,
+        lowered_eighths=lowered_eighths,
+        figure_at=figure_at,
+    )
+
+
+def _gated_sentence(ctx: _Ctx):
+    """Plan a gated sentence for this movement, or None to keep the bar loop.
+
+    Each module answers only a whole movement it can cover. The result is raw
+    bar voices plus the figure plan, never a finished render.
+    """
+    if ctx.ensemble == "barrios":
+        from app.sonify.guitar_barrios_period import (
+            barrios_period_enabled,
+            render_sentence as render_barrios_period,
+        )
+
+        if barrios_period_enabled():
+            return render_barrios_period(ctx)
+        return None
+    if ctx.ensemble == "villa":
+        from app.sonify.production_flags import (
+            any_suite_movement_enabled,
+            suite_mazurka_enabled,
+            villa_production_enabled,
+        )
+
+        if suite_mazurka_enabled():
+            from app.sonify.guitar_suite_mazurka import (
+                render_sentence as render_mazurka,
+            )
+
+            sentence = render_mazurka(ctx)
+            if sentence is not None:
+                return sentence
+        if any_suite_movement_enabled():
+            from app.sonify.guitar_suite_movements import (
+                render_sentence as render_suite_movement,
+            )
+
+            sentence = render_suite_movement(ctx)
+            if sentence is not None:
+                return sentence
+        if villa_production_enabled():
+            from app.sonify.guitar_villa_production import (
+                render_sentence as render_villa_aba,
+            )
+
+            return render_villa_aba(ctx)
+        return None
+    if ctx.ensemble == "brouwer":
+        from app.sonify.production_flags import brouwer_production_enabled
+
+        if brouwer_production_enabled():
+            from app.sonify.guitar_brouwer_production import (
+                render_sentence as render_brouwer_aba,
+            )
+
+            return render_brouwer_aba(ctx)
+    return None
+
+
+def _render_sentence_tail(
+    ctx: _Ctx,
+    patterns: list[str],
+    sentence,
+    *,
+    levels: dict[int, int],
+    micro_velocity_writers: bool,
+    micro_velocity_token,
+):
+    """Shape bar-written sentence voices through the production tail."""
+    from app.sonify.sentence_production import apply_default_contours
+
+    lead, support, low = apply_default_contours(
+        ctx, sentence, enabled=micro_velocity_writers
+    )
+    return _finish_voices(
+        ctx,
+        patterns,
+        lead,
+        support,
+        low,
+        levels=levels,
+        micro_velocity_writers=micro_velocity_writers,
+        micro_velocity_token=micro_velocity_token,
+        original_melody=list(ctx.melody),
+        preludio_bass=not sentence.owns_preludio_bass,
+    )
+
+
+def _finish_voices(
+    ctx: _Ctx,
+    patterns: list[str],
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    *,
+    levels: dict[int, int],
+    micro_velocity_writers: bool,
+    micro_velocity_token,
+    original_melody: list[int] | None = None,
+    lowered_eighths: set[int] | None = None,
+    figure_at: dict | None = None,
+    preludio_bass: bool = True,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
+    """The shared post-wave tail: bells, transitions, scale, wave, pinned, fill.
+
+    The historical bar loop and the feature-gated sentences both end here, so a
+    gated movement cannot drift from production shaping. ``preludio_bass`` is
+    False for a sentence whose per-bar writer already emitted the ringing
+    Preludio pedal (the Barrios period); every other caller keeps the historical
+    movement-wide append.
+    """
+    musical_bars = ctx.bars
+    epb = ctx.epb
+    phrases = ctx.phrases
+    from app.sonify.micro_velocity_writer import check_occurrences, reset_occurrences
+
+    original_melody = (
+        list(ctx.melody) if original_melody is None else original_melody
+    )
+    lowered_eighths = set() if lowered_eighths is None else lowered_eighths
+    figure_at = {} if figure_at is None else figure_at
     # Preludio bass rings for two bars, counted from each contiguous region.
-    low.extend(_preludio_bass(ctx, patterns))
+    if preludio_bass:
+        low.extend(_preludio_bass(ctx, patterns))
     ringing = {
         bar
         for bar in range(musical_bars)
-        if _bar_pattern(ctx, bar, patterns) in {"villa_pattern", "brouwer_etude"}
+        if _bar_pattern(ctx, bar, patterns)
+        in {
+            "villa_pattern",
+            "suite_mazurka",
+            "suite_valsa",
+            "suite_gavotta",
+            "suite_schottish",
+            "suite_choros1",
+            "brouwer_etude",
+        }
     }
     if ringing:
         support = _apply_campanella(ctx, support, lead, ringing, low)
@@ -3865,6 +4140,11 @@ def render_patterned_voices(
     from app.sonify.guitar_wave import _apply_fans
 
     lead, support, low = _apply_fans(ctx, lead, support, low, patterns)
+    if micro_velocity_writers:
+        try:
+            check_occurrences([*lead, *support, *low])
+        finally:
+            reset_occurrences(micro_velocity_token)
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Bach's mordent, bariolage, and scale runs are sixteenth figures. When any
     # voice asks for that grid, the engraving stays at division 4.
@@ -3897,6 +4177,28 @@ def render_patterned_voices(
         _fill(low, musical_bars, epb, 3),
         divisions,
     )
+
+
+def _etude11_hairpin_at(lead: list[NoteEvent]):
+    """The written lead level at each quarter, keyed for the Étude No. 11 rule.
+
+    The rule reads `hairpin` at the quarter's first attack. Only accented lead
+    attacks on a whole beat are that level; the half-beat echo is `hairpin - 8`
+    and must not be mistaken for it.
+    """
+    written = {
+        int(round(event.beat)): event.velocity
+        for event in lead
+        if event.midi is not None
+        and event.velocity is not None
+        and event.accent
+        and abs(event.beat - round(event.beat)) <= 1e-9
+    }
+
+    def hairpin_at(event: NoteEvent) -> int | None:
+        return written.get(int(math.floor(event.beat + 1e-9)))
+
+    return hairpin_at
 
 
 def _leaving_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> bool:
