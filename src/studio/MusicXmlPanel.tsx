@@ -1119,6 +1119,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
                     <View
                       ref={dragSurface}
                       onPointerDown={onPointerDown}
+                      accessibilityLabel="Drag to select a passage; snaps to quarter notes"
                       style={[
                         styles.dragSurface,
                         { width: matrixWidth, height: laneBodyHeight },
@@ -1130,6 +1131,7 @@ export function MusicXmlPanel({ compact = false }: Props) {
                 {playheadTick != null ? (
                   <View
                     pointerEvents="none"
+                    accessibilityLabel="Playback position"
                     style={[
                       styles.playhead,
                       {
@@ -1207,7 +1209,8 @@ export function MusicXmlPanel({ compact = false }: Props) {
               </Text>
             </View>
             <Text style={styles.legendHint}>
-              Beats are 1-based quarter notes; the end beat is exclusive.
+              Beats are 1-based quarter notes; the end beat is the last beat
+              included.
             </Text>
 
             <View style={styles.voiceRow}>
