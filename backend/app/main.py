@@ -25,6 +25,7 @@ from app.routers.studio_jobs import router as studio_jobs_router
 from app.routers.studio_publish import router as studio_publish_router
 from app.routers.studio_export import router as studio_export_router
 from app.routers.studio_audio import router as studio_audio_router
+from app.routers.studio_musicxml import router as studio_musicxml_router
 from app.routers.studio_texture import router as studio_texture_router
 from app.routers.studio_vision import router as studio_vision_router
 from app.schemas import HealthResponse
@@ -94,6 +95,7 @@ app.include_router(studio_jobs_router)
 app.include_router(studio_publish_router)
 app.include_router(studio_export_router)
 app.include_router(studio_audio_router)
+app.include_router(studio_musicxml_router)
 app.include_router(studio_texture_router)
 app.include_router(studio_vision_router)
 
