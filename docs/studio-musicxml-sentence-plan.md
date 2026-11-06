@@ -1,7 +1,7 @@
 # Kế hoạch đơn giản: MusicXML → Sentence / Pattern
 
-Trạng thái: đề xuất, chưa triển khai.
-Phạm vi: Studio trên `v2`; `main` không đổi.
+Trạng thái: **đã triển khai Sprint A–D** trên `release/studio-v2.1`; các điểm lệch kế hoạch ghi ở §14.
+Phạm vi: Studio trên nhánh release; `main` không đổi.
 
 ---
 
@@ -517,3 +517,16 @@ Upload XML
 ```
 
 MusicXML upload/matrix/play giữ nguyên.
+
+---
+
+## 14. Lệch so với kế hoạch khi triển khai (Sprint D)
+
+Chỉ ghi các điểm code khác kế hoạch; phần còn lại vẫn là thiết kế gốc.
+
+1. **Template Auto khi bỏ trống.** `templateId` rỗng/whitespace được coi là "Auto" cho cả existing và new; server chọn template gần nhất (bar span → số slot → tổng `slot.start` → id). Trong new mode, `newPattern.templateId` thắng top-level; cả hai rỗng → auto. UI không cần gửi id cụ thể.
+2. **Multi-sentence draft/export ở client.** Server vẫn trả **một** sentence mỗi call. `PatternDraft` (pattern + sentences + fixtures) nằm trong state `SentenceDraftPanel`; `Add sentence` gọi lại endpoint rồi append, trùng sentence id bị chặn. `Export bundle` tải `pattern.json` do client dựng (`{id,label,composer,renderer,meter,sentences:[{spec,fixture}]}`), **không** gọi `POST /sentence/export`, không ghi `/data`.
+3. **Family override đã hiện thực.** Không dùng ContextVar: `family` là tham số optional trên `dispatch.validate/preview_sentence/resolve_fixture`, `audio.preview_audio`, `compiler.compile_bundle`, và field `family` trong body `/sentence/audio`, `/sentence/export`. Request production bỏ trống → `family_for(pattern)` như cũ. Villa dùng `allowed_patterns={draft_id}`; global registry không đổi.
+4. **Draft quota process-local.** `VSTOCK_STUDIO_MUSICXML_DRAFTS_PER_DAY` (default 50) đếm trong dict RAM theo `(owner, UTC day)`, không dùng `app.studio.quota`/SQLite và không cộng vào `specsPerDay`. Restart reset, nhiều worker không chia sẻ; hết quota → 429 + `Retry-After`.
+5. **`productionReady`:** existing trả `true` (pattern đã dispatchable), new trả `false`. Sample ở §4 đang ghi `false`.
+6. **Vision 404 shape:** body thật nằm dưới `detail` (`{"detail":{"ok":false,"errors":[...]}}`) do dùng `HTTPException`, không phải `{ok:false,...}` ở top level.

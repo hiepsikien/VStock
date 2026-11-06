@@ -1,6 +1,6 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: **sentence authoring MVP đã code** (JSON `SentenceSpec`, validate/preview/audio/publish/rollback, UI Studio) + **Phase 0 schema core** (`MeterSpec`/`TextureSpec` validator) + **sentence-level selection/render matrices** + **compiler bundle JSON** + **upload/Gemini draft/session quota**.
+> **Trạng thái**: **sentence authoring MVP đã code** (JSON `SentenceSpec`, validate/preview/audio/publish/rollback, UI Studio) + **Phase 0 schema core** (`MeterSpec`/`TextureSpec` validator) + **sentence-level selection/render matrices** + **compiler bundle JSON** + **upload/Gemini draft/session quota** + **Studio v2.1 MusicXML sentence draft** (Sprint A–D, preview/export-only; §0.5).
 > **Phạm vi đã code**: Torroba/Sor (5 pattern, 38 spec) + candidate preview-only Villa/Barrios/Brouwer; Barrios có production path sau flag default-off. Bach exposition mới có preview prototype.
 > **Nơi chạy**: trong app Musicalize (room Studio), backend FastAPI phía sau.
 > **Auth:** chưa có. `X-Studio-Session` + `owner_id` + quota upload/analyze đã có; sentence specs cũng đã có `owner_id` + `visibility private/public` (publish/list/get/rollback/export scoped, private foreign id → 404). Đây vẫn là namespace, không phải auth.
@@ -28,6 +28,8 @@ Pilot **Torroba + Sor**, chạy trên nhánh `v2` (chưa merge `main`):
 | Candidates | **Villa** `villa_arpeggio_aba`, **Suite** 5 movement (`suite_mazurka` 3/4, `suite_valsa` 3/4, `suite_gavotta` 4/4, `suite_schottish` 4/4 fold, `suite_choros1` 4/4 provisional), **Barrios** `barrios_cathedral_period`, **Brouwer** `brouwer_etude_noviembre_aba`; preview qua endpoint chung. Suite/Villa/Brouwer/Barrios có production path sau flag default off |
 | UI | Studio room: JSON editor, Validate, Preview, Play preview (web), Publish + version list, Rollback inline; examples từ API; **upload/xoá ảnh (web) + crop web + Gemini draft + notes table + TextureSpec draft panel/validate**; analyze cũ bị abort khi đổi ảnh (native picker chưa) |
 | Vision/session | `GET /v1/musicalize/studio/access`, `POST /uploads`, `GET /uploads/{id}?t=`, `DELETE /uploads/{id}`, `POST /analyze`; `X-Studio-Session` → `owner_id`, quota/ngày, blob dedupe, signed media token |
+| Vision flag | `VSTOCK_STUDIO_VISION` + `EXPO_PUBLIC_STUDIO_VISION` default **off**; off → mọi route `/v1/musicalize/studio/*` trả 404, không gọi Gemini/upload/quota (§0.5.1) |
+| MusicXML draft | `POST /v1/studio/import/musicxml/{importId}/sentence-draft`: existing `PILOT_PATTERNS` hoặc new Villa pattern; một sentence whole-bar + fixture + WAV; `productionReady`; draft-only `family`; PatternDraft/export ở client; promote vẫn là sửa code (§0.5) |
 | Schema | `app/studio/texture_spec.py`: `MeterSpec`, `PitchRef`, `AuthoredEvent`, `MeterVariant`, `TextureSpec`, validator offline (per-voice duration, publish gate) |
 | Matrix | `tests/guitar_fixture.py` + `sentence_selection_matrix.json` (2.016 dòng) + `pattern_selection_matrix.json` (44 row) + `render_matrix.json` (46 row); pattern-level matrix có `expected_empty` có lý do |
 | Sandbox | Preview plan/render trong `sentence_specs.use_registry` (ContextVar) trên **bản copy registry**; không mutate `SENTENCE_SPECS` |
@@ -151,6 +153,115 @@ Hai hệ quả bắt buộc khi implement:
 2. Một pattern chỉ được in tên nếu `level` là `topic`; `level: texture` thì không in. Tên chương thuộc `Movement.title`, **không** phải pattern — guitar đã có field này (`movement_titles.py`), và `formDescription` giữ A–B–A không in (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8).
 3. Field đã đổi tên trong doc: `FigureSpec`→`SentenceSpec`, `meter_variants[].figures`→`sentences`, `selected_figure`→`selected_sentence`, `traits.figure_registry`→`traits.sentence_registry`. **Slot realizer vẫn map vào `_FIGURES` int** (`figure` trong slot, không phải `sentence_code`). Code hiện tại vẫn dùng `figure`/`_FIGURES` — đổi code là PR riêng, không trộn vào PR này.
 4. Inventory **39 dòng** = 38 dòng `PROFILES` + `pedal` (`level` / `topic` / `texture` / `procedure` / `sentence`) và các quyết định tên: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12, §13.
+
+---
+
+## 0.5. Studio v2.1 — MusicXML draft & promote path
+
+> **Trạng thái code:** Sprint A–D trên `release/studio-v2.1`. Draft sentence là **preview/export-only**; không ghi `SENTENCE_SPECS`, không đổi composer runtime.
+
+### 0.5.1. Vision flag
+
+- Backend `VSTOCK_STUDIO_VISION` default **off**. Router `/v1/musicalize/studio/*` vẫn mount nhưng **mọi** route (kể cả `/access`, uploads, media, analyze) đi qua `require_vision_enabled`; off trả `404` có cấu trúc:
+  ```json
+  {"detail": {"ok": false, "errors": [{"path": "vision", "message": "Studio vision is disabled"}]}}
+  ```
+  Không gọi Gemini, không upload/ghi blob, không đụng quota. Flag đọc **mỗi request**, không đọc một lần lúc import.
+- Frontend `EXPO_PUBLIC_STUDIO_VISION` default **off**; `STUDIO_VISION_ENABLED` được inline lúc build, nên bật/tắt cần **rebuild / Metro restart**, không phải runtime toggle. Off → không mount card upload/analyze và không gọi `/studio/access`.
+- Giữ nguyên `studio_vision.py`, `vision.py`, Gemini client và test để bật lại sau.
+
+### 0.5.2. Draft endpoint
+
+`POST /v1/studio/import/musicxml/{importId}/sentence-draft` (prefix `/v1/studio/import`). Bar 1-based inclusive; `beatStart`/`beatEnd` là quarter-note offset trong bar, `beatEnd` exclusive.
+
+```json
+{
+  "barStart": 2, "beatStart": 0,
+  "barEnd": 5, "beatEnd": 2,
+  "mode": "existing",
+  "pattern": "castillo",
+  "templateId": "castillo_34_walk",
+  "voices": [1, 2, 3]
+}
+```
+
+```json
+{
+  "barStart": 1, "barEnd": 4, "mode": "new",
+  "newPattern": {
+    "id": "villa_mazurka_choro",
+    "label": "Mazurka-Choro",
+    "composer": "Villa-Lobos",
+    "renderer": "villa",
+    "meter": "3/4",
+    "templateId": ""
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "mode": "existing",
+  "spec": { "id": "musicxml_mxi_..._2_5_ab12cd34", "pattern": "castillo", "meter": "3/4" },
+  "fixture": { "pattern": "castillo", "meter": "3/4", "length": 4, "n": 0, "closes": false, "rise": 0 },
+  "preview": {
+    "renderHash": "sha256:...",
+    "audioUrl": "/v1/studio/sentence/audio/<64-hex>.wav",
+    "durationSec": 3.2,
+    "notes": 24
+  },
+  "warnings": ["sentence slots are bar-based; the draft uses whole bars and ignores the beat offsets"],
+  "productionReady": true,
+  "templateId": "castillo_34_walk"
+}
+```
+
+Hợp đồng:
+
+- **Một call = một sentence.** `templateId` bỏ trống hoặc rỗng là **Auto**: server chọn example gần nhất (bar span → số slot → tổng `slot.start` → id). Id khác rỗng phải thuộc đúng pattern + meter.
+- `beatStart`/`beatEnd` được nhận và validate, nhưng draft luôn phủ **whole bars**; offset lẻ chỉ thêm warning.
+- `mode:"existing"` chỉ nhận `PILOT_PATTERNS` (`castillo`, `sonatina`, `fandanguillo`, `danza`, `galop`). `suite_*` bị từ chối trước validate/render (`path:"pattern"`), vì suite gate chỉ có một sentence.
+- `mode:"new"` chỉ hỗ trợ renderer `villa`; meter phải có Villa template (hiện `3/4`, `4/4`). Id trùng pattern registry (`PILOT_PATTERNS`, `PATTERN_META`, `VILLA_PATTERNS`, `SENTENCE_SPECS`) hoặc bắt đầu `suite_` → lỗi trước preview. Sentence id dùng namespace `musicxml_<importId>_<barStart>_<barEnd>_<hash>`.
+- Fixture chỉ resolve `length` (hoặc `run_length` cho cycle); `n`/`closes`/`rise` giữ default của template, không suy từ MusicXML.
+- Lỗi cấu trúc trả HTTP `200` `{ok:false, errors:[{path,message}]}`; import/passage không tồn tại hoặc khác owner → `404`; quota → `429`.
+- `productionReady`: `true` cho existing (pattern đã dispatchable), `false` cho new (phải promote bằng code). Client hiển thị `PRODUCTION OK` / `PREVIEW ONLY`.
+
+### 0.5.3. Access / quota / owner
+
+- Owner lấy từ `X-Studio-Session` (hash); thiếu header → namespace `anonymous`.
+- `importId` là `mxi_` + hash(**owner** + bytes), nên hai session upload cùng file vẫn có id riêng; import/passage của owner khác hoặc hết TTL → `404` (`import_not_found` / `passage_not_found`).
+- Quota draft: `VSTOCK_STUDIO_MUSICXML_DRAFTS_PER_DAY` default **50**, per owner/UTC day, **process-local** (dict trong RAM, không dùng SQLite `studio_quota`). Restart xoá count; nhiều worker không chia sẻ. Chỉ request đã qua check cấu trúc mới tiêu quota. Hết quota → `429` body `{ok:false, errors:[{path:"quota"}], limit, day, retryAfter}` + header `Retry-After`.
+- Các cap MusicXML khác giữ nguyên: `..._MAX_BYTES`, `..._MAX_NOTES`, `..._TTL_SECONDS` (import), `..._PASSAGE_TTL_SECONDS`, `..._IMPORTS_MAX`, `..._PASSAGES_MAX`.
+
+### 0.5.4. Preview / audio / export
+
+- `family` override chỉ dành cho draft, đi qua `dispatch.validate/preview_sentence/resolve_fixture`, `audio.preview_audio` và `compiler.compile_bundle` (qua `/sentence/audio`, `/sentence/export`). Allowlist 4 family; request production **không** truyền `family` và vẫn dùng `dispatch.family_for`.
+- Reuse sandbox: Torroba/Sor `preview_spec` + `use_registry`, Villa `villa_preview.preview_villa_sentence`; không có renderer/compiler mới, global `SENTENCE_SPECS` không đổi.
+- UI export là **JSON download ở client** (`pattern.json`): `{id,label,composer,renderer,meter,sentences:[{spec,fixture}]}`. Không gọi server export, không ghi `/data`, không publish SQLite cho pattern mới. Server compile/export vẫn dùng được cho một spec existing/published.
+
+### 0.5.5. Promote path
+
+Draft không phải runtime. Checklist tối thiểu:
+
+1. **Existing generic pattern:** thêm sentence vào `register(...)` của module owner (`SENTENCE_SPECS[(pattern, meter)]`), kèm `valid_figures`/`valid_cells`/`valid_procedures`; chạy lại `python3 -m app.studio.export` (+ `--check`) và cập nhật matrix/golden.
+2. **`suite_*`:** mỗi `SuiteGate` sở hữu đúng **một** spec (`SuiteGate.specs`). Thêm sentence thứ hai phải sửa gate data/`SuiteGate.specs` hoặc thêm loader/registration path riêng — không nhét vào dict runtime.
+3. **Pattern mới:** chọn renderer/figure family có sẵn; thêm production writer/registration và (Villa) đưa id vào `VILLA_PATTERNS`/dispatch; thêm metadata/title/door nếu `level: topic`; bật sau flag default off.
+4. **Publish API không phải promote:** `POST /sentence/publish` + `studio_sentence_specs` chỉ là bản ghi versioned; composer runtime không đọc bảng này và không có loader nào nạp nó.
+5. **Flags + digest:** flag production default off; xác nhận flag-off byte-identical/digest cũ và flag-on deterministic trước khi mở.
+6. **Không mutate registry lúc request:** chỉ `register(...)` lúc import hoặc loader tường minh.
+
+### 0.5.6. Giới hạn hiện tại
+
+- `2/4` không có Villa template trong draft surface → lỗi rõ, không tạo draft sai.
+- Beat offset bị quantize về **whole bar**; tie ở biên partial-bar không được biểu diễn.
+- `MAX_PLAN_BARS = 64` (dài hơn → lỗi); `MAX_RENDER_BARS = 16` (dài hơn → warning, chỉ render 16 bar đầu).
+- Pickup/implicit measure dùng **full meter length**; độ dài pickup thật chưa giữ (có warning).
+- Tie được merge trong spec/audio nhưng **không vẽ connector** trong matrix.
+- Family override không mở pattern mới cho production: `dispatch.family_for(new_id)` vẫn `None` cho tới khi promote.
+- Import/passage/draft quota là in-memory: restart mất record.
 
 ---
 
@@ -1499,6 +1610,7 @@ backend/app/studio/                    # sentence_spec, texture_spec, preview, d
 | `GET` | `/musicxml/{importId}` | Summary + notes + warnings |
 | `POST` | `/musicxml/{importId}/passage` | `{barStart, beatStart?, barEnd, beatEnd?, voices?}` → spec/notes/WAV |
 | `GET` | `/musicxml/passages/{passageId}` | Passage đã build |
+| `POST` | `/musicxml/{importId}/sentence-draft` | Draft một sentence existing/new + preview/audio; chi tiết §0.5 |
 
 - `summary.measureMeters` index 0 = bar 1; `summary.meterChanges[].bar` 1-based và chỉ liệt kê thay đổi sau bar 1.
 - `beatStart`/`beatEnd` là offset quarter-note trong `barStart`/`barEnd`; `beatEnd` **exclusive**, bỏ trống = hết bar `barEnd`. Note overlap được cắt ở boundary và rebase để selection start = 0. Range kết thúc đúng barline không tính bar kế.
@@ -1509,7 +1621,7 @@ backend/app/studio/                    # sentence_spec, texture_spec, preview, d
 - Entity declaration (`<!ENTITY>`) bị từ chối trước khi parse XML.
 - Pickup/implicit measure hiện dùng **full meter length** để tính tick/layout; độ dài measure thực chưa được giữ — có warning.
 
-Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. Job queue là **in-memory/process-local** (không durable): cap global 64, cap 8 active/owner, `GET` scope theo owner (owner khác → 404), terminal job giải phóng `spec/fixture`; vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
+Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. `VSTOCK_STUDIO_VISION` default off → toàn bộ `/v1/musicalize/studio/*` trả 404 (§0.5.1); draft MusicXML có quota riêng, process-local (§0.5.3). Job queue là **in-memory/process-local** (không durable): cap global 64, cap 8 active/owner, `GET` scope theo owner (owner khác → 404), terminal job giải phóng `spec/fixture`; vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
 
 **Vận hành MVP:** production nên set `VSTOCK_STUDIO_SECRET`; thiếu env thì server dùng secret random per-process (token chết sau restart, không còn hardcoded secret). Upload có `Content-Length` guard + chunk cap; ngoài quota per-owner còn global cap `VSTOCK_STUDIO_GLOBAL_UPLOADS_PER_DAY`/`..._ANALYSES_PER_DAY`/`..._SPECS_PER_DAY` để chặn session rotation; publish cũng enforce `specsPerDay` (429 + Retry-After). Vision cache prune theo `VSTOCK_STUDIO_VISION_CACHE_DAYS` (default 30).
 
