@@ -25,6 +25,11 @@ Track B (Studio preview `source`/`aaba`) tách riêng tại
 | `SuiteGate` dùng chung nhiều movement | Single-spec path byte-identical; multi-spec là opt-in |
 | Cadence chỉ là “chọn spec” | Phase 2 thêm `VILLA_CADENCE = 5`; không dựa vào figure hiện có |
 | Partial merge chưa chốt | Chốt cách A + `covered: frozenset[int]` |
+| `p.apex` là `Run`, không phải int | Dùng `p.rise` |
+| `plan_slots` thiếu `offset` | Thêm `offset` + test phrase > 0 |
+| 4 phrase không bridge có thể mất B | B bắt buộc ở `len(body)//2`; rise chỉ nâng cấp |
+| `keyFigures` scope quá rộng | Chỉ pattern mới/promote; pattern cũ grandfathered |
+| Phase 3 chưa có FormSpec path | Chốt movement III (1M/3M), 1W toàn bộ; pickup không vào production |
 
 ---
 
@@ -245,6 +250,42 @@ Cách B (chỉ render base ngoài body rồi ghép) để sau, chỉ khi perf th
 `_finish_voices`/`apply_scale_passages`/`_apply_campanella` đang giả định mạch liên tục,
 nên B cần thêm test biên body/door.
 
+#### 3.0.4b. Implementation shape
+
+“Base” là **raw voices** của historical bar loop, **chưa** qua `_finish_voices`.
+Cần tách `render_patterned_voices` thành:
+
+```python
+def _render_base_raw(ctx, patterns) -> tuple[list, list, list]:
+    """Historical per-bar loop, stops before _finish_voices."""
+
+base = _render_base_raw(ctx, patterns)
+sentence = _gated_sentence(ctx)
+
+if sentence is not None:
+    sentence_voices = apply_default_contours(ctx, sentence, enabled=...)
+    merged = merge_covered(base, sentence_voices, sentence.covered)
+    merged_patterns = [
+        sentence_pattern if bar in covered else patterns[bar]
+        for bar in range(ctx.bars)
+    ]
+    return _finish_voices(ctx, merged_patterns, *merged, ...)
+
+return _finish_voices(ctx, patterns, *base, ...)
+```
+
+Quy tắc:
+
+- `_render_base_raw` không gọi `_finish_voices`; chỉ path cuối gọi một lần.
+- Base raw đã có door/pedal và figure defaults của base.
+- `apply_default_contours` chỉ chạy cho sentence body trước merge.
+- `patterns[bar]` cho body = sentence pattern; door/pedal = base pattern.
+- `preludio_bass`/campanella/scale passages chạy trên merged voices, một lần, sau merge.
+- `covered=None` phải đi đúng path cũ: `base` rồi `_finish_voices`, byte-identical.
+- Test extraction trước: flag off digest không đổi; sau đó mới bật partial.
+
+Đây là refactor có rủi ro; Phase 0 phải làm extraction + byte-identical test trước khi thêm merge.
+
 #### 3.0.5. `eligible` opt-in
 
 - `SuiteGate` thêm `partial: bool = False`.
@@ -262,10 +303,24 @@ nên B cần thêm test biên body/door.
 
 ### 3.1. Phase 1 — production foundation (4/4 fold)
 
+Phase 1 là **audit + bổ sung phần thiếu**, không phải build lại pattern.
+
+Đã có sẵn:
+
+- `_FAMILY`, `_PROFILE`, `PROFILES`, `_RETAINED_DOORS`;
+- `_KINETIC_PATTERNS`, `_NARROW_ROWS`, `_PATTERN_TITLE`, `PATTERN_META`;
+- flag `VSTOCK_SUITE_SCHOTTISH`, selection/render tests.
+
+Việc còn lại:
+
 1. Giữ `suite_schottish` hiện có; không tạo pattern id mới.
 2. Giữ **ABAB** (`suite_schottish_arpeggio_abab`).
-3. Nối đầy đủ wiring §4, gồm body/door merge từ Phase 0.
-4. Flag `VSTOCK_SUITE_SCHOTTISH` default off.
+3. Chỉ thêm:
+   - Phase 0 body/door partial merge;
+   - test composer form thật có frame;
+   - test flag off digest byte-identical;
+   - bất kỳ wiring nào audit thấy còn thiếu (ghi rõ file/dòng).
+4. Không duplicate `DOORS`/`PROFILES` row đã có.
 5. Test:
    - flag off digest byte-identical;
    - flag on selection/render;
@@ -284,14 +339,16 @@ Không tuyên bố Phase 1 là bản nhạc final.
 body_phrases = [p for p in ctx.phrases if bar không thuộc _PEDAL]
 n = index trong body_phrases
 closes = p.closes (nếu có; fallback False)
-rise = p.apex - p.min (nếu có; fallback 0)
+rise = p.rise (property có sẵn; fallback 0)
 ```
 
 - 0 phrase: fallback toàn movement.
 - 1 phrase: A, thêm close ở nửa sau nếu đủ bar.
 - 2 phrase: A + close.
 - 3 phrase: A + B + close.
-- ≥4 phrase: A + (A/B xen kẽ) + B ở bridge/trio + close cuối.
+- 4 phrase: A + A + B + close (B = n2).
+- 5 phrase: A + A + B + A + close (B = n2).
+- ≥6 phrase: A + A + B + A ... + close; B = `len(body)//2`.
 
 #### 3.2.2. Chọn spec
 
@@ -299,11 +356,13 @@ rise = p.apex - p.min (nếu có; fallback 0)
 if phrase cuối: close
 elif phrase là bridge/trio: B
 elif phrase đầu: A
-elif có ≥3 body phrase và phrase giữa: B hoặc A
+elif body >= 3 và n == len(body)//2: B
+elif rise >= MIN_RISE: B (biến thể mạnh hơn)
 else: A
 ```
 
-- `B` fallback: phrase giữa; nếu không có, phrase thứ 2.
+- `B` **luôn có** khi body ≥3; không phụ thuộc rise.
+- `rise >= MIN_RISE` (3 semitone) chỉ nâng cấp A→B hoặc đổi contour, không dùng để bỏ B.
 - `close` không bị thay bằng A/B dù quota thiếu.
 - Phrase quá ngắn cho spec: dùng spec ngắn hơn hoặc fallback A; không cắt B/close.
 
@@ -322,29 +381,48 @@ Thiết kế `VILLA_CADENCE`:
 VILLA_CADENCE = 5
 
 def _cadence_bar(ctx, bar, phrase):
-    # low: chord_root ở beat 0
-    # support: chord tones ở beat 0 (và 2 nếu meter cho phép)
-    # lead: tonic/scale_step 0, sustain đến cuối bar
+    start = bar * ctx.epb
+    chord = ctx.chord(bar)
+    bass = _choose_bass(
+        chord, 0, None, ctx.bass_low, ctx.bass_high, ctx.semitones
+    )
+    # Lead = chord root pitch class, nearest the previous melody note.
+    lead = _nearest_chord_root(ctx, chord, start, ctx.treble_floor, ctx.treble_top)
+    support = _choose_inner(
+        chord, lead, bass, ctx.mid_low, ctx.mid_high, ctx.semitones,
+        color=False, index=0,
+    )
+    # One attack at beat 0, sustained through the bar.
+    low = [_eighth_event(0, ctx.epb, bass, ctx.epb, 3, _P)]
+    mid = [] if support is None else [
+        _eighth_event(0, ctx.epb, support, ctx.epb, 2, _P)
+    ]
+    high = [_eighth_event(0, ctx.epb, lead, ctx.epb, 1, _P)]
+    return high, mid, low
 ```
 
-- Là adapter mới, **không** viết renderer mới:
-  - tái dùng `_render_block_bar`/`_sustain`/`_chord_grid` hiện có;
-  - chỉ cố định voicing và final note.
-- Thêm vào:
-  - `VILLA_FIGURES`;
-  - `VILLA_FIGURE_NAMES`;
-  - `FIGURE_CONTOURS` có thể để trống.
-- `valid_figures` vẫn là `VILLA_FIGURES`, không cần registry mới.
+- “Tonic” = **root pitch class của chord cuối** (`ctx.chord(bar).pitches[0]`), không phải
+  key tonic toàn cục. Nếu chord cuối không phải I, đó là half cadence; test riêng và log warning.
+- Lead chọn root pc gần `ctx.melody[start - 1]` nhất, trong treble range.
+- Support dùng `_choose_inner`; bass dùng `_choose_bass`.
+- 4/4: một attack beat 0, sustain `epb` (8 eighth = 4 beat).
+- 2/4: một attack beat 0, sustain `epb` (4 eighth = 2 beat); **không** dùng `_chord_grid`.
+- Không arpeggio, không re-attack giữa bar.
+- Là adapter mới, không viết renderer mới; tái dùng `_choose_bass`/`_choose_inner`/`_eighth_event`.
+- Thêm vào `VILLA_FIGURES` + `VILLA_FIGURE_NAMES`; `FIGURE_CONTOURS` để trống.
+- `valid_figures` vẫn là `VILLA_FIGURES`.
 - `SentenceSpec` close dùng figure 5 ở bar cuối.
 - `select.closes=True` chỉ là điều kiện chọn spec, không phải nhạc kết.
 
 Test:
 
-- final bar có bass root ở beat 0;
-- lead kết tonic/scale step 0, duration dài;
-- không có arpeggio chạy ở final bar;
+- final bar có bass root beat 0, sustain hết bar;
+- lead là chord root pc, không phải note lạc;
+- không có arpeggio/re-attack giữa bar;
 - bar trước/sau không bị đổi;
 - 4/4 và 2/4 không tràn bar;
+- chord cuối I → close; chord cuối V → half cadence + warning;
+- `assert_playable`/voice order;
 - Studio preview và production dùng cùng figure.
 
 A2 variation (MVP):
@@ -363,28 +441,62 @@ A2 variation (MVP):
 
 ### 3.3. Phase 3 — native 2/4
 
-1. Thêm `FormSpec`/`span` path cho 2/4:
-   - ít nhất một movement guitar tạo `METER_24`;
-   - test composer thật, không chỉ `_render(..., METER_24, ...)`.
-2. Dùng `suite_schottish` + meter variant `("suite_schottish","2/4")`.
-3. Sửa `_chord_grid` 2/4:
+#### 3.3.1. FormSpec path (chốt)
+
+Meter được chọn ở `plan_week`/`plan_month`/`plan_quarter`, **không** đổi `_guitar_meter` toàn cục.
+
+- Thêm helper:
+
+```python
+def _suite_meter_override(
+    spec: FormSpec,
+    *,
+    ensemble: str,
+    span: str,
+    index: int,
+) -> FormSpec:
+    if ensemble != "villa" or not suite_schottish_enabled():
+        return spec
+    if span == "1W" and index == 0:
+        return replace(spec, meter=METER_24)
+    if span in ("1M", "3M") and index == 2:   # III = Schottish
+        return replace(spec, meter=METER_24)
+    return spec
+```
+
+- Gọi trong `plan_week` (1W) và `plan_month`/`plan_quarter` (1M/3M) **trước** `attach_frame`.
+- `attach_frame` sau đó dùng `frame_bars_for(METER_24, span)`.
+- Các movement khác giữ nguyên 4/4/3/4/6/8.
+- `active_meter`/`compose_meter` đã generic; không cần path mới.
+- `ctx.kind` sẽ là `"2/4"`; `SuiteGate`/registry dùng key `("suite_schottish","2/4")`.
+- Pattern id giữ `suite_schottish`; thêm meter variant `2/4`, không tạo title thứ hai.
+- 1W: cả movement 2/4; 1M/3M: chỉ movement III 2/4.
+
+#### 3.3.2. Figure/wave/frame
+
+1. Sửa `_chord_grid` 2/4:
    - ví dụ `[0,2] / [2,2]` hoặc `[0] / [epb]`;
    - test mọi figure 2/4 không có `beat/duration` vượt bar.
-4. Meter-aware wave/accent:
+2. Meter-aware wave/accent:
    - `PROFILES` key thêm meter hoặc `profile_for(ensemble, pattern, meter)`;
    - `_EXPECTED` cập nhật;
    - accent strong beat 0/subbar 2, không copy `tresillo` 4/4.
-5. Frame:
+3. Frame:
    - `frame_bars_for((2,4), span)` có giá trị;
    - test `1Y`/`1M`/`3M`.
-6. Studio preview:
+4. Studio preview:
    - mở `VILLA_PATTERNS`/dispatch/export cho `suite_schottish` 2/4;
    - hoặc ghi rõ production-only, không authorable.
-7. Pickup 1/4:
-   - parser đã normalize thành 2/4, note shift beat 2;
-   - pickup bar **không** tính là bar 1 nhạc;
-   - key figure "bar 2/3" = full bar thứ 2/3 sau pickup;
-   - form 2/4 có pickup bar riêng hoặc anacrusis rõ ràng.
+
+#### 3.3.3. Pickup 1/4
+
+- Parser normalize 1/4 pickup thành 2/4, note shift beat 2; đây là metadata của **Studio import**.
+- `FormSpec` production chỉ có một meter/movement, không có per-bar meter.
+- Vì vậy native 2/4 production:
+  - bắt đầu ở bar 1, **không** giữ pickup như bar riêng;
+  - Studio promote phải drop pickup hoặc align passage bắt đầu sau pickup;
+  - key figure "bar 2/3" = full bar thứ 2/3 sau pickup.
+- Nếu cần pickup thật trong production, phải thiết kế `FormSpec` per-bar meter ở phase sau; không đưa vào Phase 3.
 
 ### 3.4. Phase 4 — key figure tùy ý
 
@@ -470,10 +582,24 @@ def door(ctx, bar, role, *, steps, closing, index):
 ```
 
 - `frame_roles`/`_dispatch` giữ nguyên; không thêm selection path mới.
+- `_RETAINED_DOORS` **đã có** `("villa", "suite_schottish") -> _villa_pattern_door`.
+  Không thêm row trùng; chỉ override nếu muốn door riêng khác `_villa_pattern_door`.
 - Nếu pattern chưa có door riêng: `_dispatch` tiếp tục fallback composer door.
-- Phase 2 `suite_schottish`: thêm row `("villa", "suite_schottish")` tái dùng
-  `_villa_intro_short/long` + `_villa_outro_short/long` để pattern có identity,
-  trước khi Studio cho author door riêng.
+
+#### Scope + storage
+
+- `keyFigures` là metadata **Studio authoring + export**, không phải registry production mới.
+- `key` là `TextureSpec` preview; production body vẫn là `SentenceSpec`/`source` key figure.
+- Intro/outro `TextureSpec` compile thành callable trong `DOORS` khi promote.
+- Lưu ở:
+  - client `PatternDraft` (localStorage/state);
+  - export JSON `keyFigures` + `complete`/`missing`;
+  - payload promote (optional) — **không** thêm SQLite/schema production.
+- Gate `complete` chỉ áp dụng cho:
+  - pattern mới tạo trong Studio; hoặc
+  - draft có `keyFigures` và user bấm promote.
+- Candidate/pattern cũ **grandfathered**, không bị đánh `incomplete` chỉ vì chưa có `keyFigures`.
+- Track B key-only draft: `complete:false`, UI ghi rõ “preview only; doors required before promote”.
 
 #### Tests
 
@@ -591,7 +717,7 @@ key figure = phần còn lại (có thể chạy dưới sentence lead)
 ```
 
 - MVP: **log/plan only, không enforce**.
-- Phase 5: chốt semantics (bar độc quyền hay lead layer) rồi enforce.
+- Target policy only; semantics (bar vs lead layer) TBD; chỉ enforce ở Phase 5.
 - Không hy sinh close/cadence hoặc B để đủ quota.
 
 ---
@@ -603,7 +729,7 @@ key figure = phần còn lại (có thể chạy dưới sentence lead)
 | 0 | Framed-form audit + body/door merge design | Chứng minh fallback; thiết kế partial merge |
 | 1 | `suite_schottish` 4/4 ABAB wiring + merge | Pattern chạy composer form thật, flag off an toàn |
 | 2 | Phrase-level A/B/close + cadence | Bản nhạc có form nghe được |
-| 3 | Native 2/4 FormSpec + B figure fix + stereo/frame | 2/4 thật, không fold |
+| 3 | Native 2/4 FormSpec + B figure fix + profile/frame | 2/4 thật, không fold |
 | 4 | Key figure tùy ý từ passage | Pattern + sentences từ passage |
 | 5 | Quota mềm 70% ±10% | Fill policy có kiểm soát cadence/B |
 
@@ -622,7 +748,8 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 7. **Key figure:** bar 2/3 sau pickup; ưu tiên rhythm fidelity; chỉ dùng `PitchRef` kind hiện có.
 8. **Multi-spec opt-in.** `SuiteGate` single-spec path byte-identical cho 3 movement còn lại.
 9. **Pattern Studio phải có 3 role / 5 artifact.** Intro short(2)+long(4), Key, Outro short(2)+long(4); thiếu thì không promote.
-10. **Door dùng `frame_roles`/`DOORS` hiện có.** Không thêm selection path mới; `short` = steps 2, `long` = steps 4.
+10. **Door dùng `frame_roles`/`DOORS` hiện có.** `suite_schottish` đã có row `_villa_pattern_door`; `short` = steps 2, `long` = steps 4.
+11. **`keyFigures` là metadata Studio/export**, không phải registry production mới; gate chỉ áp cho pattern mới/promote.
 
 ---
 
@@ -636,7 +763,7 @@ body = phrases không chứa _PEDAL
 bars_per_phrase = (p.end - p.start) / epb
 n = index trong body
 closes = p.closes nếu có, else False
-rise = p.apex - p.min nếu có, else 0
+rise = p.rise          # property có sẵn; p.apex là Run, không phải int
 ```
 
 ### 9.2. Role
@@ -646,17 +773,34 @@ if not body: fallback toàn movement
 elif n == len(body)-1: close
 elif bridge/trio tại n: B
 elif n == 0: A
-elif len(body) >= 3 and 0 < n < len(body)-1: B nếu rise cao, else A
-else: A
+else: A hoặc B theo bảng dưới
 ```
 
-- Bridge/trio detect từ `ctx.kind_at`/`ctx.sections`; nếu không có metadata, dùng phrase giữa.
+B **luôn tồn tại** khi body ≥3 phrase; `rise` chỉ chọn B mạnh/yếu, không phải điều kiện duy nhất:
+
+| body phrases | role |
+|---|---|
+| 1 | close (hoặc A + close nếu đủ bar) |
+| 2 | A, close |
+| 3 | A, B, close |
+| 4 | A, A, B, close |
+| 5 | A, A, B, A, close |
+| ≥6 | A, A, B, A, ..., close; B ở `len(body)//2` |
+
+- Bridge/trio có metadata: B đặt đúng phrase đó.
+- Không có bridge/trio: B mặc định ở `len(body)//2` (4 phrase → n2, 5 phrase → n2).
+- `rise >= MIN_RISE` (3 semitone) chỉ **nâng cấp** một A thành B mạnh hơn hoặc đổi contour;
+  không dùng để bỏ B bắt buộc.
 - B không được ở phrase cuối.
 - Close luôn ở phrase cuối.
 
-### 9.3. Spec
+### 9.3. Spec + offset
 
-- `plan_slots(pattern, meter, bars, offset, closes, rise)` với offset = phrase start bar.
+- `plan_sentence`/`plan_slots` cần thêm `offset: int = 0` (keyword) hoặc shift `PlannedSlot.bars`
+  và `slot_start` sau khi plan.
+- `offset` = phrase start bar; nếu không, phrase 2+ sẽ plan về bar 0 và đè phrase trước.
+- `micro_velocity` giữ relative; chỉ `bars`/`slot_start` shift.
+- Test phrase bắt đầu ở bar > 0, `bar_plan`/`slot_contours` đúng offset.
 - Nếu không spec nào khớp: fallback A của phrase, không bỏ phrase.
 - Nếu phrase cuối không đủ bar cho close: dùng close ngắn hơn; nếu vẫn không, cadence bar cuối
   dùng figure hiện có.
@@ -714,7 +858,7 @@ Phase 5 phải chọn một và test:
 3. Phase 2: **phrase-level + cadence artifact**.
 4. Phase 3: **native 2/4**, meter-aware wave/frame.
 5. Phase 4: key figure dùng `TextureSpec`/`PitchRef` hiện có.
-6. Phase 5: quota 70% ±10%, enforce sau khi chốt semantics.
+6. Phase 5: quota 70% ±10% là **target policy only**; chưa enforce đến Phase 5, semantics TBD.
 7. Pickup 1/4: không tính là bar 1; A/B/key figure lấy full bar sau pickup.
 8. Multi-spec/partial path opt-in; 3 movement còn lại byte-identical.
 
@@ -744,7 +888,11 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 8. Pickup 1/4 chưa có rule production → Phase 3, thống nhất với Track B.
 9. `SuiteGate` dùng chung 4 movement → multi-spec/partial opt-in, test byte-identical.
 10. Studio chưa capture đủ door: mỗi pattern cần 3 role / 5 artifact (intro short+long, key, outro short+long) → Phase 3/4.
-11. Pattern mới chưa có row `DOORS` riêng; `_dispatch` fallback composer door → Phase 2 thêm row `suite_schottish`.
+11. `_RETAINED_DOORS` đã có row `suite_schottish`; gap thật là Studio chưa capture door artifacts, không phải thiếu DOORS row.
+12. `Phrase.apex` là `Run`; `rise` phải đọc `p.rise`.
+13. `plan_slots`/`plan_sentence` chưa có `offset`; phrase 2+ sẽ plan về bar 0 nếu không sửa.
+14. 4 phrase không bridge phải vẫn có B ở `len(body)//2`; rise không được làm mất B.
+15. Phase 3 cần `_suite_meter_override` ở `plan_*`, không đổi `_guitar_meter` toàn cục.
 
 ---
 

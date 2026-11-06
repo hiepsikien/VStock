@@ -42,8 +42,8 @@ Các tầng khác vẫn tên riêng:
 - Là behavior hiện tại của `mode:"new"`.
 - Nếu request cũ không gửi `previewMode`, server trả `source`.
 - `mode:"existing"` **reject** `previewMode` (không silent ignore):
-  - thêm explicit check trong route;
-  - trả `400`/validation error `path:"previewMode"`;
+  - explicit check trong route;
+  - trả `200 {ok:false, errors:[{path:"previewMode"}]}` như các validation Studio khác;
   - lý do: `existing` dùng template/SentenceSpec, không có passage loop.
 - Spec/audio giữ nguyên passage; `rhythmTemplate:true`, `productionReady:false`.
 
@@ -57,7 +57,7 @@ Selection là `barStart..barEnd` (1-based, whole bars).
 
 ```text
 selection = [barStart, barEnd]
-pickup = bar có note đầu tiên ở beat > 0 và không có note tại beat 0
+pickup = bar in summary.pickupBars      # metadata từ parser/import
 usable = selection bỏ pickup
 A = usable[0]           nếu usable không rỗng
 B = usable[2]           nếu len(usable) >= 3
@@ -66,6 +66,19 @@ B = usable[2]           nếu len(usable) >= 3
 tile = [A, A, B, A]
 mapping = tile lặp, truncate đúng outputBars
 ```
+
+**Không** detect pickup bằng “note đầu tiên ở beat > 0”. Một bar đầy đủ có thể mở bằng rest
+rồi note ở beat 0.5 và sẽ bị nhận nhầm.
+
+Nguồn pickup:
+
+- thêm `pickup_bars: tuple[int, ...]` (0-based) vào `ImportedScore`;
+- `_normalise_incomplete_edges` đánh dấu bar đầu khi shift 1/4 → 2/4;
+- `ImportSummary.pickupBars` (1-based) cho client;
+- fallback chỉ khi thiếu metadata: so độ dài thực của bar với meter length;
+  **không** dùng onset heuristic.
+
+Test bắt buộc: full bar có rest ở beat 0 rồi note ở beat 0.5 → **không** phải pickup.
 
 Output length:
 
@@ -116,10 +129,15 @@ loop_texture_bars(
     mapping: Sequence[int],
     *,
     output_bars: int,
-    meter: Meter,
+    meter: MeterSpec,
     preview_mode: str,
 ) -> TextureSpec
 ```
+
+- `meter` là `MeterSpec` (không phải `form.Meter`), lấy từ `spec.meter_variants[0].meter`.
+- Nếu `len(spec.meter_variants) != 1`, reject/warning thay vì chọn mù; hoặc caller truyền
+  `bar_quarters: float` tương đương `eighths_per_bar / 2`.
+- Không dùng `ctx.epb`/`active_meter()` vì helper là pure transform trên `TextureSpec`.
 
 Yêu cầu:
 
@@ -195,7 +213,8 @@ Response:
 - `mode:"existing"` giữ contract cũ, **không** `previewMode`.
 - Missing `previewMode` → `source`.
 - Invalid `previewMode` → `200 {ok:false, errors:[{path:"previewMode"}]}`.
-- `mode:"existing"` + `previewMode` → `400`/validation error, không ignore.
+- `mode:"existing"` + `previewMode` → **cùng shape** `200 {ok:false, errors:[...]}`, không ignore.
+  Chỉ lỗi transport/upload mới dùng 400/413/415.
 
 ---
 
@@ -254,6 +273,8 @@ Track B chỉ tạo **Key** sentence. Một pattern Studio chỉ `complete` khi 
 
 - `previewMode` chỉ thuộc `key`/sentence; không áp dụng cho intro/outro.
 - `aaba` không bao giờ trộn intro/outro vào loop.
+- Track B **không tự sinh door** từ `_villa_pattern_door`; mặc định `complete:false`.
+- UI ghi rõ: “Key-only preview; doors required before promote.”
 - Export draft được phép khi thiếu; ghi `complete:false` + `missing[]`.
 - Promote/publish bị chặn nếu thiếu bất kỳ artifact nào.
 - UI hiển thị `3/3 role`, `5/5 artifact`; door có preview `2 bars` / `4 bars`.
@@ -272,8 +293,12 @@ Track B chỉ tạo **Key** sentence. Một pattern Studio chỉ `complete` khi 
   - response `previewMode`, `warnings`.
 - `backend/app/studio/musicxml_sentence.py`
   - `prepare_draft`/`render_draft` cho `previewMode`.
+- `backend/app/studio/musicxml_import.py`
+  - `ImportedScore.pickup_bars` (0-based);
+  - `ImportSummary.pickupBars` (1-based);
+  - `_normalise_incomplete_edges` mark bar đầu.
 - `backend/app/studio/texture_spec.py` (hoặc module mới)
-  - `loop_texture_bars`, tie-pair helper.
+  - `loop_texture_bars`, tie-pair helper; `meter: MeterSpec`.
 - `backend/app/studio/villa_preview.py` nếu spec validation cần.
 - Tests:
   - `tests/test_studio_musicxml_sentence.py`
@@ -307,6 +332,7 @@ Track B chỉ tạo **Key** sentence. Một pattern Studio chỉ `complete` khi 
 - `source` events khớp passage.
 - `aaba` mapping đúng cho 1/2/3/4/5/6/7/8 bar; outputBars = selectionBars.
 - Có pickup: 1/2/3/4 bar selection mapping đúng; pickup không thành A/B.
+- `summary.pickupBars` từ parser; full bar có rest đầu bar **không** phải pickup.
 - Warning khi <4 bar; warning khi chỉ chọn pickup.
 - Tie/slur/note không vượt bar; clip đúng.
 - Tie pair còn adjacent được giữ; pair bị tách bị clear cả hai phía.
