@@ -439,233 +439,115 @@ MVP: có thể chỉ log/plan quota, chưa cần ép; Phase sau mới enforce.
 
 ---
 
-## 13. Variants và Studio selection
+## 13. Track B — Studio preview variants
 
-Đúng: sau này có thể có nhiều **variants**, và Studio có thể cho user chọn. Nhưng cần phân biệt 3 tầng variant.
+Các variant preview `source` / `aaba` đã được tách sang:
 
-### 13.1. SentenceSpec variant
+**`docs/studio-schottish-variant-plan.md`**
 
-Một câu cụ thể trong pattern/meter:
+Lý do tách:
 
-```text
-schottish_a
-schottish_b
-schottish_close
-```
-
-Khác nhau ở:
-
-- figure/key figure;
-- rhythm;
-- slot layout;
-- select length/n/closes/rise.
-
-Registry hiện đã hỗ trợ nhiều spec:
-
-```python
-SENTENCE_SPECS[("suite_schottish", "4/4")] = (a, b, close)
-```
-
-Nhưng `SuiteGate` hiện chỉ một spec; phải mở thành tuple/plan nhiều spec.
-
-### 13.2. Plan variant
-
-Cách ghép sentence theo phrase:
-
-```text
-AABA
-ABAB
-A A B close
-through-composed
-key-figure-dominant (quota)
-```
-
-Plan variant quyết định:
-
-- phrase nào A/B/close;
-- B ở bridge/trio hay middle;
-- phrase cuối cadence;
-- quota sentence/key figure.
-
-Đây là tầng cần thêm mới — hiện `SuiteGate` hardcode one plan.
-
-### 13.3. Key figure variant
-
-Cùng pattern nhưng key figure khác:
-
-```text
-schottish_arpeggio_key
-schottish_rhythm_key
-```
-
-Dùng `TextureSpec`/`PitchRef`; không tạo schema mới.
-
-### 13.4. Studio UX
-
-Khi variants có:
-
-1. User chọn pattern + meter.
-2. Studio hiện **variant picker**:
-   - Sentence variant (A/B/close);
-   - Plan variant (AABA/ABAB/...);
-   - Key figure;
-   - quota.
-3. Preview/audio từng variant.
-4. Export/publish variant đã chọn.
-5. Không auto-apply vào SentenceSpec editor.
-
-### 13.5. Composer behavior
-
-- Composer mặc định vẫn auto-select theo plan rules.
-- Studio variant là **authoring/preview**; chỉ thành production khi:
-  - promote code/registry; hoặc
-  - có explicit variant override được thiết kế (chưa có).
-- Không để Studio selection mutate global registry/composer ngoài flag.
-
-### 13.6. API/registry cần thêm
-
-- `GET /v1/studio/sentence/variants?pattern=&meter=` → danh sách variant + plan policy.
-- Draft request thêm `variantId` / `planId`.
-- `SentenceSpec` vẫn là schema lõi; `PlanVariant` là data mới:
-
-```json
-{
-  "id": "schottish_aaba",
-  "pattern": "suite_schottish",
-  "meter": "4/4",
-  "phrases": ["A", "A", "B", "close"],
-  "sentenceByRole": {
-    "A": "schottish_a",
-    "B": "schottish_b",
-    "close": "schottish_close"
-  },
-  "quota": 0.7
-}
-```
-
-- Plan variant default = composer auto; Studio only overrides for preview/export after promotion.
-
-### 13.7. Acceptance
-
-- Nhiều `SentenceSpec` cùng pattern/meter register được.
-- `SuiteGate`/plan chọn theo phrase, không first-match mù.
-- Studio hiện variants, preview từng cái.
-- Chọn variant không đổi composer runtime.
-- Flag off byte-identical.
-- Phrase cuối luôn close/cadence; B không bị cắt.
+- Track A (file này) là production composer, cần form/phrase/cadence.
+- Track B là preview/export-only, có thể ship độc lập.
+- Không dùng chung từ “variant” cho cả hai track.
 
 ---
 
-## 14. Hai variant đầu tiên (đã chốt để review)
+## 14. Production blockers bổ sung sau review
 
-Mục tiêu: có 2 lựa chọn rõ ràng trong Studio, cùng dùng passage đã chọn, có logic chọn/đổi variant. Đây là **preview/export-only**, chưa phải production composer.
+Các điểm sau phải xử lý trước khi coi Phase 1–3 là production-ready.
 
-### 14.1. Variant `source`
+### 14.1. Form thật có frame/pedal
 
-- Giữ đúng rhythm, duration, bar, reference pitch của passage.
-- Là variant mặc định.
-- Audio lấy từ passage payload hiện tại.
-- Phù hợp để nghe/đối chiếu bản gốc.
+`SuiteGate.eligible()` hiện reject toàn bộ movement nếu có bất kỳ bar `_PEDAL`.
+Nhưng `week_spec`/`month_specs`/`attach_frame` đều có intro/outro/warmup/cooldown.
 
-### 14.2. Variant `aaba`
+Vì vậy test bare-phrase không chứng minh composer chọn được pattern. Phase 1 phải test bằng form thật, và phải có:
 
-- A = bar đầu tiên của selection.
-- B = bar thứ ba; nếu selection <3 bar thì fallback bar 2, rồi bar 1.
-- Mapping theo tile 4:
+- body-only sentence;
+- merge với door/pedal cũ;
+- partial plan/bar coverage;
+- offset phrase;
 
-```text
-[A, A, B, A]
-```
+Không được fallback toàn movement chỉ vì có frame.
 
-- Nếu selection dài hơn 4 bar: lặp `AABA`, bar cuối truncate.
-- Nếu selection ngắn hơn 4 bar: vẫn chạy với B fallback; UI ghi rõ.
-- Giữ nguyên pitch reference/duration/voice/tie của các bar nguồn.
-- Đây là **key-figure loop preview**, không phải transcription và không phải production sentence.
-- `spec` là `TextureSpec` clone với id mới; không mutate passage đã lưu.
-- Audio synthesize từ chính event AABA, không reuse audio `source`.
+### 14.2. Body + door merge
 
-### 14.3. Hợp đồng API
+`bar_plan()` hiện đòi cover mọi bar. Với form thật:
 
-`POST /v1/studio/import/musicxml/{importId}/sentence-draft`
+- sentence chỉ render body;
+- door/pedal render ngoài body;
+- `_gated_sentence` phải trả partial `SentenceVoices`;
+- merge `figures`/`contours`/`slot_contours`;
+- test intro/outro + body.
 
-```json
-{
-  "mode": "new",
-  "variant": "source" | "aaba",
-  "barStart": 1, "beatStart": 1,
-  "barEnd": 5, "beatEnd": 1,
-  "newPattern": { "...": "..." }
-}
-```
+### 14.3. Cadence và variation
 
-Response thêm:
+`VILLA_FIGURES` hiện chỉ có arpeggio/chord melody/etude1/etude11.
+Không có figure cadence, không có A2 variation.
 
-```json
-{
-  "variant": "source" | "aaba",
-  "rhythmTemplate": true,
-  "productionReady": false,
-  "spec": { "...TextureSpec..." },
-  "preview": { "audioUrl": "...", "notes": 47 }
-}
-```
+Phase 2 phải thêm một trong hai:
 
-- `variant` mặc định `source`.
-- `existing` mode không cần variant; giữ contract cũ.
-- Một draft chỉ tiêu 1 quota unit.
-- `source` và `aaba` có spec id/audio hash khác nhau.
+- figure/procedure cadence;
+- sentence variant `close` dùng figure hiện có nhưng được thiết kế kết;
+- variation bằng rhythm/pitch transform có test.
 
-### 14.4. UI switching
+Không thể chỉ dựa `select.closes`.
 
-New pattern mode:
+### 14.4. Meter-aware wave/profile/frame
 
-```text
-Variant:
-(•) Source rhythm
-( ) AABA key loop
-```
+`guitar_wave.PROFILES` key `(ensemble, pattern)`, không có meter.
+`test_guitar_wave._EXPECTED` cũng vậy.
+`frame_bars_for()` chưa có `(2,4)`.
 
-- Đổi variant → invalidate preview hiện tại, không tự xoá `PatternDraft`.
-- `Preview sentence` dùng variant đang chọn.
-- `Play sentence` phát audio của variant vừa preview.
-- `Add sentence` lưu `variant` trong sentence để pattern draft/export biết nguồn.
-- Result label:
-  - `source rhythm`
-  - `AABA key loop`
-- Template picker vẫn ẩn ở new mode.
-- Existing mode không hiện variant này.
+Native 2/4 cần:
 
-### 14.5. PatternDraft/export
+- meter-aware `PROFILES`/`profile_for` hoặc branch `ctx.kind`;
+- `frame_bars_for((2,4), span)`;
+- test velocity/accent 2/4, không copy 4/4 tresillo.
 
-Sentence trong pattern draft:
+### 14.5. Quota semantics
 
-```json
-{
-  "variant": "aaba",
-  "spec": { "...TextureSpec..." },
-  "fixture": { "meter": "2/4", "bars": 5 }
-}
-```
+Plan §10 dùng quota theo bar, nhưng key figure có thể chạy dưới sentence lead.
+Một bar vừa sentence vừa key figure → quota bar vô nghĩa.
 
-- Export bundle giữ `variant` để phân biệt hai bản preview.
-- Không trộn hai variant trong cùng một sentence.
-- Có thể có nhiều sentence AABA/source trong cùng pattern draft nếu user muốn so sánh; duplicate id vẫn bị chặn.
+Phải chọn:
 
-### 14.6. Giới hạn
+- quota theo lead layer; hoặc
+- quota theo slot độc quyền; hoặc
+- bỏ quota khỏi MVP, chỉ log.
 
-- Cả hai variant đều **preview/export-only**.
-- Không đăng ký `SENTENCE_SPECS`, không đổi composer runtime.
-- Chưa phải phrase-level AABA/cadence; đó là Phase 2.
-- Chưa phải native 2/4 production; đó là Phase 3.
-- Chưa có quota 70/30; đó là Phase 5.
-- AABA variant không tự tạo B contrast mới; B là bar nguồn thứ ba.
+MVP: không enforce quota; Phase 5 mới chốt semantics.
 
-### 14.7. Acceptance
+### 14.6. PitchRef mapping
 
-- `source` events khớp passage.
-- `aaba` events khớp mapping `[A,A,B,A]`; không tràn bar.
-- Hai variant có spec id/audio khác nhau.
-- Switch variant → preview đổi đúng; Play đúng audio.
-- Add sentence lưu đúng variant; export giữ variant.
-- Existing mode và các variant khác không đổi.
-- Flag/registry/composer không bị mutate.
+Phase 4 không được tự sinh `melody_at_beat`/`bass_root` nếu `TextureSpec` chưa có.
+Hiện có:
+
+- `melody_eighth`
+- `chord_degree`
+- `chord_root`
+- `scale_step`
+- `literal_midi`
+
+Nếu cần kind mới, phải thêm validation/resolve/test.
+
+### 14.7. Pickup 1/4
+
+Parser đã normalize pickup 1/4 thành 2/4 và shift note sang beat 2.
+Production/native 2/4 phải chốt:
+
+- pickup bar có tính là bar 1 không;
+- A/B lấy bar nào;
+- key figure “bar 2/3” là measure nào;
+- FormSpec 2/4 xử lý pickup ra sao.
+
+### 14.8. Phase 1 test thật
+
+Phase 1 chỉ được coi là xong khi:
+
+- composer form thật có intro/outro/frame chọn pattern;
+- body+door merge đúng;
+- flag off byte-identical;
+- flag on digest deterministic;
+- không fallback toàn movement vì pedal.
