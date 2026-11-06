@@ -54,6 +54,12 @@ import {
   type MusicXmlImport,
   type MusicXmlPassage,
 } from './musicxml';
+import {
+  buildSentenceDraftBody,
+  normalizeSentenceDraftResponse,
+  type MusicXmlSentenceDraftRequest,
+  type SentenceDraftResponse,
+} from './sentenceDraft';
 
 export type {
   MusicXmlImport,
@@ -63,6 +69,19 @@ export type {
   MusicXmlPassage,
   MusicXmlSynthNote,
 } from './musicxml';
+
+export type {
+  MusicXmlSentenceDraftRequest,
+  PatternDraft,
+  PatternDraftMeta,
+  PatternDraftSentence,
+  SentenceDraftMode,
+  SentenceDraftNewPattern,
+  SentenceDraftPreview,
+  SentenceDraftResponse,
+  SentencePatternOption,
+  SentenceTemplateOption,
+} from './sentenceDraft';
 
 export type {
   CropRect,
@@ -163,6 +182,11 @@ export function studioMusicXmlImportUrl(id: string): string {
 
 export function studioMusicXmlPassageUrl(id: string): string {
   return `${studioMusicXmlImportUrl(id)}/passage`;
+}
+
+/** Sprint C: one passage -> one sentence draft (spec + fixture + preview). */
+export function studioMusicXmlSentenceDraftUrl(id: string): string {
+  return `${studioMusicXmlImportUrl(id)}/sentence-draft`;
 }
 
 /** Roll back to a published version by creating a new version from its payload. */
@@ -425,6 +449,28 @@ export async function requestMusicXmlPassage(
   const body = buildMusicXmlPassageBody(range);
   return normalizeMusicXmlPassage(
     await postStudioUrl(studioMusicXmlPassageUrl(id), body, signal),
+    getApiBaseUrl(),
+  );
+}
+
+/**
+ * `POST /v1/studio/import/musicxml/{id}/sentence-draft`.
+ *
+ * The endpoint renders a real preview and answers HTTP 200 with
+ * `{ok:false, errors}` for validation failures, so the normalizer keeps errors
+ * as values (same pattern as the passage call).
+ */
+export async function requestMusicXmlSentenceDraft(
+  importId: string,
+  request: MusicXmlSentenceDraftRequest,
+  signal?: AbortSignal,
+): Promise<SentenceDraftResponse> {
+  return normalizeSentenceDraftResponse(
+    await postStudioUrl(
+      studioMusicXmlSentenceDraftUrl(importId),
+      buildSentenceDraftBody(request),
+      signal,
+    ),
     getApiBaseUrl(),
   );
 }

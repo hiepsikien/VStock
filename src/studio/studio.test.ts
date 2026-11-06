@@ -122,6 +122,7 @@ import {
   valueLines,
   visibilityHint,
   visibilityLabel,
+  type StudioSample,
 } from './spec';
 import {
   STUDIO_SESSION_HEADER,
@@ -175,6 +176,29 @@ import {
   type MusicXmlImport,
   type MusicXmlRoleLane,
 } from './musicxml';
+import {
+  GENERIC_PATTERN_IDS,
+  VILLA_COMPOSER,
+  VILLA_RENDERER,
+  appendPatternSentence,
+  buildPatternDraftExport,
+  buildSentenceDraftBody,
+  createPatternDraft,
+  existingTemplateOptions,
+  genericPatternOptions,
+  newPatternId,
+  normalizeSentenceDraftResponse,
+  patternDraftJson,
+  patternDraftLabel,
+  removePatternSentence,
+  replacePatternSentence,
+  sentenceDraftKey,
+  slugifyPatternId,
+  villaMeterSupported,
+  villaTemplateOptions,
+  type PatternDraft,
+  type PatternDraftSentence,
+} from './sentenceDraft';
 import { saveVelocityContourToSpec } from './velocitySpec';
 
 function equal<T>(actual: T, expected: T) {
@@ -3377,6 +3401,270 @@ const failedPassage = normalizeMusicXmlPassage({
 });
 equal(failedPassage.ok, false);
 equal(failedPassage.errors[0]?.path, 'meter');
+
+/* ------------------------------------------------------------------------- *
+ * Sprint C: sentence draft body, tolerant response, local pattern draft.
+ * ------------------------------------------------------------------------- */
+
+equal(slugifyPatternId('Mazurka-Choro'), 'mazurka_choro');
+equal(slugifyPatternId('  Valsa  Choro! '), 'valsa_choro');
+equal(slugifyPatternId('Café 3/4'), 'cafe_3_4');
+equal(slugifyPatternId('---'), '');
+equal(newPatternId('Mazurka-Choro'), 'villa_mazurka_choro');
+equal(newPatternId('villa_valsa_choro'), 'villa_valsa_choro');
+equal(newPatternId('  '), '');
+equal(villaMeterSupported('3/4'), true);
+equal(villaMeterSupported('4/4'), true);
+equal(villaMeterSupported('6/8'), false);
+
+deepEqual(
+  [...GENERIC_PATTERN_IDS],
+  ['castillo', 'sonatina', 'fandanguillo', 'danza', 'galop'],
+);
+
+const draftSamples: StudioSample[] = [
+  ...SAMPLES,
+  {
+    key: 'villa_pattern:3/4',
+    pattern: 'villa_pattern',
+    meter: '3/4',
+    title: 'Mazurka',
+    id: 'suite_mazurka_arpeggio_aaba',
+    spec: {},
+    fixture: {},
+  },
+  {
+    key: 'villa_pattern:4/4',
+    pattern: 'villa_pattern',
+    meter: '4/4',
+    title: 'Schottish',
+    id: 'suite_schottish_arpeggio_abab',
+    spec: {},
+    fixture: {},
+  },
+  {
+    key: 'preludio:4/4',
+    pattern: 'preludio',
+    meter: '4/4',
+    title: 'Barrios',
+    id: 'barrios_cathedral',
+    spec: {},
+    fixture: {},
+  },
+];
+
+const genericIds = genericPatternOptions(draftSamples).map((option) => option.id);
+deepEqual(genericIds, ['castillo', 'sonatina', 'fandanguillo', 'danza', 'galop']);
+if (genericIds.some((id) => id.startsWith('suite_'))) {
+  throw new Error('suite_* must not appear in the existing pattern picker');
+}
+if (genericIds.includes('villa_pattern') || genericIds.includes('preludio')) {
+  throw new Error('Villa/Barrios must not appear in the existing pattern picker');
+}
+deepEqual(
+  existingTemplateOptions(draftSamples, 'castillo', '4/4').map((option) => option.id),
+  ['castillo_44_short'],
+);
+deepEqual(
+  villaTemplateOptions(draftSamples, '3/4').map((option) => option.id),
+  ['suite_mazurka_arpeggio_aaba'],
+);
+deepEqual(villaTemplateOptions(draftSamples, '6/8'), []);
+
+deepEqual(
+  buildSentenceDraftBody({
+    barStart: 2,
+    beatStart: 0,
+    barEnd: 5,
+    beatEnd: 2,
+    mode: 'existing',
+    pattern: 'castillo',
+    templateId: 'castillo_34_walk',
+    voices: [2, 1, 2],
+  }),
+  {
+    barStart: 2,
+    barEnd: 5,
+    mode: 'existing',
+    beatStart: 0,
+    beatEnd: 2,
+    voices: [1, 2],
+    pattern: 'castillo',
+    templateId: 'castillo_34_walk',
+  },
+);
+
+deepEqual(
+  buildSentenceDraftBody({
+    barStart: 2,
+    beatStart: 0,
+    barEnd: 5,
+    beatEnd: 2,
+    mode: 'new',
+    pattern: 'castillo',
+    templateId: 'suite_mazurka_arpeggio_aaba',
+    newPattern: {
+      id: 'villa_mazurka_choro',
+      label: 'Mazurka-Choro',
+      composer: VILLA_COMPOSER,
+      renderer: VILLA_RENDERER,
+      meter: '3/4',
+      templateId: 'suite_mazurka_arpeggio_aaba',
+    },
+  }),
+  {
+    barStart: 2,
+    barEnd: 5,
+    mode: 'new',
+    beatStart: 0,
+    beatEnd: 2,
+    newPattern: {
+      id: 'villa_mazurka_choro',
+      label: 'Mazurka-Choro',
+      composer: 'Villa-Lobos',
+      renderer: 'villa',
+      meter: '3/4',
+      templateId: 'suite_mazurka_arpeggio_aaba',
+    },
+  },
+);
+
+const draftResponse = normalizeSentenceDraftResponse(
+  {
+    ok: true,
+    mode: 'existing',
+    spec: { id: 'musicxml_mxi_2_5', pattern: 'castillo', meter: '3/4' },
+    fixture: { length: 4, n: 0, closes: false, rise: 0 },
+    preview: {
+      renderHash: 'sha256:abc',
+      audioUrl: '/v1/studio/sentence/audio/abc.wav',
+      durationSec: 1.5,
+      notes: 24,
+    },
+    warnings: ['template tile 4 used; passage has 4 bars'],
+    productionReady: false,
+  },
+  'https://api.test',
+);
+equal(draftResponse.ok, true);
+equal(draftResponse.mode, 'existing');
+equal(draftResponse.spec?.id, 'musicxml_mxi_2_5');
+deepEqual(draftResponse.fixture, { length: 4, n: 0, closes: false, rise: 0 });
+equal(
+  draftResponse.preview?.audioUrl,
+  'https://api.test/v1/studio/sentence/audio/abc.wav',
+);
+equal(draftResponse.preview?.renderHash, 'sha256:abc');
+equal(draftResponse.preview?.durationSec, 1.5);
+equal(draftResponse.preview?.notes, 24);
+equal(draftResponse.warnings[0], 'template tile 4 used; passage has 4 bars');
+equal(draftResponse.productionReady, false);
+
+const snakeDraft = normalizeSentenceDraftResponse({
+  ok: true,
+  mode: 'new',
+  spec: { id: 'musicxml_new', pattern: 'villa_mazurka_choro' },
+  preview: {
+    render_hash: 'sha256:def',
+    audio_url: 'https://cdn.test/a.wav',
+    duration_sec: 2,
+    notes: [{}, {}, {}],
+  },
+  production_ready: true,
+  warnings: 'single warning',
+});
+equal(snakeDraft.mode, 'new');
+equal(snakeDraft.preview?.renderHash, 'sha256:def');
+equal(snakeDraft.preview?.audioUrl, 'https://cdn.test/a.wav');
+equal(snakeDraft.preview?.durationSec, 2);
+equal(snakeDraft.preview?.notes, 3);
+equal(snakeDraft.productionReady, true);
+deepEqual(snakeDraft.warnings, ['single warning']);
+
+const failedSentenceDraft = normalizeSentenceDraftResponse({
+  ok: false,
+  errors: [
+    { path: 'pattern', message: 'suite_mazurka is a single-sentence suite gate' },
+  ],
+});
+equal(failedSentenceDraft.ok, false);
+equal(failedSentenceDraft.mode, 'existing');
+equal(failedSentenceDraft.spec, null);
+deepEqual(failedSentenceDraft.fixture, {});
+equal(failedSentenceDraft.preview, null);
+equal(failedSentenceDraft.productionReady, false);
+equal(failedSentenceDraft.errors[0]?.path, 'pattern');
+if (!failedSentenceDraft.errors[0]?.message.includes('single-sentence')) {
+  throw new Error('sentence-draft errors should survive normalization');
+}
+
+const sentenceA: PatternDraftSentence = {
+  spec: { id: 'musicxml_a', pattern: 'villa_mazurka_choro', meter: '3/4' },
+  fixture: { length: 4, n: 0, closes: false, rise: 0 },
+  rangeLabel: 'bar 2 · beat 1.0 → bar 5 · beat 3.0',
+  audioUrl: 'https://api.test/a.wav',
+  durationSec: 1.25,
+  renderHash: 'sha256:a',
+};
+const sentenceB: PatternDraftSentence = {
+  spec: { id: 'musicxml_b', pattern: 'villa_mazurka_choro', meter: '3/4' },
+  fixture: { length: 4, n: 1, closes: false, rise: 0 },
+  rangeLabel: 'bar 6 · beat 1.0 → bar 9 · beat 3.0',
+};
+const patternDraft: PatternDraft = createPatternDraft(
+  {
+    id: 'villa_mazurka_choro',
+    label: 'Mazurka-Choro',
+    composer: VILLA_COMPOSER,
+    renderer: VILLA_RENDERER,
+    meter: '3/4',
+  },
+  sentenceA,
+);
+equal(patternDraft.sentences.length, 1);
+const appended = appendPatternSentence(patternDraft, sentenceB);
+if (!appended.ok) throw new Error(appended.error);
+equal(appended.draft.sentences.length, 2);
+equal(appended.draft.sentences[1]?.spec.id, 'musicxml_b');
+
+const duplicate = appendPatternSentence(appended.draft, sentenceA);
+equal(duplicate.ok, false);
+if (duplicate.ok) throw new Error('duplicate sentence should be rejected');
+if (!duplicate.error.includes('already')) {
+  throw new Error('duplicate sentence error should say it is already present');
+}
+equal(duplicate.draft.sentences.length, 2);
+
+const replaced = replacePatternSentence(appended.draft, 0, {
+  ...sentenceA,
+  rangeLabel: 'bar 10 · beat 1.0 → bar 13 · beat 3.0',
+});
+equal(replaced.sentences[0]?.rangeLabel, 'bar 10 · beat 1.0 → bar 13 · beat 3.0');
+const duplicateReplace = replacePatternSentence(appended.draft, 0, sentenceB);
+equal(duplicateReplace.sentences[0]?.spec.id, 'musicxml_a');
+
+const removed = removePatternSentence(appended.draft, 0);
+equal(removed.sentences.length, 1);
+equal(removed.sentences[0]?.spec.id, 'musicxml_b');
+equal(removePatternSentence(removed, 9).sentences.length, 1);
+equal(patternDraftLabel(appended.draft), 'villa_mazurka_choro · 3/4 · 2 sentences');
+equal(sentenceDraftKey(sentenceA), 'musicxml_a');
+
+deepEqual(buildPatternDraftExport(appended.draft), {
+  id: 'villa_mazurka_choro',
+  label: 'Mazurka-Choro',
+  composer: 'Villa-Lobos',
+  renderer: 'villa',
+  meter: '3/4',
+  sentences: [
+    { spec: sentenceA.spec, fixture: sentenceA.fixture },
+    { spec: sentenceB.spec, fixture: sentenceB.fixture },
+  ],
+});
+const exported = patternDraftJson(appended.draft);
+if (exported.includes('rangeLabel') || exported.includes('renderHash')) {
+  throw new Error('export bundle must contain only spec + fixture per sentence');
+}
 
 type FakeStore = {
   value: string | null;
