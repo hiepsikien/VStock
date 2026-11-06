@@ -1,6 +1,6 @@
 # Kế hoạch: Studio Render Piece (figure → bản nhạc → WAV)
 
-Trạng thái: **draft, chưa triển khai**.
+Trạng thái: **Phase A–D đã triển khai** (commit `4f90da9`). Phase E hardening còn lại.
 Phạm vi: `release/studio-v2.1`.
 Mục tiêu: sau khi user chọn/tag figure, có thể chọn plan, render full piece, nghe thử bằng **Play**, và export WAV/MusicXML — không auto-publish.
 
