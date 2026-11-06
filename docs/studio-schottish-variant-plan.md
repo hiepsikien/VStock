@@ -291,6 +291,7 @@ Preview mode:
   - `_rhythm_preview_payload` nhận `previewMode`.
   - `_rhythm_spec_id` seed thêm `previewMode`.
   - response `previewMode`, `warnings`.
+  - import/score summary response thêm `pickupBars`; Pydantic response model cập nhật.
 - `backend/app/studio/musicxml_sentence.py`
   - `prepare_draft`/`render_draft` cho `previewMode`.
 - `backend/app/studio/musicxml_import.py`
@@ -321,6 +322,9 @@ Preview mode:
   - variant chips/switch;
   - invalidate preview;
   - warning label.
+- `src/studio/musicxml.ts`
+  - `MusicXmlImportSummary.pickupBars`;
+  - normalize `pickupBars`/`pickup_bars` (snake_case/camelCase).
 - `src/studio/api.ts` nếu request type dùng chung.
 - `src/studio/studio.test.ts`
   - normalizer/request/label/export.
@@ -333,6 +337,8 @@ Preview mode:
 - `aaba` mapping đúng cho 1/2/3/4/5/6/7/8 bar; outputBars = selectionBars.
 - Có pickup: 1/2/3/4 bar selection mapping đúng; pickup không thành A/B.
 - `summary.pickupBars` từ parser; full bar có rest đầu bar **không** phải pickup.
+- Client normalize `pickupBars`/`pickup_bars`.
+- `spec.meter_variants > 1` → reject/warning rõ.
 - Warning khi <4 bar; warning khi chỉ chọn pickup.
 - Tie/slur/note không vượt bar; clip đúng.
 - Tie pair còn adjacent được giữ; pair bị tách bị clear cả hai phía.
@@ -383,3 +389,4 @@ Chỉ làm sau Track A Phase 2, dùng chung schema với `sentence_plan.py`:
 8. **Thiếu door:** chỉ warning + `complete:false`; **không** tự lấy default `_villa_pattern_door`.
 9. **Pickup:** lấy từ `ImportSummary.pickupBars`; không dùng onset heuristic.
 10. **Error shape:** `existing + previewMode` và invalid `previewMode` đều `200 {ok:false}`.
+11. **`pickupBars` propagation:** backend summary + `MusicXmlImportSummary` + client normalizer; test snake_case/camelCase.

@@ -27,7 +27,7 @@ Track B (Studio preview `source`/`aaba`) tách riêng tại
 | Partial merge chưa chốt | Chốt cách A + `covered: frozenset[int]` |
 | `p.apex` là `Run`, không phải int | Dùng `p.rise` |
 | `plan_slots` thiếu `offset` | Thêm `offset` + test phrase > 0 |
-| 4 phrase không bridge có thể mất B | B bắt buộc ở `len(body)//2`; rise chỉ nâng cấp |
+| 4 phrase không bridge có thể mất B | B bắt buộc ở `b_index = min(2, len(body)-2)`; rise chỉ nâng cấp |
 | `keyFigures` scope quá rộng | Chỉ pattern mới/promote; pattern cũ grandfathered |
 | Phase 3 chưa có FormSpec path | Chốt movement III (1M/3M), 1W toàn bộ; pickup không vào production |
 | AABA/trio hardcode trong gate | Tách `sentence_plan.py`: `PlanPolicy` + `CompositePolicy` + `explicit` JSON; renderer chỉ nhận `PlannedSlot[]` |
@@ -69,7 +69,7 @@ meter 4/4 (fold from 2/4)
 ### Phase 2 — phrase-level form + cadence
 
 - Chia movement theo phrase thật (`ctx.phrases`, fallback `ctx.sections`).
-- Chọn A/B/close theo phrase; B ở bridge/trio hoặc phrase giữa; phrase cuối close/cadence.
+- Chọn A/B/close theo phrase; B ở bridge/trio, nếu không có thì n2 (3 phrase: n1); phrase cuối close/cadence.
 - Không hardcode `n=0, closes=False, rise=0`.
 - Cadence phải có artifact (xem §3.2), không chỉ dựa `select.closes`.
 - Test 5/7/9/16/30 bar.
@@ -349,21 +349,22 @@ rise = p.rise (property có sẵn; fallback 0)
 - 3 phrase: A + B + close.
 - 4 phrase: A + A + B + close (B = n2).
 - 5 phrase: A + A + B + A + close (B = n2).
-- ≥6 phrase: A + A + B + A ... + close; B = `len(body)//2`.
+- ≥6 phrase: A + A + B + A ... + close; B = n2 (không dùng `len//2`).
 
 #### 3.2.2. Chọn spec
 
 ```text
+b_index = min(2, len(body) - 2)
 if phrase cuối: close
 elif phrase là bridge/trio: B
 elif phrase đầu: A
-elif body >= 3 và n == len(body)//2: B
-elif rise >= MIN_RISE: B (biến thể mạnh hơn)
+elif body >= 3 và n == b_index: B
 else: A
 ```
 
 - `B` **luôn có** khi body ≥3; không phụ thuộc rise.
-- `rise >= MIN_RISE` (3 semitone) chỉ nâng cấp A→B hoặc đổi contour, không dùng để bỏ B.
+- `rise >= MIN_RISE` (3 semitone) **không thêm B**. Nó chỉ chọn B variant/contour mạnh hơn
+  (`Select.rise_min`, figure/contour) khi role đã là B.
 - `close` không bị thay bằng A/B dù quota thiếu.
 - Phrase quá ngắn cho spec: dùng spec ngắn hơn hoặc fallback A; không cắt B/close.
 
@@ -381,26 +382,36 @@ Thiết kế `VILLA_CADENCE`:
 ```python
 VILLA_CADENCE = 5
 
+def _nearest_chord_root(ctx, chord, start, low, high):
+    """Chord root pc nearest the previous melody note, inside [low, high]."""
+    previous = ctx.melody[max(0, start - 1)]
+    root_pc = chord.pitches[0] % 12
+    candidates = [note for note in range(low, high + 1) if note % 12 == root_pc]
+    return min(candidates, key=lambda note: abs(note - previous))
+
 def _cadence_bar(ctx, bar, phrase):
     start = bar * ctx.epb
     chord = ctx.chord(bar)
+    # _stored_bass(chord, 0, ...) is chord.pitches[0], clamped to the bass window.
     bass = _choose_bass(
         chord, 0, None, ctx.bass_low, ctx.bass_high, ctx.semitones
     )
-    # Lead = chord root pitch class, nearest the previous melody note.
     lead = _nearest_chord_root(ctx, chord, start, ctx.treble_floor, ctx.treble_top)
     support = _choose_inner(
         chord, lead, bass, ctx.mid_low, ctx.mid_high, ctx.semitones,
         color=False, index=0,
     )
     # One attack at beat 0, sustained through the bar.
-    low = [_eighth_event(0, ctx.epb, bass, ctx.epb, 3, _P)]
-    mid = [] if support is None else [
-        _eighth_event(0, ctx.epb, support, ctx.epb, 2, _P)
-    ]
-    high = [_eighth_event(0, ctx.epb, lead, ctx.epb, 1, _P)]
+    # _eighth_event returns list[NoteEvent], so do not wrap it again.
+    low = _eighth_event(start, ctx.epb, bass, ctx.epb, 3, _P)
+    mid = _eighth_event(start, ctx.epb, support, ctx.epb, 2, _P)
+    high = _eighth_event(start, ctx.epb, lead, ctx.epb, 1, _P)
     return high, mid, low
 ```
+
+- `_nearest_chord_root` là helper mới, chưa tồn tại; phải thêm + test riêng.
+- `_choose_bass(..., lead=None)` trả `chord.pitches[0]` qua `_stored_bass`, nên bass là root.
+- `_choose_inner` signature hiện tại đã khớp (xem `guitar_patterns.py`); không đoán.
 
 - “Tonic” = **root pitch class của chord cuối** (`ctx.chord(bar).pitches[0]`), không phải
   key tonic toàn cục. Nếu chord cuối không phải I, đó là half cadence; test riêng và log warning.
@@ -423,7 +434,10 @@ Test:
 - bar trước/sau không bị đổi;
 - 4/4 và 2/4 không tràn bar;
 - chord cuối I → close; chord cuối V → half cadence + warning;
+- `_nearest_chord_root` helper mới + test riêng;
+- `_eighth_event(start, ctx.epb, midi, ctx.epb, voice, vel)` trả `list[NoteEvent]`, không wrap;
 - `assert_playable`/voice order;
+- 4/4 và 2/4 không tràn bar;
 - Studio preview và production dùng cùng figure.
 
 A2 variation (MVP):
@@ -482,7 +496,7 @@ Built-in policies:
 
 | id | role pattern |
 |---|---|
-| `auto_aaba` | A A B close; B = bridge/trio hoặc `len//2` |
+| `auto_aaba` | A A B close; B = bridge/trio hoặc n2 (`min(2, len-2)`) |
 | `aaba_16` | A1 A2 B A3, chỉ movement đúng 16 bar |
 | `abab` | A B A B (B xen kẽ; close ở cuối nếu cần) |
 | `trio` | A B A; B đặt đúng trio/bridge |
@@ -491,6 +505,10 @@ Built-in policies:
 | `explicit` | roles/sentence ids lấy từ JSON ngoài |
 
 `trio`/`aaba` chỉ là **policy**, không phải nhánh if trong renderer.
+
+**Phase 2 MVP:** chỉ cần `auto_aaba`, `trio`, `explicit`.
+`aaba_16`, `abab`, `through`, `CompositePolicy` là **future**, không estimate vào MVP.
+MVP vẫn dùng interface `PlanPolicy` để sau thêm mà không đổi renderer.
 
 ##### Composite policy
 
@@ -554,12 +572,14 @@ JSON tối thiểu:
 
 Validation:
 
+- JSON `startBar` là **1-based**; convert sang `PlannedSlot.bars` **0-based** (`startBar - 1`).
 - `pattern`/`meter` khớp;
 - `startBar` tăng dần, `bars >= 1`;
 - role cuối phải `close`;
 - `B` không ở phrase cuối;
 - `sentenceByRole` trỏ tới spec có trong `SENTENCE_SPECS[(pattern, meter)]`;
 - số phrase/bars khớp movement;
+- output `Plan.slots` 0-based; test phrase 0/1 không lệch bar;
 - plan lạ → reject rõ, không silent fallback.
 
 ##### Default / fallback
@@ -597,11 +617,14 @@ Meter được chọn ở `plan_week`/`plan_month`/`plan_quarter`, **không** đ
 def _suite_meter_override(
     spec: FormSpec,
     *,
+    variant: str,
     ensemble: str,
     span: str,
     index: int,
 ) -> FormSpec:
-    if ensemble != "villa" or not suite_schottish_enabled():
+    if variant != "guitar" or ensemble != "villa":
+        return spec
+    if not suite_schottish_enabled():
         return spec
     if span == "1W" and index == 0:
         return replace(spec, meter=METER_24)
@@ -618,6 +641,35 @@ def _suite_meter_override(
 - Pattern id giữ `suite_schottish`; thêm meter variant `2/4`, không tạo title thứ hai.
 - 1W: cả movement 2/4; 1M/3M: chỉ movement III 2/4.
 
+##### Pattern selection scope
+
+Meter override một mình không đủ: `SuiteGate.eligible` hiện chỉ kiểm ensemble/meter/bars/no pedal,
+nên bản 4/4 có thể được chọn ở movement I/II/IV. Cần scope tường minh.
+
+- Thêm `SuiteGate.movement_indices: frozenset[int] | None = None`.
+- `eligible`:
+  ```python
+  if gate.movement_indices is not None:
+      if ctx.movement_index is None:
+          return False
+      if ctx.movement_index not in gate.movement_indices:
+          return False
+  ```
+- Hai gate cho cùng pattern:
+  - `GATE_44`: meter `4/4`, scope `{2}` ở Phase 3; Phase 1 có thể `None` để audition.
+  - `GATE_24`: meter `2/4`, scope `{0, 2}` (1W index 0; 1M/3M movement III index 2).
+- `SUITE_MOVEMENTS` thêm **cả hai** entry:
+  ```python
+  (pattern, module, GATE_44)
+  (pattern, module, GATE_24)
+  ```
+- `guitar_suite_schottish` expose `GATES = (GATE_44, GATE_24)`; `eligible`/`selectable`/`render_sentence` lặp cả hai.
+- `selectable_pattern`/`render_sentence` lặp cả hai; chỉ gate khớp meter/scope mới eligible.
+- 4/4 chỉ còn fallback/rollback/regression; 2/4 là production final.
+- Nếu mục tiêu đổi thành “mọi movement Villa đều có thể là Schottish”, bỏ scope; plan hiện chốt
+  **chỉ movement III** cho 1M/3M, `1W` là movement duy nhất.
+- Studio render không có `movement_index` không đi qua gate production; preview dùng passage path.
+
 #### 3.3.2. Figure/wave/frame
 
 1. Sửa `_chord_grid` 2/4:
@@ -628,8 +680,12 @@ def _suite_meter_override(
    - `_EXPECTED` cập nhật;
    - accent strong beat 0/subbar 2, không copy `tresillo` 4/4.
 3. Frame:
-   - `frame_bars_for((2,4), span)` có giá trị;
-   - test `1Y`/`1M`/`3M`.
+   - `frame_bars_for((2,4), span)`:
+     - `1Y`: **2 bar** (short script);
+     - `1M`: **4 bar**;
+     - `3M`: **4 bar**;
+   - giữ đúng hợp đồng short=2/long=4; nếu audition thấy quá ngắn, mở rộng 4/8 ở phase sau.
+   - test `1Y`/`1M`/`3M` + frame 1/2/3/4 bar.
 4. Studio preview:
    - mở `VILLA_PATTERNS`/dispatch/export cho `suite_schottish` 2/4;
    - hoặc ghi rõ production-only, không authorable.
@@ -900,6 +956,8 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 13. **Pickup metadata là nguồn duy nhất.** `summary.pickupBars` từ import; không dùng onset heuristic.
 14. **Plan selection tách khỏi renderer.** `sentence_plan.py` chứa `PlanPolicy`/`CompositePolicy`/`build_plan`; `render_plan` chỉ nhận `PlannedSlot[]`. External plan dùng JSON `explicit`, không mutate registry.
 15. **AABA/trio/ABAB là policy data**, không phải nhánh `if` trong `SuiteGate`.
+16. **Schottish chỉ ở movement III** (1M/3M) và movement duy nhất (1W); `1W` dùng 2/4, `1M/3M` movement III dùng 2/4. 4/4 chỉ fallback/rollback.
+17. **Hai gate/entry** cho `(suite_schottish, 4/4)` và `(suite_schottish, 2/4)` trong `SUITE_MOVEMENTS`; scope bằng `movement_indices`.
 
 ---
 
@@ -935,12 +993,12 @@ B **luôn tồn tại** khi body ≥3 phrase; `rise` chỉ chọn B mạnh/yếu
 | 3 | A, B, close |
 | 4 | A, A, B, close |
 | 5 | A, A, B, A, close |
-| ≥6 | A, A, B, A, ..., close; B ở `len(body)//2` |
+| ≥6 | A, A, B, A, ..., close; B = n2 (không dùng `len//2`) |
 
 - Bridge/trio có metadata: B đặt đúng phrase đó.
-- Không có bridge/trio: B mặc định ở `len(body)//2` (4 phrase → n2, 5 phrase → n2).
-- `rise >= MIN_RISE` (3 semitone) chỉ **nâng cấp** một A thành B mạnh hơn hoặc đổi contour;
-  không dùng để bỏ B bắt buộc.
+- Không có bridge/trio: `b_index = min(2, len(body) - 2)` → 3 phrase n1, 4+ phrase n2.
+- `rise >= MIN_RISE` (3 semitone) chỉ chọn **B variant/contour mạnh hơn** khi role đã là B;
+  không thêm role B thứ hai.
 - B không được ở phrase cuối.
 - Close luôn ở phrase cuối.
 - Thuật toán này là built-in `auto_aaba`; policy khác (`trio`, `abab`, `explicit`) nằm ở
@@ -1014,6 +1072,7 @@ Phase 5 phải chọn một và test:
 7. Pickup 1/4: không tính là bar 1; A/B/key figure lấy full bar sau pickup; production 2/4 không giữ pickup bar.
 8. Multi-spec/partial path opt-in; 3 movement còn lại byte-identical.
 9. Track B: chỉ warning khi thiếu door, không tự sinh default door; pickup lấy từ `summary.pickupBars`.
+10. Schottish chỉ chọn ở movement III (1M/3M) hoặc movement duy nhất (1W); hai gate 4/4 + 2/4, scope `movement_indices`.
 
 ---
 
@@ -1044,9 +1103,11 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 11. `_RETAINED_DOORS` đã có row `suite_schottish`; gap thật là Studio chưa capture door artifacts, không phải thiếu DOORS row.
 12. `Phrase.apex` là `Run`; `rise` phải đọc `p.rise`.
 13. `plan_slots`/`plan_sentence` chưa có `offset`; phrase 2+ sẽ plan về bar 0 nếu không sửa.
-14. 4 phrase không bridge phải vẫn có B ở `len(body)//2`; rise không được làm mất B.
+14. 4 phrase không bridge phải vẫn có B ở `min(2, len(body)-2)`; rise không thêm B.
 15. Phase 3 cần `_suite_meter_override` ở `plan_*`, không đổi `_guitar_meter` toàn cục.
 16. `SuiteGate._plan` hiện hardcode `n=0`; plan seam phải tách `sentence_plan.py`, không nhét thêm vào gate.
+17. `SuiteGate.eligible` không có movement scope; 4/4 Schottish có thể chọn ở I/II/IV → thêm `movement_indices`.
+18. Cần hai gate/entry cho cùng pattern `(4/4, 2/4)` trong `SUITE_MOVEMENTS`; nếu không 2/4 không bao giờ được chọn.
 
 ---
 
@@ -1066,3 +1127,4 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 2. **Track B không tự sinh door**: chỉ warning + `complete:false`; user phải thêm intro/outro trước promote.
 3. **Không còn câu hỏi mở** cho Phase 0; các thay đổi code bắt đầu từ Phase 0 theo §3.0.
 4. **Plan seam tách bạch**: AABA/trio/ABAB/external plan nằm trong `sentence_plan.py`; renderer không biết policy. External JSON qua `explicit`, có validate và reject rõ.
+5. **Selection scope**: movement III cho `1M/3M`, movement duy nhất cho `1W`; hai gate 4/4 + 2/4; 4/4 chỉ fallback/rollback.
