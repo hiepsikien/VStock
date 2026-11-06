@@ -212,6 +212,50 @@ Với `2/4` (Scotish):
 - chỉ thử pattern `ANY_METER` (`sonatina`, `fandanguillo`, `galop`);
 - nếu figure không hợp, báo cần figure/texture `2/4`.
 
+### 6.2.1 Ví dụ: đưa 3 bản Villa-Lobos vào “Lobos”
+
+“Lobos” là **nhóm composer/suite**, không phải một SentenceSpec. Trong registry hiện tại Villa-Lobos được chia thành nhiều pattern:
+
+| Bản nhạc | Meter thực tế | Pattern đích | SentenceSpec template | Nếu không khớp |
+|---|---|---|---|---|
+| Choro-Mazurka | thường `3/4` | `suite_mazurka` | `suite_mazurka_arpeggio_aaba` | tạo SentenceSpec mới dưới `suite_mazurka` |
+| Valse-Mazurka | thường `3/4` | `suite_valsa` | `suite_valsa_arpeggio_period` | tạo SentenceSpec mới dưới `suite_valsa` |
+| Scottish-Mazurka | `4/4` hoặc `1/4→2/4` | `suite_schottish` nếu `4/4` | `suite_schottish_arpeggio_abab` | nếu `2/4`: cần pattern/figure `2/4` mới |
+
+Điểm quan trọng:
+
+- Không “ghép vào một SentenceSpec Lobos” chung. Mỗi bản phải chọn **pattern + meter**, rồi tạo **SentenceSpec mới** dưới key đó.
+- SentenceSpec cũ chỉ là **template** để lấy `figure`, `span`, `select`; không overwrite nó.
+- Ví dụ draft mới:
+
+```json
+{
+  "id": "suite_mazurka_musicxml_abc123",
+  "pattern": "suite_mazurka",
+  "meter": "3/4",
+  "select": {"length_min": 4, "length_max": null, "n_parity": "any"},
+  "span": {"tile": 4, "remainder": "same_figure", "cycle": false, "exact": false},
+  "slots": [
+    {"start": 0, "bars": 1, "figure": 1},
+    {"start": 1, "bars": 1, "figure": 1},
+    {"start": 2, "bars": 1, "figure": 2},
+    {"start": 3, "bars": 1, "figure": 1}
+  ]
+}
+```
+
+- Registry sau khi promote:
+
+```python
+SENTENCE_SPECS[("suite_mazurka", "3/4")] = (
+    suite_mazurka_arpeggio_aaba,          # template cũ
+    suite_mazurka_musicxml_abc123,        # sentence mới từ MusicXML
+)
+```
+
+- **Publish trong Studio ≠ composer runtime.** `studio_publish` chỉ lưu/version SQLite và chưa đăng ký vào `SENTENCE_SPECS`. Muốn composer dùng thật, sentence mới phải được promote vào code registry/interpreter registry (Phase 4) hoặc một loader DB có flag.
+- Nếu Scottish thực tế là `1/4→2/4` như file mẫu, `suite_schottish` hiện tại (`4/4` stand-in) **không phải** match hợp lệ; cần pattern/figure `2/4` mới hoặc dùng pattern `ANY_METER`.
+
 ### 6.3 API
 
 ```text
