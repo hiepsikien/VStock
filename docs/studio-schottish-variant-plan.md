@@ -258,7 +258,7 @@ Preview mode:
 
 ### 7.1. Pattern draft completeness: Intro / Key / Outro
 
-Track B chỉ tạo **Key** sentence. Một pattern Studio chỉ `complete` khi có đủ
+**Đã chốt.** Track B chỉ tạo **Key** sentence. Một pattern Studio chỉ `complete` khi có đủ
 **3 role / 5 artifact** (xem Track A §3.5):
 
 ```json
@@ -376,5 +376,8 @@ Chỉ làm sau Track A Phase 2:
 3. **MVP quota:** mỗi lần `Preview sentence` = 1 draft request/quota.
 4. **UI label:** **“AABA bar loop”**.
 5. **`existing` + `previewMode`:** reject, không ignore.
-6. **`loop_texture_bars`:** nhận `meter`, clip theo bar length, tie pair-aware.
+6. **`loop_texture_bars`:** nhận `meter: MeterSpec`, clip theo bar length, tie pair-aware.
 7. **<4 bar:** warning, không chặn.
+8. **Thiếu door:** chỉ warning + `complete:false`; **không** tự lấy default `_villa_pattern_door`.
+9. **Pickup:** lấy từ `ImportSummary.pickupBars`; không dùng onset heuristic.
+10. **Error shape:** `existing + previewMode` và invalid `previewMode` đều `200 {ok:false}`.

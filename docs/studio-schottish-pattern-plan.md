@@ -742,7 +742,7 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 1. **Phase 0 bắt buộc.** Audit form thật + body/door merge trước Phase 1.
 2. **Phase 1 = 4/4 fold, giữ ABAB.** Dùng `suite_schottish`; không tạo pattern id mới; không tuyên bố final.
 3. **Phase 2 = phrase-level plan + cadence artifact.** Chọn A/B/close theo phrase; thêm `VILLA_CADENCE` ở Phase 2, không dựa vào figure hiện có.
-4. **Phase 3 = native 2/4.** `FormSpec`/`span` + meter-aware wave/frame + `_chord_grid` fix + test composer thật.
+4. **Phase 3 = native 2/4.** `FormSpec`/`span` + meter-aware wave/frame + `_chord_grid` fix + test composer thật. Gán 2/4 cho `1W` toàn movement và `1M`/`3M` movement **III**; pickup không vào production.
 5. **Quota = policy 70% ±10%, chưa enforce MVP.** Semantics chốt Phase 5.
 6. **Preset trước, user-authorable sau.** Phase 1–2 preset; Phase 3–4 mở Studio.
 7. **Key figure:** bar 2/3 sau pickup; ưu tiên rhythm fidelity; chỉ dùng `PitchRef` kind hiện có.
@@ -750,6 +750,8 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 9. **Pattern Studio phải có 3 role / 5 artifact.** Intro short(2)+long(4), Key, Outro short(2)+long(4); thiếu thì không promote.
 10. **Door dùng `frame_roles`/`DOORS` hiện có.** `suite_schottish` đã có row `_villa_pattern_door`; `short` = steps 2, `long` = steps 4.
 11. **`keyFigures` là metadata Studio/export**, không phải registry production mới; gate chỉ áp cho pattern mới/promote.
+12. **Track B chỉ warning khi thiếu door.** Không tự lấy default `_villa_pattern_door`; `complete:false` đến khi user thêm đủ intro/outro.
+13. **Pickup metadata là nguồn duy nhất.** `summary.pickupBars` từ import; không dùng onset heuristic.
 
 ---
 
@@ -856,11 +858,12 @@ Phase 5 phải chọn một và test:
 1. Phase 0: **bắt buộc** — audit + body/door merge.
 2. Phase 1: **4/4 fold ABAB** — foundation, không final.
 3. Phase 2: **phrase-level + cadence artifact**.
-4. Phase 3: **native 2/4**, meter-aware wave/frame.
+4. Phase 3: **native 2/4**, meter-aware wave/frame; `1W` toàn movement, `1M`/`3M` movement III.
 5. Phase 4: key figure dùng `TextureSpec`/`PitchRef` hiện có.
 6. Phase 5: quota 70% ±10% là **target policy only**; chưa enforce đến Phase 5, semantics TBD.
-7. Pickup 1/4: không tính là bar 1; A/B/key figure lấy full bar sau pickup.
+7. Pickup 1/4: không tính là bar 1; A/B/key figure lấy full bar sau pickup; production 2/4 không giữ pickup bar.
 8. Multi-spec/partial path opt-in; 3 movement còn lại byte-identical.
+9. Track B: chỉ warning khi thiếu door, không tự sinh default door; pickup lấy từ `summary.pickupBars`.
 
 ---
 
@@ -903,3 +906,12 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 3. **Close dùng `VILLA_CADENCE = 5`** ở Phase 2; không dựa vào figure hiện có.
 4. **Pattern Studio = 3 role / 5 artifact**: intro short(2)+long(4), key, outro short(2)+long(4).
 5. **Door map vào `DOORS` + `frame_roles` hiện có**; `short` = steps 2, `long` = steps 4, 1-bar compressed, 3-bar long co còn role 0/2/3.
+
+---
+
+## 16. Chốt sau review vòng 5
+
+1. **Native 2/4 gán vào movement III** cho `1M`/`3M`; `1W` dùng 2/4 cho toàn movement.
+2. **Track B không tự sinh door**: chỉ warning + `complete:false`; user phải thêm intro/outro trước promote.
+3. **Không còn câu hỏi mở** cho Phase 0; các thay đổi code bắt đầu từ Phase 0 theo §3.0.
+
