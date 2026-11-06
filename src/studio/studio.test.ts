@@ -183,6 +183,7 @@ import {
   VILLA_COMPOSER,
   VILLA_RENDERER,
   appendPatternSentence,
+  composerOptions,
   buildPatternDraftExport,
   buildSentenceDraftBody,
   createPatternDraft,
@@ -3492,6 +3493,22 @@ deepEqual(
   villaTemplateOptions(draftSamples, '3/4').map((option) => option.id),
   ['suite_mazurka_arpeggio_aaba'],
 );
+const composers = composerOptions();
+if (composers[0] !== 'Villa-Lobos') {
+  throw new Error('Villa-Lobos should be the first composer option');
+}
+for (const expected of ['Torroba', 'Sor', 'Barrios', 'Brouwer']) {
+  if (!composers.includes(expected)) {
+    throw new Error(`missing composer option ${expected}`);
+  }
+}
+if (new Set(composers).size !== composers.length) {
+  throw new Error('composer options must be unique');
+}
+if (composers.includes('Villa')) {
+  throw new Error('Villa must normalize to Villa-Lobos');
+}
+
 deepEqual(villaTemplateOptions(draftSamples, '6/8'), []);
 
 deepEqual(

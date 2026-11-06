@@ -17,6 +17,7 @@ import {
   VILLA_RENDERER,
   VILLA_RENDERER_LABEL,
   appendPatternSentence,
+  composerOptions,
   createPatternDraft,
   existingTemplateOptions,
   genericPatternOptions,
@@ -98,6 +99,7 @@ export function SentenceDraftPanel({
   const [templateId, setTemplateId] = useState('');
   const [newName, setNewName] = useState('');
   const [newComposer, setNewComposer] = useState(VILLA_COMPOSER);
+  const [composerMode, setComposerMode] = useState<'existing' | 'new'>('existing');
   const [draft, setDraft] = useState<PatternDraft | null>(null);
   const [result, setResult] = useState<SentenceDraftResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -212,7 +214,11 @@ export function SentenceDraftPanel({
 
   const nextId = newPatternId(newName);
   const nextLabel = newPatternLabel(newName, nextId);
-  const composer = specText(newComposer) ?? VILLA_COMPOSER;
+  const composers = composerOptions();
+  const composer =
+    composerMode === 'new'
+      ? specText(newComposer) ?? ''
+      : specText(newComposer) ?? VILLA_COMPOSER;
   const newMeterSupported = villaMeterSupported(meter);
   const formReady =
     importId.length > 0 &&
@@ -220,7 +226,7 @@ export function SentenceDraftPanel({
     meter.length > 0 &&
     (mode === 'existing'
       ? Boolean(pattern) && isGenericPatternId(pattern)
-      : Boolean(nextId) && newMeterSupported);
+      : Boolean(nextId) && newMeterSupported && composer.length > 0);
   const canPreview = formReady && !busy;
 
   const preview = useCallback(async () => {
@@ -556,14 +562,29 @@ export function SentenceDraftPanel({
             </View>
             <View style={styles.composerField}>
               <Text style={styles.inputLabel}>Composer</Text>
-              <TextInput
+              <ComposerPicker
                 value={newComposer}
-                onChangeText={setNewComposer}
-                placeholder={VILLA_COMPOSER}
-                placeholderTextColor={palette.textFaint}
-                style={styles.input}
-                accessibilityLabel="New pattern composer"
+                mode={composerMode}
+                options={composers}
+                onSelect={(value) => {
+                  setComposerMode('existing');
+                  setNewComposer(value);
+                }}
+                onNew={() => {
+                  setComposerMode('new');
+                  setNewComposer('');
+                }}
               />
+              {composerMode === 'new' ? (
+                <TextInput
+                  value={newComposer}
+                  onChangeText={setNewComposer}
+                  placeholder="Composer name"
+                  placeholderTextColor={palette.textFaint}
+                  style={styles.input}
+                  accessibilityLabel="New composer name"
+                />
+              ) : null}
             </View>
           </View>
           <View style={styles.metaRow}>
@@ -864,6 +885,81 @@ function TemplatePicker({
       </ScrollView>
       <Text style={styles.fieldMeta}>{hint}</Text>
     </View>
+  );
+}
+
+function ComposerPicker({
+  value,
+  mode,
+  options,
+  onSelect,
+  onNew,
+}: {
+  value: string;
+  mode: 'existing' | 'new';
+  options: readonly string[];
+  onSelect: (value: string) => void;
+  onNew: () => void;
+}) {
+  if (Platform.OS === 'web') {
+    return React.createElement(
+      'select',
+      {
+        value: mode === 'new' ? '__new__' : value,
+        'aria-label': 'New pattern composer',
+        onChange: (event: React.ChangeEvent<HTMLSelectElement>) => {
+          const next = event.target.value;
+          if (next === '__new__') onNew();
+          else onSelect(next);
+        },
+        style: {
+          minHeight: 34,
+          padding: '5px 8px',
+          borderRadius: 5,
+          border: `1px solid ${palette.hairlineStrong}`,
+          backgroundColor: palette.background,
+          color: palette.text,
+          fontSize: 12,
+        },
+      },
+      [
+        ...options.map((composer) =>
+          React.createElement(
+            'option',
+            { key: composer, value: composer },
+            composer,
+          ),
+        ),
+        React.createElement(
+          'option',
+          { key: '__new__', value: '__new__' },
+          'New composer…',
+        ),
+      ],
+    );
+  }
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.chipRow}
+    >
+      {options.map((composer) => (
+        <Chip
+          key={`composer:${composer}`}
+          label={composer}
+          active={mode === 'existing' && value === composer}
+          onPress={() => onSelect(composer)}
+          accessibilityLabel={`Use composer ${composer}`}
+        />
+      ))}
+      <Chip
+        label="New…"
+        active={mode === 'new'}
+        onPress={onNew}
+        accessibilityLabel="Add a new composer"
+      />
+    </ScrollView>
   );
 }
 

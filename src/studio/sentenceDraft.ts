@@ -28,6 +28,7 @@ import {
 } from './protocol';
 import {
   ANY_METER,
+  PATTERNS,
   SAMPLES,
   exampleLabel,
   patternOption,
@@ -140,6 +141,16 @@ export type SentencePatternOption = {
   label: string;
   composer: string;
 };
+
+/** Composer choices for a new pattern; never free text unless "New composer". */
+export function composerOptions(): string[] {
+  const seen = new Set<string>(['Villa-Lobos']);
+  for (const pattern of PATTERNS) {
+    if (pattern.composer === 'Villa') seen.add('Villa-Lobos');
+    else if (pattern.composer) seen.add(pattern.composer);
+  }
+  return [...seen];
+}
 
 /** Generic production patterns only; `suite_*`/Villa/Barrios/Brouwer never appear. */
 export function genericPatternOptions(
