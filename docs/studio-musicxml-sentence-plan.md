@@ -8,12 +8,13 @@ Phạm vi: Studio trên `v2`; `main` không đổi.
 ## 1. Mục tiêu
 
 1. **Ẩn Gemini** khỏi Studio, nhưng giữ code để bật lại sau.
-2. Từ một passage MusicXML, tạo được:
+2. Từ passage MusicXML, tạo được:
    - sentence mới cho **pattern đã có**;
-   - **pattern mới** dùng renderer/figure family đã có.
-3. Người dùng không phải sửa JSON ở luồng cơ bản.
-4. Preview được trước khi lưu.
-5. Studio draft **không tự** vào composer runtime; cần bước promote.
+   - **pattern mới** dùng renderer/figure family đã có;
+   - **nhiều sentence** trong cùng một pattern.
+3. Giữ nguyên luồng MusicXML hiện có: upload, summary, matrix, zoom, playhead, play.
+4. Người dùng không phải sửa JSON ở luồng cơ bản.
+5. Preview trước khi lưu; Studio draft không tự vào composer runtime.
 
 ---
 
@@ -21,24 +22,28 @@ Phạm vi: Studio trên `v2`; `main` không đổi.
 
 ```text
 Composer / Suite
-  └─ Pattern            ví dụ: suite_mazurka, villa_pattern
-       └─ SentenceSpec  ví dụ: suite_mazurka_arpeggio_aaba
+  └─ Pattern                 ví dụ: suite_mazurka, villa_choro_mazurka
+       ├─ SentenceSpec A     ví dụ: câu mở đầu
+       ├─ SentenceSpec B     ví dụ: câu đáp
+       └─ SentenceSpec C
             └─ Slot → Figure/Cell
 ```
 
 - `Pattern` = họ texture + selector.
-- `SentenceSpec` = một câu cụ thể trong pattern.
+- `Pattern` có thể chứa **nhiều `SentenceSpec`**.
+- `SentenceSpec` = một câu cụ thể.
 - `Figure/Cell` = renderer thật.
-- “Lobos” là composer/suite grouping, **không phải** một SentenceSpec.
+
+“Lobos” là composer/suite grouping, không phải một SentenceSpec.
 
 ### Hai loại việc
 
-| Việc | Dùng khi | Cần pattern mới? |
+| Việc | Dùng khi | Pattern mới? |
 |---|---|---|
-| **Add to existing pattern** | rhythm khớp figure hiện có | Không |
-| **Create new pattern** | muốn một texture/pattern riêng | Có |
+| **Add sentence to existing pattern** | rhythm khớp figure hiện có | Không |
+| **Create new pattern** | muốn pattern riêng, dùng renderer/figure family có sẵn | Có |
 
-MVP chỉ hỗ trợ **pattern mới dùng renderer/figure family có sẵn**.
+MVP chỉ hỗ trợ pattern mới dùng renderer/figure family có sẵn.
 Chưa hỗ trợ viết figure/algorithm mới từ Studio.
 
 ---
@@ -53,39 +58,51 @@ Chưa hỗ trợ viết figure/algorithm mới từ Studio.
 │ 2. Passage                                   │
 │    Lead / Mid / Bass matrix                  │
 │    kéo chọn beat · Play · zoom               │
-│    Selection: bar 2 · beat 1 → bar 5 · beat 2│
+│    bar 2 · beat 1 → bar 5 · beat 2           │
 ├──────────────────────────────────────────────┤
-│ 3. Create sentence                           │
+│ 3. Create / add sentence                     │
 │    (•) Existing pattern                      │
 │        Pattern [suite_mazurka ▼]             │
-│        Template [auto / đổi ▼]               │
+│        Template [auto ▼]                     │
+│                                              │
 │    ( ) New pattern                           │
 │        Name [villa_choro_mazurka]            │
 │        Composer [Villa-Lobos ▼]              │
 │        Family [Villa ▼]                      │
 │        Meter 3/4 (auto)                      │
 │        Figure [arpeggio ▼]                   │
+│                                              │
 │    [Preview]                                 │
 ├──────────────────────────────────────────────┤
-│ 4. Result                                    │
-│    Mini matrix + audio                       │
-│    [Save draft]  [Export bundle]             │
-│    Advanced ▸ JSON / full matrix             │
+│ 4. Pattern draft                             │
+│    villa_choro_mazurka · 3/4                 │
+│    Sentences:                                │
+│      A  bars 2–5   [Preview] [Remove]        │
+│      B  bars 6–9   [Preview] [Remove]        │
+│    [+ Add sentence from current passage]     │
+│    [Export bundle]                           │
+│    Advanced ▸ JSON                           │
 └──────────────────────────────────────────────┘
 ```
 
 ### Nguyên tắc UI
 
-- Mặc định **không hiện JSON**; chỉ hiện trong `Advanced`.
-- `Create sentence` là hành động chính sau khi chọn passage.
-- Preview ngay trong panel, không chuyển trang.
-- Sai/không khớp: hiện **một lý do rõ ràng**, không dump hàng loạt lỗi.
+- `Create sentence` là nút chính sau khi chọn passage.
+- Nếu tạo pattern mới, sentence đầu tiên lấy từ passage hiện tại.
+- Muốn thêm sentence: chọn passage khác → `Add sentence`.
+- Không hiện JSON mặc định; chỉ trong `Advanced`.
+- Warnings gom lại, không đổ hàng loạt.
+- Preview từng sentence ngay tại chỗ.
 - Không auto-overwrite spec đang edit.
 - Không auto-publish.
 
 ---
 
-## 4. Backend: 1 endpoint draft + preview
+## 4. Backend: draft theo passage, pattern draft ở client
+
+Không cần DB pattern draft trong MVP.
+
+### API
 
 ```text
 POST /v1/studio/import/musicxml/{importId}/sentence-draft
@@ -95,10 +112,10 @@ POST /v1/studio/import/musicxml/{importId}/sentence-draft
 
   "mode": "existing" | "new",
 
-  "pattern": "suite_mazurka",        // existing
+  "pattern": "suite_mazurka",          // existing
   "templateId": "suite_mazurka_arpeggio_aaba",
 
-  "newPattern": {                    // new
+  "newPattern": {                      // new
     "id": "villa_choro_mazurka",
     "label": "Choro-Mazurka",
     "composer": "Villa-Lobos",
@@ -114,7 +131,6 @@ Response:
 ```json
 {
   "ok": true,
-  "mode": "new",
   "spec": { "...SentenceSpec..." : true },
   "fixture": { "length": 4, "n": 2, "closes": false, "rise": 1 },
   "preview": {
@@ -127,6 +143,18 @@ Response:
 }
 ```
 
+- Mỗi passage trả **một** draft sentence.
+- UI giữ `PatternDraft` trong state:
+  ```ts
+  {
+    id, label, composer, renderer, meter,
+    sentences: SentenceSpec[]
+  }
+  ```
+- `Add sentence` gọi lại endpoint với passage mới; UI append.
+- `Export bundle` tạo JSON gồm pattern + sentences + fixtures.
+- Không lưu pattern draft server-side ở MVP.
+
 ### Cách tạo draft
 
 1. Passage → rhythm summary (bar/beat/role/rest).
@@ -135,29 +163,27 @@ Response:
    - cùng số bar/tile gần nhất;
    - density/onset/rest gần nhất.
 3. Copy `select`/`span`/`slots` từ template, chỉnh `tile`/`bars`.
-4. Với `mode:"new"`:
-   - giữ nguyên figure/cell của renderer family;
+4. `mode:"new"`:
+   - giữ figure/cell của renderer family;
    - đổi `pattern` sang pattern mới;
    - tạo `id` mới.
-5. Preview bằng renderer family, không cần pattern đã đăng ký production.
-6. Trả **một** draft, không trả top 3.
-
-UI có dropdown `Template` để user đổi nếu draft đầu chưa đúng.
+5. Preview bằng renderer family.
+6. UI có dropdown `Template` để đổi nếu draft đầu chưa đúng.
 
 ### New pattern preview
 
-Cần thêm một seam nhỏ:
+Cần seam nhỏ:
 
 ```text
 preview_draft_sentence(spec, renderer="villa")
 ```
 
-Nó dùng đúng figure/validator của family, nhưng cho phép `spec.pattern` là pattern draft chưa có trong `VILLA_PATTERNS`.
-Không đăng ký pattern, không ghi global.
+Nó dùng đúng figure/validator của family, nhưng cho phép `spec.pattern` là pattern draft chưa đăng ký trong `VILLA_PATTERNS`.
+Không đăng ký global.
 
 ---
 
-## 5. Pattern mới
+## 5. Pattern mới + nhiều sentence
 
 ### Pattern draft
 
@@ -168,24 +194,41 @@ Không đăng ký pattern, không ghi global.
   "composer": "Villa-Lobos",
   "renderer": "villa",
   "meter": "3/4",
-  "sentence": { "...SentenceSpec..." : true }
+  "sentences": [
+    { "...SentenceSpec A..." : true },
+    { "...SentenceSpec B..." : true }
+  ]
 }
 ```
 
 MVP:
-- một pattern = một sentence;
-- dùng figure/cell của renderer family;
-- không tạo figure mới;
+- pattern có thể có nhiều sentence;
+- tất cả dùng figure/cell của renderer family;
+- preview từng sentence;
 - không auto-select trong composer.
 
 ### Promote
 
-- `Export bundle` tải JSON pattern + sentence + fixture.
-- Promote production bằng code/registry:
-  - thêm `SentenceSpec` vào owner;
-  - thêm pattern metadata + flag;
-  - nếu muốn composer tự chọn: thêm selection rule.
-- Chưa làm DB-backed texture registry trong MVP.
+- `Export bundle` tải JSON pattern + sentences + fixtures.
+- Promote production cần sửa code/registry:
+  - generic registry `SENTENCE_SPECS[(pattern, meter)]` có thể chứa nhiều spec;
+  - nhưng `SuiteGate.specs` hiện chỉ trả **một** spec;
+  - `SuiteGate.ensure_registered()` **raise ValueError** nếu key đã có tuple khác `gate.specs`.
+
+Vì vậy:
+
+```python
+# Đúng cho generic registry:
+SENTENCE_SPECS[key] = (sentence_a, sentence_b)
+
+# KHÔNG đủ cho suite_*:
+# suite gate chỉ chấp nhận đúng gate.specs (một spec).
+# Muốn thêm sentence thứ hai dưới suite_* phải sửa:
+#   - SuiteGate.specs / gate data, hoặc
+#   - loader/registration path riêng.
+```
+
+Promote suite_* là **thay đổi code**, không chỉ thêm vào dict runtime.
 
 ---
 
@@ -200,70 +243,111 @@ MVP:
 
 ## 7. Ví dụ 3 bản Villa-Lobos
 
-| Bản nhạc | Meter | Pattern mới | Template |
-|---|---|---|---|
-| Choro-Mazurka | `3/4` | `villa_choro_mazurka` | `suite_mazurka_arpeggio_aaba` |
-| Valse-Mazurka | `3/4` | `villa_valse_mazurka` | `suite_valsa_arpeggio_period` |
-| Scottish-Mazurka | `4/4` | `villa_scottish_mazurka` | `suite_schottish_arpeggio_abab` |
+Dùng tên canonical của registry:
 
-Nếu Scottish thực tế là `1/4 → 2/4`:
-- không dùng template `4/4` đó;
+| Movement | Meter | Pattern mới | Template |
+|---|---|---|---|
+| **Mazurka-Choro** | `3/4` | `villa_mazurka_choro` | `suite_mazurka_arpeggio_aaba` |
+| **Valsa-Choro** | `3/4` | `villa_valsa_choro` | `suite_valsa_arpeggio_period` |
+| **Schottish-Choro** | `4/4` | `villa_schottish_choro` | `suite_schottish_arpeggio_abab` |
+
+Nếu file Scottish thực tế là `1/4 → 2/4`:
+- không dùng template `4/4`;
 - cần figure/family `2/4` mới;
 - UI báo “chưa hỗ trợ meter/figure này”, không tạo draft sai.
 
+Tên file người dùng có thể là `choro-mazuka`, `valse-mazuka`, `scottish-mazuka`;
+trong docs/registry luôn dùng tên movement canonical:
+`Mazurka-Choro`, `Valsa-Choro`, `Schottish-Choro`.
+
 ---
 
-## 8. Không làm trong MVP
+## 8. JSON draft mẫu đầy đủ
+
+```json
+{
+  "id": "suite_mazurka_musicxml_abc123",
+  "pattern": "suite_mazurka",
+  "meter": "3/4",
+  "select": {
+    "length_min": 4,
+    "length_max": null,
+    "n_parity": "any",
+    "n_mod": null,
+    "closes": null,
+    "rise_min": 0
+  },
+  "span": {
+    "tile": 4,
+    "remainder": "same_figure",
+    "truncate_to_length": true,
+    "cycle": false,
+    "exact": false
+  },
+  "slots": [
+    { "start": 0, "bars": 1, "figure": 1, "cell": null, "anchor": "start" },
+    { "start": 1, "bars": 1, "figure": 1, "cell": null, "anchor": "start" },
+    { "start": 2, "bars": 1, "figure": 2, "cell": null, "anchor": "start" },
+    { "start": 3, "bars": 1, "figure": 1, "cell": null, "anchor": "start" }
+  ]
+}
+```
+
+---
+
+## 9. Không làm trong MVP
 
 - Top 3 candidate / matcher phức tạp.
 - Rhythm-template `TextureSpec` + interpreter generic.
 - Tạo figure/algorithm mới từ UI.
-- DB-backed texture registry.
+- DB-backed texture/pattern registry.
 - Auto-selection pattern trong composer.
-- Owner scoping MusicXML (hardening sau).
+- Owner scoping MusicXML.
 - Pickup/implicit measure length thật.
 
 ---
 
-## 9. Thứ tự làm
+## 10. Thứ tự làm
 
 | Sprint | Việc | Kết quả |
 |---|---|---|
 | A | Ẩn Gemini sau flag | Studio sạch |
 | B | Draft endpoint + new-pattern preview seam | 1 draft + preview |
-| C | UI 4 bước | Người dùng tạo sentence/pattern không cần JSON |
-| D | Export bundle + promote docs | Đưa vào composer có kiểm soát |
+| C | UI 4 bước + multi-sentence pattern draft + export | Người dùng tạo pattern nhiều câu |
+| D | Promote docs/code path | Đưa vào composer có kiểm soát |
 
 MVP dừng ở **A + B + C**.
 
 ---
 
-## 10. Test
+## 11. Test
 
 - Passage 3/4, 4/4 → draft preview được.
 - New pattern preview bằng renderer family, không cần đăng ký.
+- Thêm nhiều sentence vào cùng pattern draft.
 - Không match template → lỗi rõ, không tạo spec rác.
 - 2/4 không có figure → báo “chưa hỗ trợ”.
 - Gemini flag off → không request vision.
 - Draft không overwrite editor.
-- Export bundle đúng spec/fixture.
+- Export bundle đúng pattern + nhiều sentence + fixtures.
 - Composer vẫn byte-identical khi flag mới off.
 
 ---
 
-## 11. Quyết định cần giữ
+## 12. Quyết định cần giữ
 
 1. Một draft gợi ý, không top 3.
 2. Pattern mới dùng renderer/figure family có sẵn.
-3. JSON chỉ trong `Advanced`.
-4. Studio draft không tự vào composer.
-5. Gemini ẩn, không xoá.
+3. Pattern có thể có nhiều sentence.
+4. JSON chỉ trong `Advanced`.
+5. Studio draft không tự vào composer.
+6. Gemini ẩn, không xoá.
 
 ---
 
-## 12. Kết luận
+## 13. Kết luận
 
-Luồng đơn giản là:
+Luồng đơn giản:
 
 ```text
 Upload XML
@@ -271,7 +355,8 @@ Upload XML
   → Create sentence
   → Existing pattern  hoặc  New pattern
   → Preview
-  → Save draft / Export
+  → Add sentence (nếu cần)
+  → Export bundle
 ```
 
-Không cần matcher phức tạp, không cần interpreter mới, không cần JSON editor cho người dùng thường.
+MusicXML upload/matrix/play giữ nguyên.
