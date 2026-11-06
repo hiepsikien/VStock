@@ -301,7 +301,7 @@ Quyết định: dùng **70% ±10%** làm quota mềm; chưa enforce trong MVP, 
 | 2 | Phrase-level AABA + cadence | Bản nhạc có form nghe được |
 | 3 | Native 2/4 FormSpec + B figure fix + Studio | 2/4 thật, không fold |
 | 4 | Key figure tùy ý từ passage | Pattern + sentences từ passage |
-| 5 | 70/30 (nếu chốt) | Fill policy |
+| 5 | Quota mềm 70% ±10% | Fill policy có kiểm soát cadence/B |
 
 MVP không nên nhảy thẳng Phase 3 khi Phase 1/2 chưa có form/cadence.
 
@@ -428,11 +428,11 @@ MVP: có thể chỉ log/plan quota, chưa cần ép; Phase sau mới enforce.
 
 ---
 
-## 12. Chốt tạm
+## 12. Chốt cuối
 
-1. Phase 1: **4/4 fold** — đã đồng ý.
-2. Phase 2: **phrase-level plan** — khuyến nghị.
-3. Native 2/4: làm ở Phase 3, sau khi form/span path có test composer thật.
+1. Phase 1: **4/4 fold** — đã chốt.
+2. Phase 2: **phrase-level plan** — đã chốt.
+3. Native 2/4: Phase 3, sau khi form/span path có test composer thật.
 4. Quota: **70% ±10%**, mềm, không cắt cadence/B.
 5. Preset trước; user-authorable sau.
 6. Key figure Bước 4: chọn bar 2 hoặc 3 của Scottish; ưu tiên rhythm fidelity, dùng `TextureSpec` hiện có.
