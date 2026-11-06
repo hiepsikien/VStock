@@ -1,6 +1,6 @@
 # Kế hoạch Track B: Studio preview variants (`source` / `aaba`)
 
-Trạng thái: design, chưa triển khai.
+Trạng thái: design, gần ready; chưa triển khai.
 Phạm vi: `release/studio-v2.1`; preview/export-only.
 Liên quan: `docs/studio-schottish-pattern-plan.md` (Track A — production).
 
@@ -41,21 +41,30 @@ Các tầng khác vẫn tên riêng:
 
 - Là behavior hiện tại của `mode:"new"`.
 - Nếu request cũ không gửi `previewMode`, server trả `source`.
-- `mode:"existing"` không nhận `previewMode`; nếu gửi, reject hoặc ignore + warning, không silent apply.
+- `mode:"existing"` **reject** `previewMode` (không silent ignore):
+  - thêm explicit check trong route;
+  - trả `400`/validation error `path:"previewMode"`;
+  - lý do: `existing` dùng template/SentenceSpec, không có passage loop.
 - Spec/audio giữ nguyên passage; `rhythmTemplate:true`, `productionReady:false`.
 
 ---
 
 ## 4. `aaba` — bar loop preview
 
-### 4.1. Mapping
+### 4.1. Usable bars và mapping
 
-Với selection `N` bar:
+Selection là `barStart..barEnd` (1-based, whole bars).
 
 ```text
-A = bar đầu tiên (source index 0)
-B = bar thứ ba (index 2), fallback index 1, rồi 0
+selection = [barStart, barEnd]
+pickup = bar có note đầu tiên ở beat > 0 và không có note tại beat 0
+usable = selection bỏ pickup
+A = usable[0]           nếu usable không rỗng
+B = usable[2]           nếu len(usable) >= 3
+    else usable[1]      nếu len(usable) >= 2
+    else A
 tile = [A, A, B, A]
+mapping = tile lặp, truncate đúng outputBars
 ```
 
 Output length:
@@ -63,24 +72,39 @@ Output length:
 - **`outputBars = selectionBars`** (không tự kéo dài lên 4).
 - Selection 4 bar → `[A,A,B,A]`.
 - Selection 3 bar → `[A,A,B]`.
-- Selection 2 bar → `[A,A]` (B fallback nhưng truncate).
+- Selection 2 bar → `[A,A]`.
 - Selection 1 bar → `[A]`.
 - Selection >4 bar → lặp tile, truncate đúng `selectionBars`.
 
-Lý do: UI/export/audio luôn khớp range user đã chọn.
+Ví dụ có pickup:
 
-### 4.2. Pickup 1/4
+```text
+selection = [pickup, full1, full2]   # 3 bar
+usable = [full1, full2]
+A = full1
+B = full2
+mapping = [full1, full1, full2]
+```
 
-Parser đã normalize pickup 1/4 thành 2/4, note shift sang beat 2.
+- Pickup **vẫn tính** vào `selectionBars`, nhưng không dùng làm A/B.
+- Nếu user chỉ chọn pickup bar:
+  - cho phép chạy;
+  - `A = pickup`, `B = A`;
+  - trả warning:
+    ```text
+    AABA preview uses a pickup bar; the loop may repeat the leading rest.
+    ```
 
-Rule:
+### 4.2. Warning khi < 4 bar
 
-- Nếu bar nguồn là pickup bar (note đầu tiên ở beat > 0 và bar có gap đầu), **không dùng làm A/B mặc định**; chọn bar kế tiếp.
-- Nếu user cố chọn chỉ pickup bar, cho phép nhưng warning:
-  ```text
-  AABA preview uses a pickup bar; the loop may repeat the leading rest.
-  ```
-- `beatStart`/`beatEnd` trong API là **quarter-note offset 0-based**; bar là 1-based. Ghi rõ trong request docs/UI.
+Với `outputBars = selectionBars`:
+
+```text
+AABA bar loop needs at least 4 bars for [A,A,B,A]; this preview is truncated.
+```
+
+- Không chặn request.
+- Response có `warnings[]`; UI hiển thị cạnh label.
 
 ### 4.3. `loop_texture_bars(spec, mapping)`
 
@@ -92,6 +116,7 @@ loop_texture_bars(
     mapping: Sequence[int],
     *,
     output_bars: int,
+    meter: Meter,
     preview_mode: str,
 ) -> TextureSpec
 ```
@@ -102,29 +127,34 @@ Yêu cầu:
 - giữ `beat`, `duration_beats`, `voice`, `pitch`, `tie`, `slur`, `accent`, `staff`, `string`, `fret`;
 - cập nhật `id`, `source.bars`, `source.patternId`, `provenance` (`previewMode`);
 - xử lý `micro_velocity` bar-relative nếu có;
+- **bar length lấy từ `meter`**:
+  - không suy đoán từ note;
+  - nếu `spec.meter_variants` có nhiều hơn một variant, reject/warning thay vì chọn mù;
+  - `beat`/`duration_beats` là đơn vị beat của meter đó.
 - **clip note ở biên bar**:
-  - nếu `beat + duration > bar_length`, cắt duration;
-  - clear tie/slur không còn pair ở biên loop;
-  - test no note/tie vượt bar.
+  - nếu `beat + duration > meter bar length`, cắt duration;
+  - note bị clip thì clear tie hai phía.
+- **tie/slur pair-aware**:
+  - build pair theo `(voice, staff, string, pitch)`;
+  - chỉ giữ tie nếu note `stop` nằm ngay sau note `start` trong output và cùng bar boundary;
+  - nếu pair không còn adjacent: clear **cả hai** phía; không để tie treo một đầu;
+  - test cả trường hợp pair còn adjacent và pair bị tách.
 - Validate lại bằng `check_texture_spec`.
 - Không mutate spec gốc.
 
 ### 4.4. Audio
 
 - Build synth notes từ events đã remap.
-- Hash canonical `sha256:<hex>` gồm previewMode + notes; không dùng hash/audio của `source`.
+- Hash canonical `sha256:<hex>` gồm `previewMode` + notes; không dùng hash/audio của `source`.
 - `ensure_audio` với `beats_per_bar` từ meter.
 - `preview.notes` = số synth notes.
 - `preview.renderHash` nếu có; UI optional.
 
 ### 4.5. Quota/cache
 
-- Mỗi draft request tiêu 1 quota unit, kể cả switch variant.
-- Có thể cache preview theo `(selection, previewMode)` để tránh đốt quota khi switch; quyết định:
-  - MVP: chấp nhận mỗi lần Preview = 1 request/quota; UI ghi rõ.
-  - Phase sau: cache cả hai variant trong một response hoặc cache theo key.
-
-MVP: **mỗi Preview = 1 draft**, ghi rõ UI; không trả cả hai variant trong một request.
+- Mỗi draft request tiêu 1 quota unit, kể cả switch `previewMode`.
+- MVP: **mỗi Preview = 1 draft**, ghi rõ UI; không trả cả hai mode trong một request.
+- Phase sau: cache theo `(selection, previewMode)` hoặc trả cả hai.
 
 ---
 
@@ -136,11 +166,15 @@ MVP: **mỗi Preview = 1 draft**, ghi rõ UI; không trả cả hai variant tron
 {
   "mode": "new",
   "previewMode": "source" | "aaba",
-  "barStart": 1, "beatStart": 1,
-  "barEnd": 5, "beatEnd": 1,
+  "barStart": 1, "beatStart": 0,
+  "barEnd": 5, "beatEnd": 0,
   "newPattern": { "...": "..." }
 }
 ```
+
+- `barStart`/`barEnd`: 1-based.
+- `beatStart`/`beatEnd`: **quarter-note offset 0-based** trong bar.
+- Draft dùng whole bars; offset chỉ để UI đối chiếu.
 
 Response:
 
@@ -153,13 +187,15 @@ Response:
   "productionReady": false,
   "spec": { "...TextureSpec..." },
   "fixture": { "meter": "2/4", "bars": 5 },
-  "preview": { "audioUrl": "...", "notes": 47 }
+  "preview": { "audioUrl": "...", "notes": 47 },
+  "warnings": ["AABA bar loop needs at least 4 bars..."]
 }
 ```
 
-- `mode:"existing"` giữ contract cũ, không `previewMode`.
+- `mode:"existing"` giữ contract cũ, **không** `previewMode`.
 - Missing `previewMode` → `source`.
-- Invalid `previewMode` → 200 `{ok:false, errors:[{path:"previewMode"}]}`.
+- Invalid `previewMode` → `200 {ok:false, errors:[{path:"previewMode"}]}`.
+- `mode:"existing"` + `previewMode` → `400`/validation error, không ignore.
 
 ---
 
@@ -174,6 +210,7 @@ Preview mode:
 ```
 
 - Label **AABA bar loop (preview)**, không gọi “AABA sentence”.
+- Warning <4 bar hiển thị cạnh label.
 - Đổi `previewMode`:
   - invalidate preview hiện tại;
   - không tự xoá `PatternDraft`;
@@ -202,21 +239,64 @@ Preview mode:
 
 ---
 
-## 8. Tests
+## 8. Files cần sửa
+
+### Backend
+
+- `backend/app/routers/studio_musicxml.py`
+  - `SentenceDraftRequest`: `previewMode`.
+  - route validate `existing` + `previewMode`.
+  - `_rhythm_preview_payload` nhận `previewMode`.
+  - `_rhythm_spec_id` seed thêm `previewMode`.
+  - response `previewMode`, `warnings`.
+- `backend/app/studio/musicxml_sentence.py`
+  - `prepare_draft`/`render_draft` cho `previewMode`.
+- `backend/app/studio/texture_spec.py` (hoặc module mới)
+  - `loop_texture_bars`, tie-pair helper.
+- `backend/app/studio/villa_preview.py` nếu spec validation cần.
+- Tests:
+  - `tests/test_studio_musicxml_sentence.py`
+  - `tests/test_studio_musicxml_api.py`
+  - `tests/test_studio_villa_sentence.py`
+  - `tests/test_studio_audio.py`
+
+### Frontend
+
+- `src/studio/sentenceDraft.ts`
+  - `previewMode` type/normalizer;
+  - `MusicXmlSentenceDraftRequest`;
+  - `SentenceDraftResponse`;
+  - `PatternDraftSentence`;
+  - `sentenceDraftKey`;
+  - `buildPatternDraftExport`;
+  - `sentenceDraftSourceLabel`.
+- `src/studio/SentenceDraftPanel.tsx`
+  - variant chips/switch;
+  - invalidate preview;
+  - warning label.
+- `src/studio/api.ts` nếu request type dùng chung.
+- `src/studio/studio.test.ts`
+  - normalizer/request/label/export.
+
+---
+
+## 9. Tests
 
 - `source` events khớp passage.
 - `aaba` mapping đúng cho 1/2/3/4/5/6/7/8 bar; outputBars = selectionBars.
+- Có pickup: 1/2/3/4 bar selection mapping đúng; pickup không thành A/B.
+- Warning khi <4 bar; warning khi chỉ chọn pickup.
 - Tie/slur/note không vượt bar; clip đúng.
-- Pickup bar fallback/warning.
+- Tie pair còn adjacent được giữ; pair bị tách bị clear cả hai phía.
 - Spec id/hash/audio khác `source`.
-- `source` default khi thiếu field; existing mode reject/ignore previewMode.
+- `source` default khi thiếu field; `existing` + `previewMode` reject.
 - Switching invalidates preview but keeps draft.
 - Export round-trip `previewMode`.
 - Quota one unit per request.
 
 ---
 
-## 9. Giới hạn
+## 10. Giới hạn
 
 - `aaba` là **bar loop preview**, không phải form/cadence.
 - Không sản xuất `SENTENCE_SPECS`.
@@ -225,7 +305,7 @@ Preview mode:
 
 ---
 
-## 10. Future — Section 13 PlanVariant
+## 11. Future — PlanVariant
 
 Chỉ làm sau Track A Phase 2:
 
@@ -239,9 +319,12 @@ Chỉ làm sau Track A Phase 2:
 
 ---
 
-## 11. Quyết định đã chốt
+## 12. Quyết định đã chốt
 
-1. **Output length = `selectionBars`.** Không tự kéo lên 4 bar; selection 3 bar → 3 bar.
-2. **Pickup:** skip pickup bar khi chọn A/B mặc định; nếu user chỉ chọn pickup bar thì cho phép + warning.
-3. **MVP quota:** mỗi lần `Preview sentence` = 1 draft request/quota; không cache cả hai variant trong một response.
-4. **UI label:** **“AABA bar loop”**, không dùng “AABA key loop” hay “AABA sentence”.
+1. **Output length = `selectionBars`.** Không tự kéo lên 4 bar.
+2. **Pickup:** bỏ pickup khỏi `usable`; nếu chỉ có pickup thì cho phép + warning.
+3. **MVP quota:** mỗi lần `Preview sentence` = 1 draft request/quota.
+4. **UI label:** **“AABA bar loop”**.
+5. **`existing` + `previewMode`:** reject, không ignore.
+6. **`loop_texture_bars`:** nhận `meter`, clip theo bar length, tie pair-aware.
+7. **<4 bar:** warning, không chặn.

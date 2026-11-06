@@ -1,8 +1,11 @@
-# Kế hoạch revised: pattern + sentences mới cho composer
+# Kế hoạch Track A: production pattern + sentences cho composer
 
-Trạng thái: revised sau review kỹ thuật, chưa triển khai.
+Trạng thái: revised sau review vòng 3; **design**, chưa triển khai.
 Phạm vi: `release/studio-v2.1`; `main` không đổi.
 Mục tiêu cuối: composer render được một bản Schottish-Choro nghe coherent, không chỉ một pattern flag-on.
+
+Track B (Studio preview `source`/`aaba`) tách riêng tại
+[`docs/studio-schottish-variant-plan.md`](studio-schottish-variant-plan.md).
 
 ---
 
@@ -10,20 +13,36 @@ Mục tiêu cuối: composer render được một bản Schottish-Choro nghe co
 
 | Feedback | Xử lý trong plan |
 |---|---|
-| `2/4` chưa đi vào composer runtime | **Không** làm native 2/4 ở Phase 1; dùng 4/4 fold hiện có. Native 2/4 là phase riêng sau khi có FormSpec/span path |
-| AABA 4 bar chỉ là ostinato | Phase 1 chỉ là foundation; Phase 2 làm phrase-level AABA/cadence |
-| `VILLA_CHORD_MELODY` lỗi 2/4 | Nếu native 2/4: sửa `_chord_grid` + test no-overflow. Phase 1 fold 4/4 không dùng lỗi này |
-| Pattern id/title trùng | Không tạo `suite_schottish_2_4` ngay; dùng `suite_schottish` + meter variant khi native |
-| Thiếu wiring registry/doors/wave | Thêm checklist đầy đủ §4 |
-| Studio preview/dispatch chưa nối | Thêm phase Studio preview/export + whitelist/family |
-| Không có 70/30 | Xác nhận **không tồn tại**; chỉ làm nếu chốt rule âm nhạc |
-| Schema `KeyFigureSpec` song song | Dùng `TextureSpec`/`PitchRef` hiện có, không tạo schema mới |
+| `2/4` chưa đi vào composer runtime | Không làm native 2/4 ở Phase 1; dùng 4/4 fold hiện có. Native 2/4 là Phase 3 |
+| AABA 4 bar chỉ là ostinato | Phase 1 giữ **ABAB**, chỉ là foundation; phrase-level AABA là Phase 2 |
+| `VILLA_CHORD_MELODY` lỗi 2/4 | Native 2/4: sửa `_chord_grid` + test no-overflow trước khi bật |
+| Pattern id/title trùng | Không tạo `suite_schottish_2_4`; dùng `suite_schottish` + meter variant khi native |
+| Thiếu wiring registry/doors/wave | Checklist đầy đủ §4, gồm meter-aware wave/frame |
+| Studio preview/dispatch chưa nối | Phase 3 mở whitelist/family; Phase 4 authoring |
+| Không có 70/30 | Không enforce trong MVP; policy 70% ±10%, semantics chốt ở Phase 5 |
+| Schema `KeyFigureSpec` song song | Dùng `TextureSpec`/`PitchRef` hiện có; kind mới phải thêm validation |
+| Form thật có intro/outro/pedal | Thêm **Phase 0**: audit + body/door merge design trước Phase 1 |
+| `SuiteGate` dùng chung nhiều movement | Single-spec path byte-identical; multi-spec là opt-in |
 
 ---
 
 ## 1. Quyết định kiến trúc
 
-### Phase 1 — production foundation: 4/4 fold
+### Phase 0 — framed-form audit + body/door merge design
+
+Không đổi nhạc. Chỉ chứng minh và thiết kế:
+
+- `SuiteGate.eligible()` hiện trả `not has_pedal_bars(ctx)`, nên **mọi** movement có frame
+  (`week_spec`/`month_specs`/`attach_frame`) đều fallback;
+- test hiện tại còn assert fallback:
+  `test_suite_production_movements.py::test_on_falls_back_with_a_pedal_frame`;
+- `bar_plan()` chỉ nhận plan cover **mọi** bar;
+- sentence chỉ render body, door/pedal phải render ngoài body.
+
+Output Phase 0: thiết kế partial `SentenceVoices`, merge body/door, và test form thật.
+**Chưa tuyên bố pattern chạy composer.**
+
+### Phase 1 — production foundation (4/4 fold)
 
 Dùng pattern hiện có:
 
@@ -32,38 +51,39 @@ suite_schottish
 meter 4/4 (fold from 2/4)
 ```
 
-Lý do:
+- Giữ **ABAB** hiện có; không đổi sang AABA trong Phase 1.
+- Nối đầy đủ wiring §4.
+- Flag `VSTOCK_SUITE_SCHOTTISH` default off.
+- Điều kiện xong: flag off byte-identical; flag on deterministic; composer form thật
+  (có frame) chọn được pattern; body/door merge đúng; không fallback toàn movement vì pedal.
+- **Không phải bản final.**
 
-- `METER_24` có trong `form.py` nhưng **chưa có FormSpec/span production path**.
-- `span._guitar_meter()` chỉ đổi `3/4 ↔ 6/8`; không tạo `2/4`.
-- Thêm native 2/4 lúc này sẽ là dead path: `SuiteGate.eligible(ctx.kind=="2/4")` không bao giờ đúng trong composer thật.
+### Phase 2 — phrase-level form + cadence
 
-Phase 1 **không phải bản final**. Nó để:
-
-- nối đúng pipeline production;
-- có flag/digest/tests;
-- nghe thử texture;
-- tạo nền cho phrase-level AABA.
-
-### Phase 2 — musical form
-
-- AABA phải là **câu 16 bar** hoặc **phrase-level plan**, không phải tile 4 bar lặp.
-- B đặt theo phrase/trio/apex, có câu kết A/cadence.
-- Sentence selection theo `n`/`closes`/`rise`, không hardcode `n=0, closes=False, rise=0`.
+- Chia movement theo phrase thật (`ctx.phrases`, fallback `ctx.sections`).
+- Chọn A/B/close theo phrase; B ở bridge/trio hoặc phrase giữa; phrase cuối close/cadence.
+- Không hardcode `n=0, closes=False, rise=0`.
+- Cadence phải có artifact (xem §3.2), không chỉ dựa `select.closes`.
+- Test 5/7/9/16/30 bar.
 
 ### Phase 3 — native 2/4
 
-Chỉ làm khi:
-
-- `FormSpec`/`span` tạo được `ctx.kind == "2/4"` thật;
-- dùng cùng pattern id `suite_schottish` + meter variant `2/4`;
-- không tạo title thứ hai trùng tên.
+- `FormSpec`/`span` tạo được `ctx.kind == "2/4"` thật.
+- Cùng pattern id `suite_schottish` + meter variant `2/4`.
+- Sửa `_chord_grid` 2/4 + test no-overflow.
+- Meter-aware wave/accent/frame.
+- Studio whitelist/family nếu muốn authorable.
 
 ### Phase 4 — key figure tùy ý
 
 - Dùng `TextureSpec`/`PitchRef` hiện có.
 - Không tạo `KeyFigureSpec` song song.
-- 70/30 chỉ làm nếu chốt rule; hiện không có.
+- Kind mới (nếu thật cần) phải thêm validation/resolve/test ngay tại Phase 4.
+
+### Phase 5 — quota mềm 70% ±10%
+
+- Chỉ enforce sau khi chốt semantics (bar vs lead layer).
+- MVP: log/plan, không enforce.
 
 ---
 
@@ -74,128 +94,246 @@ Chỉ làm khi:
 - `METER_24` có trong `form.py`.
 - Chỉ dùng ở Studio preview/audio/MusicXML; **không** có `FormSpec` production dùng `METER_24`.
 - `span._guitar_meter()` chỉ map 3/4/6/8.
-- Docs §4.4.1 đang chốt Schottish 2/4 fold 4/4.
+- `span.frame_bars_for()` không có key `(2, 4)`.
 
 ### 2.2. Sentence plan
 
 - `SuiteGate._plan()` gọi `plan_slots(..., n=0, closes=False, rise=0)` một lần cho cả movement.
 - `SuiteGate.specs` chỉ một spec; `ensure_registered()` raise nếu tuple khác.
+- `sentence_production.bar_plan()` trả `None` nếu plan không cover đủ mọi bar.
 - Vì vậy AABA 4 bar = ostinato lặp, không phải 4 câu.
 
-### 2.3. Figure B 2/4
+### 2.3. Form thật có frame
+
+- `sentence_production.has_pedal_bars(ctx)` đọc `ctx.kind_at` và `_PEDAL`.
+- `SuiteGate.eligible()` từ chối toàn movement nếu có bất kỳ bar `_PEDAL`.
+- `week_spec`/`month_specs`/`attach_frame` đều tạo pedal bar.
+- Test hiện tại assert fallback cho cả 4 movement khi có pedal frame.
+
+### 2.4. Figure B 2/4
 
 - `guitar_villa._chord_grid()` cho meter khác 4/4/6/8 trả `[0,4]`, `[4,2]`.
 - Với `ctx.epb=4`, offset 4 là downbeat bar sau → note tràn bar.
 - Native 2/4 phải sửa `_chord_grid` và test no-overflow.
 
-### 2.4. Registry/title
+### 2.5. Registry/title
 
-- `suite_schottish` đã có title `Schottish-Choro`.
+- `suite_schottish` đã có title `Schottish-Choro`; spec là `suite_schottish_arpeggio_abab`.
 - Thêm `suite_schottish_2_4` cùng title sẽ fail title uniqueness.
-- `PATTERN_META` counts/`PATTERN_NAMES`/generated TS/matrix phải cập nhật.
+- `PATTERN_META` counts/`PATTERN_NAMES`/generated TS/matrix phải cập nhật khi thêm row.
 
-### 2.5. Studio
+### 2.6. Studio
 
 - `villa_preview.VILLA_PATTERNS` chỉ có `villa_pattern`, `chord_melody`, `etude1`, `etude11`.
 - `dispatch.family_for("suite_schottish")` trả `None`.
 - Studio preview/audio/export không nhận pattern suite nếu không mở family/whitelist.
 
-### 2.6. 70/30
+### 2.7. Cadence
 
-Không tồn tại.
+- `VILLA_FIGURES` chỉ có `VILLA_ARPEGGIO`, `VILLA_CHORD_MELODY`, `VILLA_ETUDE1`, `VILLA_ETUDE11`.
+- Không có figure cadence.
+- `SentenceSpec.select.closes` chỉ chọn spec, không tạo nhạc kết.
 
-- `plan_sentence`/`plan_slots` chọn theo length/n/closes/rise và tile slots.
-- `guitar_scale_passages` có 30% body budget cho scale passage, không phải sentence.
-- 70/30 phải định nghĩa rõ: theo bar, beat hay voice.
+### 2.8. Wave/frame
+
+- `guitar_wave.PROFILES` key `(ensemble, pattern)`; `profile_for()` không nhận meter.
+- `test_guitar_wave._EXPECTED` cũng key theo `(ensemble, pattern)`.
+- `span.frame_bars_for()` không có `(2, 4)`.
+
+### 2.9. `PitchRef`
+
+Kind hiện có:
+
+```text
+melody_eighth
+chord_degree
+chord_root
+scale_step
+literal_midi
+```
+
+Không có `melody_at_beat`/`bass_root`.
+
+### 2.10. 70/30
+
+Không tồn tại như thuật toán. `guitar_scale_passages` có 30% body budget cho scale passage,
+không phải sentence.
 
 ---
 
 ## 3. Phase chi tiết
 
-### Phase 1 — production foundation (4/4 fold)
+### 3.0. Phase 0 — audit + body/door merge design
+
+#### 3.0.1. Audit
+
+- [ ] Tái hiện: `SuiteGate.eligible()` trả `False` khi `has_pedal_bars(ctx)`.
+- [ ] Xác nhận `week_spec`/`month_specs`/`attach_frame` tạo pedal bars.
+- [ ] Xác nhận `test_on_falls_back_with_a_pedal_frame[schottish|valsa|gavotta|choros1]`.
+- [ ] Ghi lại digest/notes của form thật khi flag off.
+
+#### 3.0.2. Partial `SentenceVoices`
+
+Đề xuất tối thiểu, giữ default tương thích:
+
+```python
+@dataclass
+class SentenceVoices:
+    ...
+    covered: frozenset[int] | None = None  # None = toàn movement
+```
+
+- `None` giữ nguyên hành vi cũ.
+- Partial plan trả `covered` = bar body sentence chiếm.
+
+#### 3.0.3. Partial `bar_plan`
+
+```python
+def bar_plan(planned, bars, *, require_full=True):
+    ...
+```
+
+- `require_full=True` giữ byte-identical path.
+- `require_full=False` trả plan dù thiếu bar; caller merge với base/door.
+
+#### 3.0.4. Merge body + door
+
+Đề xuất:
+
+1. Render base bar-loop cho **toàn** movement (đã có door/pedal).
+2. Render sentence voices cho body bars.
+3. Trên `covered` bars, thay thế base events của cả 3 voice bằng sentence events.
+4. Ngoài `covered`, giữ base/door/pedal.
+5. `_finish_voices` chạy **một lần** trên merged voices:
+   - `patterns[bar]` = sentence pattern trong `covered`, base pattern ngoài;
+   - merge `figures`/`contours`/`slot_contours`;
+   - `preludio_bass` chỉ do sentence own nếu toàn movement.
+6. Test intro/outro + body: door notes còn nguyên; body không trùng note; không tràn bar.
+
+#### 3.0.5. `eligible` opt-in
+
+- `SuiteGate` thêm `partial: bool = False`.
+- `partial=False`: giữ `not has_pedal_bars(ctx)` byte-identical.
+- `partial=True`: chỉ yêu cầu body bars đủ `min_bars`; door/pedal được phép.
+- Không đổi hành vi 3 movement còn lại khi flag off.
+
+#### 3.0.6. Phase 0 acceptance
+
+- [ ] Form thật có frame chọn được `suite_schottish` khi flag on.
+- [ ] Flag off digest byte-identical.
+- [ ] Không fallback toàn movement chỉ vì pedal.
+- [ ] Test cả 4 movement flag off/on.
+- [ ] Chưa đổi nhạc Phase 1 (vẫn ABAB).
+
+### 3.1. Phase 1 — production foundation (4/4 fold)
 
 1. Giữ `suite_schottish` hiện có; không tạo pattern id mới.
-2. Sửa/tối thiểu sentence:
-   - 4-bar tile ABAB hoặc AABA;
-   - ghi rõ đây là texture foundation, không phải final AABA.
-3. Nối đầy đủ wiring §4.
-4. Flag:
-   - `VSTOCK_SUITE_SCHOTTISH` đã có;
-   - giữ default off.
+2. Giữ **ABAB** (`suite_schottish_arpeggio_abab`).
+3. Nối đầy đủ wiring §4, gồm body/door merge từ Phase 0.
+4. Flag `VSTOCK_SUITE_SCHOTTISH` default off.
 5. Test:
    - flag off digest byte-identical;
    - flag on selection/render;
    - plan/slots;
    - no note overflow;
-   - composer chọn được pattern trong form 4/4.
+   - composer form thật chọn được pattern;
+   - intro/outro + body merge.
 
-**Không tuyên bố Phase 1 là bản nhạc final.**
+Không tuyên bố Phase 1 là bản nhạc final.
 
-### Phase 2 — musical AABA
+### 3.2. Phase 2 — phrase-level form + cadence
 
-Chọn một trong hai:
-
-#### 16-bar sentence (chỉ fallback khi movement đúng 16 bar)
+#### 3.2.1. Chọn phrase
 
 ```text
-A1 4 bar  key figure
-A2 4 bar  key figure variation
-B  4 bar  contrast
-A3 4 bar  close/cadence
-tile = 16
+body_phrases = [p for p in ctx.phrases if bar không thuộc _PEDAL]
+n = index trong body_phrases
+closes = p.closes (nếu có; fallback False)
+rise = p.apex - p.min (nếu có; fallback 0)
 ```
 
-- `SentenceSpec` tile 16.
-- `select.length_min=16`.
-- Movement 30 bar: 16 + 14 truncate; cần thêm spec 8/16 hoặc fallback cadence.
+- 0 phrase: fallback toàn movement.
+- 1 phrase: A, thêm close ở nửa sau nếu đủ bar.
+- 2 phrase: A + close.
+- 3 phrase: A + B + close.
+- ≥4 phrase: A + (A/B xen kẽ) + B ở bridge/trio + close cuối.
 
-#### Phrase-level sentence plan (đã chọn)
+#### 3.2.2. Chọn spec
 
-- `SuiteGate` mở rộng `specs` thành tuple.
-- `plan_slots` theo từng phrase:
-  - chọn spec theo `n`, `closes`, `rise`;
-  - B ở phrase bridge/trio;
-  - phrase cuối dùng close/cadence spec.
-- Không còn hardcode `n=0`.
-- Cần test 5/7/9/16/30 bar.
+```text
+if phrase cuối: close
+elif phrase là bridge/trio: B
+elif phrase đầu: A
+elif có ≥3 body phrase và phrase giữa: B hoặc A
+else: A
+```
 
-Yêu cầu âm nhạc:
+- `B` fallback: phrase giữa; nếu không có, phrase thứ 2.
+- `close` không bị thay bằng A/B dù quota thiếu.
+- Phrase quá ngắn cho spec: dùng spec ngắn hơn hoặc fallback A; không cắt B/close.
 
-- câu kết A, không kết ở B;
-- B có contrast nhưng không phá cadence;
-- key figure lặp có biến đổi;
-- không tràn bar/voice.
+#### 3.2.3. Cadence artifact
 
-### Phase 3 — native 2/4
+MVP chọn **một** hướng:
 
-1. Thêm FormSpec/span path cho 2/4:
+- **Close spec dùng figure hiện có**, không thêm figure mới:
+  - final bar: bass `chord_root` ở beat 0;
+  - lead kết ở tonic/scale step 0, duration dài;
+  - support chord tone, không arpeggio chạy;
+  - `select.closes=True` chỉ là điều kiện chọn, không phải nhạc kết.
+- Nếu audition cho thấy không đủ kết: thêm `VILLA_CADENCE` figure ở Phase 2 follow-up,
+  có test riêng. Không thêm cả hai trong một PR.
+
+A2 variation (MVP):
+
+- cùng figure, đổi contour/rhythm ở 1–2 slot;
+- hoặc dùng `VILLA_CHORD_MELODY` cho A2 nếu A là arpeggio;
+- phải có test A ≠ A2 nhưng cùng tonal center.
+
+#### 3.2.4. Multi-spec gate
+
+- Không đổi `SuiteGate` single-spec path.
+- Thêm seam opt-in, ví dụ `PhraseGate`/`MultiSpecGate`, chỉ `suite_schottish` dùng.
+- `plan_slots` nhận offset phrase và danh sách spec.
+- Giữ `ensure_registered`/`unregister` đúng cho tuple.
+- Test Valsa/Gavotta/Choros1 flag off/on byte-identical.
+
+### 3.3. Phase 3 — native 2/4
+
+1. Thêm `FormSpec`/`span` path cho 2/4:
    - ít nhất một movement guitar tạo `METER_24`;
    - test composer thật, không chỉ `_render(..., METER_24, ...)`.
 2. Dùng `suite_schottish` + meter variant `("suite_schottish","2/4")`.
 3. Sửa `_chord_grid` 2/4:
    - ví dụ `[0,2] / [2,2]` hoặc `[0] / [epb]`;
    - test mọi figure 2/4 không có `beat/duration` vượt bar.
-4. Wave/accent profile 2/4:
-   - không copy `tresillo` 4/4;
-   - audition strong beat 0/subbar 2.
-5. Studio preview:
+4. Meter-aware wave/accent:
+   - `PROFILES` key thêm meter hoặc `profile_for(ensemble, pattern, meter)`;
+   - `_EXPECTED` cập nhật;
+   - accent strong beat 0/subbar 2, không copy `tresillo` 4/4.
+5. Frame:
+   - `frame_bars_for((2,4), span)` có giá trị;
+   - test `1Y`/`1M`/`3M`.
+6. Studio preview:
    - mở `VILLA_PATTERNS`/dispatch/export cho `suite_schottish` 2/4;
    - hoặc ghi rõ production-only, không authorable.
-6. Cập nhật candidate 4/4 fold → 2/4 native hoặc đánh dấu legacy.
+7. Pickup 1/4:
+   - parser đã normalize thành 2/4, note shift beat 2;
+   - pickup bar **không** tính là bar 1 nhạc;
+   - key figure "bar 2/3" = full bar thứ 2/3 sau pickup;
+   - form 2/4 có pickup bar riêng hoặc anacrusis rõ ràng.
 
-### Phase 4 — key figure tùy ý
+### 3.4. Phase 4 — key figure tùy ý
 
-1. Chọn 1 bar passage.
-2. Trích rhythm per role.
-3. Tạo `TextureSpec`:
-   - `authored.events` dùng `PitchRef` hiện có;
-   - Lead: `melody_eighth`/`melody_at_beat`;
+1. Chọn 1 bar passage **sau pickup**.
+2. Trích rhythm/role.
+3. Tạo `TextureSpec` chỉ với kind hiện có:
+   - Lead: `melody_eighth` (offset nếu cần);
    - Mid: `chord_degree`;
-   - Bass: `chord_root`/`bass_root` (nếu cần thêm).
-4. Renderer generic loop key figure; sentence slots override.
-5. 70/30 nếu chốt:
-   - định nghĩa theo bar/beat/voice;
-   - test cadence và không phá phrase.
+   - Bass: `chord_root`;
+   - fallback: `scale_step`/`literal_midi` chỉ khi có lý do và test.
+4. Nếu cần `melody_at_beat`/`bass_root`: thêm kind + validation/resolve/test ngay tại Phase 4.
+5. Renderer generic loop key figure; sentence slots override.
 6. Promote qua registry/flag; preview/export trước.
 
 ---
@@ -209,7 +347,7 @@ Khi thêm pattern/meter variant:
 - `production_flags.py`
   - env constant;
   - ContextVar override;
-  - `SUITE_MOVEMENT_ENVS` nếu là suite movement;
+  - `SUITE_MOVEMENT_ENVS`;
   - `any_suite_movement_enabled()`;
   - `__all__`.
 
@@ -219,13 +357,15 @@ Khi thêm pattern/meter variant:
   - `_FAMILY`;
   - `_PROFILE`;
   - `_finish_voices` ringing set;
-  - `_contrast_pattern` nếu pattern có thể làm contrast;
-  - `_PEDAL_DOOR_PROFILE` nếu door mới.
+  - `_contrast_pattern`;
+  - `_PEDAL_DOOR_PROFILE`.
 - `guitar_wave.py`
-  - `PROFILES[("villa", pattern)]`;
-  - `_VILLA_SENTENCE_PATTERNS`.
-- `guitar_frame.py`
-  - `_RETAINED_DOORS` hoặc door riêng.
+  - meter-aware `PROFILES`/`profile_for` (hoặc branch `ctx.kind`);
+  - `_VILLA_SENTENCE_PATTERNS`;
+  - `test_guitar_wave._EXPECTED`.
+- `guitar_frame.py` / `span.py`
+  - `frame_bars_for((2,4), span)`;
+  - `_RETAINED_DOORS` hoặc door riêng theo meter.
 - `guitar_scale_passages.py`
   - `_KINETIC_PATTERNS`;
   - `_LOUD_DOWN_PATTERNS`;
@@ -235,7 +375,8 @@ Khi thêm pattern/meter variant:
   - `_PATTERN_TITLE`.
 - `pattern_registry.py`
   - `PATTERN_META`;
-  - counts.
+  - counts;
+  - meter nếu row cần phân biệt.
 - `humanize.py`
   - `_clamp_guitar` nếu velocity ceiling khác.
 - generated TS
@@ -247,19 +388,20 @@ Khi thêm pattern/meter variant:
 - `dispatch.family_for` / family override;
 - `/sentence/preview`, `/sentence/audio`, `/sentence/export`;
 - examples/candidate JSON;
-- `sentenceDraft` template picker if authorable.
+- `sentenceDraft` template picker nếu authorable.
 
 ### Tests
 
 - `test_pattern_registry.py` counts + title uniqueness;
 - `test_guitar_wave.py::_EXPECTED`;
-- `test_suite_production_movements.py`;
+- `test_suite_production_movements.py` (gồm pedal frame);
 - `test_studio_suite_schottish.py`;
 - texture selection/render matrices;
 - stabilization gate digest off/on;
-- composer end-to-end 2/4/4/4;
+- composer end-to-end 4/4 (form thật có frame) và 2/4;
 - note bounds/accent/velocity;
-- long movement 30 bar and 5/7/9 bar.
+- long movement 5/7/9/16/30 bar;
+- intro/outro + body merge.
 
 ---
 
@@ -269,7 +411,7 @@ Một pattern chỉ được coi là “xong” khi:
 
 1. AABA là câu, không phải ostinato 4 bar.
 2. B đặt đúng contrast (bridge/trio/apex), không cắt giữa phrase.
-3. Có câu kết A/cadence.
+3. Có câu kết A/cadence thật.
 4. Không có note tràn bar/voice.
 5. Accent/velocity 2/4 đúng, không copy 4/4 tresillo.
 6. Nghe thử 8/16/30 bar:
@@ -278,124 +420,112 @@ Một pattern chỉ được coi là “xong” khi:
    - kết coherent.
 7. Flag off byte-identical; flag on deterministic digest.
 8. Studio preview/export và composer render cùng một nội dung.
+9. Form thật có intro/outro/frame vẫn chọn được pattern.
 
 ---
 
-## 6. 70/30
+## 6. Quota
 
-**Không có sẵn.** Nếu muốn:
+**Chưa có thuật toán.** Policy:
 
-- định nghĩa theo **bar** hay **beat/voice**;
-- key figure là accompaniment hay lead;
-- sentence 70% có được phép chiếm lead 100% không.
+```text
+target = 70% body bars dùng sentence
+tolerance = ±10%
+key figure = phần còn lại (có thể chạy dưới sentence lead)
+```
 
-Quyết định: dùng **70% ±10%** làm quota mềm; chưa enforce trong MVP, nhưng plan/phrase selection phải giữ cadence và B. Không dùng 70/30 cứng.
+- MVP: **log/plan only, không enforce**.
+- Phase 5: chốt semantics (bar độc quyền hay lead layer) rồi enforce.
+- Không hy sinh close/cadence hoặc B để đủ quota.
 
 ---
 
-## 7. Thứ tự thực hiện đề xuất
+## 7. Thứ tự thực hiện
 
 | Phase | Việc | Output |
 |---|---|---|
-| 1 | `suite_schottish` 4/4 fold wiring đầy đủ | Pattern chạy composer, flag off an toàn |
-| 2 | Phrase-level AABA + cadence | Bản nhạc có form nghe được |
-| 3 | Native 2/4 FormSpec + B figure fix + Studio | 2/4 thật, không fold |
+| 0 | Framed-form audit + body/door merge design | Chứng minh fallback; thiết kế partial merge |
+| 1 | `suite_schottish` 4/4 ABAB wiring + merge | Pattern chạy composer form thật, flag off an toàn |
+| 2 | Phrase-level A/B/close + cadence | Bản nhạc có form nghe được |
+| 3 | Native 2/4 FormSpec + B figure fix + stereo/frame | 2/4 thật, không fold |
 | 4 | Key figure tùy ý từ passage | Pattern + sentences từ passage |
 | 5 | Quota mềm 70% ±10% | Fill policy có kiểm soát cadence/B |
 
-MVP không nên nhảy thẳng Phase 3 khi Phase 1/2 chưa có form/cadence.
+Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 
 ---
 
 ## 8. Quyết định đã chốt
 
-1. **Phase 1 = 4/4 fold.** Dùng `suite_schottish` hiện có làm production foundation; không tạo pattern id mới, không tuyên bố là bản final.
-2. **Phase 2 = phrase-level plan.** Không dùng 16-bar sentence làm mặc định. Chia movement theo phrase; chọn A/B/close theo `n`/`closes`/`rise`; B ở bridge/trio; phrase cuối có cadence.
-3. **Phase 3 = native 2/4.** Đây là bản final. Phải có `FormSpec`/`span.py` path tạo `ctx.kind == "2/4"` và test qua composer thật. Sửa `_chord_grid` 2/4 + test no-overflow trước khi bật.
-4. **Quota mềm 70% ±10%.** Không cần đúng 70/30; quota theo bar body, ưu tiên close/cadence và B; key figure lấp phần còn lại và có thể chạy dưới sentence lead.
-5. **Preset trước, user-authorable sau.** Phase 1–2 là preset production; Phase 3–4 mở Studio authoring + promote. Không trộn hai mục tiêu trong một PR.
-6. **Key figure:** chọn bar 2 hoặc 3 của Scottish; ưu tiên rhythm fidelity. Dùng `TextureSpec`/`PitchRef` hiện có, không tạo schema `KeyFigureSpec` song song.
+1. **Phase 0 bắt buộc.** Audit form thật + body/door merge trước Phase 1.
+2. **Phase 1 = 4/4 fold, giữ ABAB.** Dùng `suite_schottish`; không tạo pattern id mới; không tuyên bố final.
+3. **Phase 2 = phrase-level plan + cadence artifact.** Chọn A/B/close theo phrase; close dùng figure hiện có trước, `VILLA_CADENCE` chỉ khi cần.
+4. **Phase 3 = native 2/4.** `FormSpec`/`span` + meter-aware wave/frame + `_chord_grid` fix + test composer thật.
+5. **Quota = policy 70% ±10%, chưa enforce MVP.** Semantics chốt Phase 5.
+6. **Preset trước, user-authorable sau.** Phase 1–2 preset; Phase 3–4 mở Studio.
+7. **Key figure:** bar 2/3 sau pickup; ưu tiên rhythm fidelity; chỉ dùng `PitchRef` kind hiện có.
+8. **Multi-spec opt-in.** `SuiteGate` single-spec path byte-identical cho 3 movement còn lại.
 
 ---
 
-## 9. Làm rõ: 16-bar sentence vs phrase-level plan
+## 9. Thuật toán phrase-level (chi tiết)
 
-### 16-bar sentence
+### 9.1. Input
 
 ```text
-A1 4 bar  key figure
-A2 4 bar  key figure variation
-B  4 bar  contrast
-A3 4 bar  close
-tile = 16
+phrases = ctx.phrases (fallback ctx.sections)
+body = phrases không chứa _PEDAL
+bars_per_phrase = (p.end - p.start) / epb
+n = index trong body
+closes = p.closes nếu có, else False
+rise = p.apex - p.min nếu có, else 0
 ```
 
-Ưu điểm:
+### 9.2. Role
 
-- dễ code, dễ test;
-- đúng AABA nếu movement đúng 16 bar;
-- dùng `SentenceSpec` hiện có.
+```text
+if not body: fallback toàn movement
+elif n == len(body)-1: close
+elif bridge/trio tại n: B
+elif n == 0: A
+elif len(body) >= 3 and 0 < n < len(body)-1: B nếu rise cao, else A
+else: A
+```
 
-Nhược:
+- Bridge/trio detect từ `ctx.kind_at`/`ctx.sections`; nếu không có metadata, dùng phrase giữa.
+- B không được ở phrase cuối.
+- Close luôn ở phrase cuối.
 
-- movement 8/30 bar không khớp: 30 bar = 16 + 14, dễ cắt giữa B/A3;
-- không theo phrase thật;
-- B không đặt theo bridge/trio;
-- cadence cuối không đảm bảo.
+### 9.3. Spec
 
-### Phrase-level plan (khuyến nghị)
+- `plan_slots(pattern, meter, bars, offset, closes, rise)` với offset = phrase start bar.
+- Nếu không spec nào khớp: fallback A của phrase, không bỏ phrase.
+- Nếu phrase cuối không đủ bar cho close: dùng close ngắn hơn; nếu vẫn không, cadence bar cuối
+  dùng figure hiện có.
 
-- Chia movement theo `ctx.phrases`/`ctx.sections`.
-- Mỗi phrase chọn một `SentenceSpec`:
-  - phrase mở: A;
-  - phrase giữa: A/B;
-  - phrase có bridge/trio: B;
-  - phrase cuối: close/cadence.
-- Trong phrase dài, lặp A unit; B chỉ ở vị trí contrast.
-- `n`, `closes`, `rise` được dùng thật, không hardcode.
+### 9.4. Multi-spec registry
 
-Ưu điểm:
-
-- 8/16/30 bar đều có form;
-- không cắt giữa B;
-- cadence cuối;
-- nghe coherent hơn.
-
-Nhược:
-
-- cần mở rộng `SuiteGate`/sentence planner để chọn nhiều spec theo phrase;
-- test nhiều hơn.
-
-**Đề xuất: chọn phrase-level plan.** Nếu cần ship nhanh, làm 16-bar nhưng chỉ dùng cho movement đúng 16 bar; không dùng cho 30 bar.
+- `SENTENCE_SPECS[(pattern, meter)]` giữ tuple đã đăng ký.
+- `SuiteGate.specs` vẫn một spec cho movement cũ.
+- `PhraseGate.specs` trả tuple + plan; chỉ pattern mới dùng.
+- `ensure_registered`/`unregister` so sánh đúng tuple.
 
 ---
 
-## 10. Sentence quota (thay cho 70/30 cứng)
+## 10. Quota semantics
 
-Không cần đúng 70/30. Đề xuất quota mềm:
+Hai lựa chọn, chưa chốt:
 
-```text
-target = 70% body bars dùng sentence
-tolerance = ±10%
-key figure = phần bar còn lại
-```
+1. **Bar độc quyền**: sentence chiếm bar; key figure không chạy cùng bar.
+2. **Lead layer**: sentence chiếm lead; key figure accompaniment dưới.
 
-Quy tắc:
+Plan hiện nghiêng (2), nhưng quota theo bar sẽ vô nghĩa nếu key figure chạy dưới.
+Phase 5 phải chọn một và test:
 
-1. Ưu tiên câu kết/close; không hy sinh cadence để đủ quota.
-2. B được đặt ở phrase contrast; không cắt B.
-3. Nếu quota vượt tolerance:
-   - giảm A lặp ở phrase giữa;
-   - giữ key figure ở phrase mở/đoạn chuyển.
-4. Key figure vẫn có thể chạy **dưới** sentence lead (accompaniment), không nhất thiết chiếm bar riêng.
-5. Quota cấu hình:
-
-```text
-VSTOCK_SENTENCE_QUOTA=0.7
-VSTOCK_SENTENCE_QUOTA_TOLERANCE=0.1
-```
-
-MVP: có thể chỉ log/plan quota, chưa cần ép; Phase sau mới enforce.
+- đếm bar body;
+- loại bar cadence/B;
+- log target/actual;
+- không enforce nếu vượt tolerance.
 
 ---
 
@@ -403,151 +533,63 @@ MVP: có thể chỉ log/plan quota, chưa cần ép; Phase sau mới enforce.
 
 ### Preset production
 
-- Pattern + sentence nằm trong code.
+- Pattern + sentence trong code.
 - User không tạo/sửa trong Studio.
-- Chỉ chọn được trong composer khi flag bật.
+- Chỉ chọn trong composer khi flag bật.
 - Không cần mở `VILLA_PATTERNS`/dispatch.
-- Nhanh, an toàn, nhưng không phải luồng MusicXML authoring.
 
-### User-authorable trong Studio
+### User-authorable
 
-- User upload MusicXML → passage → draft.
-- Pattern/sentence preview/audio/export trong Studio.
+- Upload MusicXML → passage → draft.
+- Preview/audio/export trong Studio.
 - Promote lên production qua code/flag.
-- Cần:
-  - `VILLA_PATTERNS`/dispatch family;
-  - 2/4 template/key figure;
-  - registry/promotion.
-- Đúng vision Studio, nhưng nhiều việc hơn.
+- Cần `VILLA_PATTERNS`/dispatch, 2/4 template/key figure, registry/promotion.
 
-**Đề xuất:**
-
-- Phase 1–2: preset production để có bản nhạc chạy.
-- Phase 3–4: mở user-authorable cho pattern/key figure mới.
-- Không trộn hai mục tiêu trong cùng PR.
+**Thứ tự:** Phase 1–2 preset; Phase 3–4 mở authorable.
 
 ---
 
 ## 12. Chốt cuối
 
-1. Phase 1: **4/4 fold** — đã chốt.
-2. Phase 2: **phrase-level plan** — đã chốt.
-3. Native 2/4: Phase 3, sau khi form/span path có test composer thật.
-4. Quota: **70% ±10%**, mềm, không cắt cadence/B.
-5. Preset trước; user-authorable sau.
-6. Key figure Bước 4: chọn bar 2 hoặc 3 của Scottish; ưu tiên rhythm fidelity, dùng `TextureSpec` hiện có.
+1. Phase 0: **bắt buộc** — audit + body/door merge.
+2. Phase 1: **4/4 fold ABAB** — foundation, không final.
+3. Phase 2: **phrase-level + cadence artifact**.
+4. Phase 3: **native 2/4**, meter-aware wave/frame.
+5. Phase 4: key figure dùng `TextureSpec`/`PitchRef` hiện có.
+6. Phase 5: quota 70% ±10%, enforce sau khi chốt semantics.
+7. Pickup 1/4: không tính là bar 1; A/B/key figure lấy full bar sau pickup.
+8. Multi-spec/partial path opt-in; 3 movement còn lại byte-identical.
 
 ---
 
-## 13. Track B — Studio preview variants
+## 13. Track B
 
-Các variant preview `source` / `aaba` đã được tách sang:
+Preview variants `source`/`aaba` nằm ở file riêng:
 
-**`docs/studio-schottish-variant-plan.md`**
+```text
+docs/studio-schottish-variant-plan.md
+```
 
-Lý do tách:
-
-- Track A (file này) là production composer, cần form/phrase/cadence.
-- Track B là preview/export-only, có thể ship độc lập.
-- Không dùng chung từ “variant” cho cả hai track.
+Không trộn `previewMode` với production `SentenceSpec`/plan.
 
 ---
 
-## 14. Production blockers bổ sung sau review
+## 14. Production blockers (đã xác nhận)
 
-Các điểm sau phải xử lý trước khi coi Phase 1–3 là production-ready.
+1. `SuiteGate.eligible` reject toàn movement khi có pedal bar → Phase 0.
+2. `bar_plan` đòi cover mọi bar → partial plan Phase 0.
+3. `_gated_sentence`/`_render_sentence_tail` chỉ render toàn movement → body/door merge Phase 0.
+4. Không có cadence figure → Phase 2 close spec, `VILLA_CADENCE` fallback.
+5. `PROFILES`/`profile_for`/`frame_bars_for` không meter-aware → Phase 3.
+6. Quota bar vs lead layer chưa chốt → Phase 5.
+7. `PitchRef` thiếu `melody_at_beat`/`bass_root` → Phase 4 chỉ dùng kind hiện có.
+8. Pickup 1/4 chưa có rule production → Phase 3, thống nhất với Track B.
+9. `SuiteGate` dùng chung 4 movement → multi-spec/partial opt-in, test byte-identical.
 
-### 14.1. Form thật có frame/pedal
+---
 
-`SuiteGate.eligible()` hiện reject toàn bộ movement nếu có bất kỳ bar `_PEDAL`.
-Nhưng `week_spec`/`month_specs`/`attach_frame` đều có intro/outro/warmup/cooldown.
+## 15. Câu cần chốt trước khi code Phase 0
 
-Vì vậy test bare-phrase không chứng minh composer chọn được pattern. Phase 1 phải test bằng form thật, và phải có:
-
-- body-only sentence;
-- merge với door/pedal cũ;
-- partial plan/bar coverage;
-- offset phrase;
-
-Không được fallback toàn movement chỉ vì có frame.
-
-### 14.2. Body + door merge
-
-`bar_plan()` hiện đòi cover mọi bar. Với form thật:
-
-- sentence chỉ render body;
-- door/pedal render ngoài body;
-- `_gated_sentence` phải trả partial `SentenceVoices`;
-- merge `figures`/`contours`/`slot_contours`;
-- test intro/outro + body.
-
-### 14.3. Cadence và variation
-
-`VILLA_FIGURES` hiện chỉ có arpeggio/chord melody/etude1/etude11.
-Không có figure cadence, không có A2 variation.
-
-Phase 2 phải thêm một trong hai:
-
-- figure/procedure cadence;
-- sentence variant `close` dùng figure hiện có nhưng được thiết kế kết;
-- variation bằng rhythm/pitch transform có test.
-
-Không thể chỉ dựa `select.closes`.
-
-### 14.4. Meter-aware wave/profile/frame
-
-`guitar_wave.PROFILES` key `(ensemble, pattern)`, không có meter.
-`test_guitar_wave._EXPECTED` cũng vậy.
-`frame_bars_for()` chưa có `(2,4)`.
-
-Native 2/4 cần:
-
-- meter-aware `PROFILES`/`profile_for` hoặc branch `ctx.kind`;
-- `frame_bars_for((2,4), span)`;
-- test velocity/accent 2/4, không copy 4/4 tresillo.
-
-### 14.5. Quota semantics
-
-Plan §10 dùng quota theo bar, nhưng key figure có thể chạy dưới sentence lead.
-Một bar vừa sentence vừa key figure → quota bar vô nghĩa.
-
-Phải chọn:
-
-- quota theo lead layer; hoặc
-- quota theo slot độc quyền; hoặc
-- bỏ quota khỏi MVP, chỉ log.
-
-MVP: không enforce quota; Phase 5 mới chốt semantics.
-
-### 14.6. PitchRef mapping
-
-Phase 4 không được tự sinh `melody_at_beat`/`bass_root` nếu `TextureSpec` chưa có.
-Hiện có:
-
-- `melody_eighth`
-- `chord_degree`
-- `chord_root`
-- `scale_step`
-- `literal_midi`
-
-Nếu cần kind mới, phải thêm validation/resolve/test.
-
-### 14.7. Pickup 1/4
-
-Parser đã normalize pickup 1/4 thành 2/4 và shift note sang beat 2.
-Production/native 2/4 phải chốt:
-
-- pickup bar có tính là bar 1 không;
-- A/B lấy bar nào;
-- key figure “bar 2/3” là measure nào;
-- FormSpec 2/4 xử lý pickup ra sao.
-
-### 14.8. Phase 1 test thật
-
-Phase 1 chỉ được coi là xong khi:
-
-- composer form thật có intro/outro/frame chọn pattern;
-- body+door merge đúng;
-- flag off byte-identical;
-- flag on digest deterministic;
-- không fallback toàn movement vì pedal.
+1. Partial merge: thay thế base events trên `covered` bar (đề xuất) hay render sentence-only rồi chèn door?
+2. `SentenceVoices.covered` là `frozenset[int]` (đề xuất) hay `range`?
+3. Close spec dùng figure hiện có trước (đề xuất) hay thêm `VILLA_CADENCE` ngay?
