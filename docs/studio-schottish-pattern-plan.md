@@ -31,6 +31,8 @@ Track B (Studio preview `source`/`aaba`) tách riêng tại
 | `figures[].tags` scope quá rộng | Chỉ pattern mới/promote; pattern cũ grandfathered |
 | Phase 3 chưa có FormSpec path | Chốt movement III (1M/3M), 1W toàn bộ; pickup không vào production |
 | AABA/trio hardcode trong gate | Tách `sentence_plan.py`: `PlanPolicy` + `CompositePolicy` + `explicit` JSON; renderer chỉ nhận `PlannedSlot[]` |
+| `Slot.cell` chỉ hợp lệ với cycle | Bỏ rule “cell only when cycle”; giữ cycle cần cell; test tile 4 bar |
+| `PatternDraft` chỉ có sentences | Thêm `figures[]` (id/cellId/spec/bars/tags), `sentences[]` giữ SentenceSpec |
 
 ---
 
@@ -720,11 +722,45 @@ nên bản 4/4 có thể được chọn ở movement I/II/IV hoặc `1Y` month 
   - key figure "bar 2/3" = full bar thứ 2/3 sau pickup.
 - Nếu cần pickup thật trong production, phải thiết kế `FormSpec` per-bar meter ở phase sau; không đưa vào Phase 3.
 
+#### 3.3.4. Tests bắt buộc
+
+- Direct render thiếu `movement_span`/`movement_index` → gate false.
+- `1Y` index 2 **không** chọn Schottish.
+- `1M`/`3M` movement III chọn 2/4.
+- `1W` index 0 chọn 2/4.
+- `1M` movement I/II/IV không chọn Schottish.
+- Flag off byte-identical.
+- `frame_roles(2)` short, `frame_roles(4)` long; frame 1/3 bar.
+
 ### 3.4. Phase 4 — key figure tùy ý
 
 Mục tiêu: user chọn passage MusicXML, tạo **figure**, gắn tag `key`/`intro.*`/`outro.*`,
 preview/export, rồi promote thành pattern production. Không tạo schema song song; dùng
 `TextureSpec`/`PitchRef` hiện có, thêm runtime cell resolver.
+
+#### 3.4.0. `SentenceSpec` cell validation (blocker)
+
+Hiện `_validate` chỉ cho `cell` khi `span.cycle`:
+
+```python
+if not span.cycle and slot.cell is not None:
+    raise ValueError("a cell realizer needs a cycle span")
+```
+
+Phase 4 dùng `Slot(cell=...)` trong tile 4 bar, nên phải sửa:
+
+- **Bỏ** điều kiện “cell chỉ khi cycle”.
+- **Giữ** điều kiện “cycle phải có cell”.
+- Cho phép `cell` trong `tile`/`exact` span.
+- `plan_slots` vẫn phát `PlannedSlot.cell`.
+- `plan_sentence` chỉ figure; bỏ qua `slot.cell`, không emit `(None, bars)`.
+  Spec chỉ có cell → `plan_sentence` trả `[]`; `SuiteGate` dùng `plan_slots`.
+- Test:
+  - register `SentenceSpec(tile=4)` với `Slot(cell=...)` thành công;
+  - galop cycle cũ vẫn đúng;
+  - cell rỗng/không tồn tại vẫn reject.
+
+Nếu không sửa, Phase 4 raise ngay khi register.
 
 #### 3.4.1. Input
 
@@ -814,10 +850,20 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
   ```
   `PlannedSlot` đã có `cell`; chỉ thêm dispatch.
 - **`bar_plan` phải tính cell là coverage**: hiện chỉ loop `slot.figure` và bỏ qua `cell`.
-  - thêm `bar_cell_plan(planned, bars)` hoặc mở rộng `bar_plan` trả thêm `cells`;
-  - coverage check phải đếm `figure` **hoặc** `cell`;
+  - thêm `bar_plan_cells(planned, bars, *, require_full=True) -> (figures, cells, contours) | None`;
+  - coverage = `figure` **hoặc** `cell`;
+  - `SuiteGate._plan` dùng `bar_plan_cells`; các module cũ vẫn dùng `bar_plan` figure-only;
   - nếu không, sentence dùng cell sẽ fallback toàn movement.
-- `SuiteGate._plan` build `cell_at: dict[int,str]`; `render_sentence` truyền `cell_at[bar]`.
+- `SuiteGate._plan` build `cell_at: dict[int,str]`; `render_sentence` dispatch:
+  ```python
+  if bar in cell_at:
+      part = render_cell(ctx, bar, phrase, cell_at[bar], cell_bar)
+  else:
+      part = render_figure(ctx, bar, phrase, figures[bar])
+  ```
+- `SuiteGate` thêm `valid_cells: frozenset[str] | None`; `ensure_registered` truyền
+  `valid_cells=gate.valid_cells`; `register` đã hỗ trợ sẵn.
+- Preview dùng draft-local cell map; promote mới cần global `TEXTURE_CELLS`/`valid_cells`.
 - Registry cell theo pattern:
   ```python
   TEXTURE_CELLS: dict[tuple[str, str], dict[str, TextureSpec]]
@@ -886,7 +932,9 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 - `resolve_pitch` từng kind; `literal_midi` reject khi promote.
 - `bind_texture` tile tại bar 0/5/13; `melody_eighth` không trỏ passage gốc.
 - `render_texture_bar` voice split, duration/tie/slur/accent, no overflow.
-- Cell dispatch qua `PlannedSlot.cell`; `valid_cells` reject unknown; `bar_plan` coverage đếm cell.
+- `SentenceSpec` tile 4 bar với `Slot(cell=...)` register thành công; galop cycle cũ vẫn đúng.
+- `plan_sentence` bỏ qua cell; `plan_slots` phát cell.
+- Cell dispatch qua `PlannedSlot.cell`; `valid_cells` reject unknown; `bar_plan_cells` coverage đếm cell.
 - Door short/long/3-bar/1-bar; `frame_role_bar` mapping.
 - Seam intro→key→outro: no tie treo, no overlap.
 - Preview/export/promote cùng notes; flag off byte-identical.
@@ -894,7 +942,7 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 
 #### 3.4.10. Acceptance
 
-- User tạo được key figure + intro/outro từ passage.
+- User tạo được figure và tag key/intro/outro từ passage.
 - Preview/audio/export nghe đúng; không dùng absolute MIDI trong production.
 - Promote tạo pattern production chạy composer thật.
 - Không auto-apply vào SentenceSpec editor; không auto-publish.
@@ -979,6 +1027,47 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 - `keyFigures` chỉ là **projection** từ tags khi export/back-compat, không phải nguồn dữ liệu.
 - Figure pool có thể chứa figure chưa tag; pattern chỉ `complete` khi đủ tag.
 
+#### PatternDraft schema: figures vs sentences
+
+Hai nguồn nhưng **một chiều**, không duplicate:
+
+```ts
+type PatternDraft = {
+  ...meta,
+  figures: PatternDraftFigure[];   // nguồn cho key/intro/outro + cell
+  sentences: PatternDraftSentence[]; // SentenceSpec drafts, không phải figure
+};
+
+type PatternDraftFigure = {
+  id: string;          // local stable id
+  cellId: string;      // maps 1:1 to TEXTURE_CELLS[(pattern,meter)]
+  spec: TextureSpec;
+  bars: number;
+  tags: FigureTag[];
+  previewMode?: "source" | "aaba";
+};
+```
+
+- `figures[]` là nguồn duy nhất cho cell/tag.
+- `sentences[]` giữ nguyên cho `SentenceSpec`; `Add sentence` **không** tự thêm figure.
+- `mode:"new"` preview có thể `Add to figures` để tạo `PatternDraftFigure`.
+- `figures[].cellId` phải tồn tại trong `TEXTURE_CELLS`; Studio-generated mặc định `cellId = id`.
+- **Preview** dùng draft-local figure map, không cần `TEXTURE_CELLS` global.
+- **Promote** mới kiểm `TEXTURE_CELLS` + `valid_cells`.
+- `figures[].id` khác `cellId` chỉ khi có mapping tường minh; `valid_cells` kiểm `cellId`.
+- Draft cũ chỉ có `sentences` vẫn load được, nhưng **không `complete`** nếu chưa có figures/tags.
+- `complete` chỉ tính khi draft opt-in Studio authoring (`figures` có mặt).
+- `keyFigures` projection optional để back-compat; không dùng làm nguồn.
+- Export:
+  ```json
+  {
+    "figures": [...],
+    "sentences": [...],
+    "complete": false,
+    "missing": ["outro.long"]
+  }
+  ```
+
 #### Completeness gate
 
 - `draft` được lưu/export để review dù thiếu; export ghi `complete:false` + `missing[]`.
@@ -1052,6 +1141,9 @@ def door(ctx, bar, role, *, steps, closing, index):
 - intro kết dẫn vào body; outro kết tonic;
 - seam body/door không tie treo;
 - tag validation: thiếu tag, trùng tag, multi-tag sai bar count;
+- figure 2 bar tag `intro.short` + `outro.short` → hợp lệ;
+- figure 4 bar tag `intro.short` → reject;
+- hai figure cùng tag `key` → reject (MVP một figure/tag);
 - `complete` gate chặn promote khi thiếu 1/5 tag;
 - export round-trip `figures[].tags` + `missing[]`;
 - 2/4 door không copy 4/4 accent.
@@ -1211,6 +1303,8 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 20. **Door Phase 4 compile từ tagged figures** 2/4 bar; `frame_role_bar` map 1/2/3/4 bar; 1-bar compressed crop.
 21. **Promote Phase 4 là explicit**; Studio chỉ preview/export, không auto-apply SentenceSpec/registry.
 22. **Figure pool + tag là nguồn duy nhất**: user tag figure có sẵn; không tạo riêng intro/outro/key artifact. Multi-tag cho phép nếu bar count khớp.
+23. **`SentenceSpec._validate` cho phép `Slot.cell` ngoài `span.cycle`**; giữ rule cycle phải có cell; test tile 4 bar + galop cycle.
+24. **`PatternDraft.figures` là nguồn cell/tag**, `sentences` giữ SentenceSpec; `figures[].cellId` map 1:1 `TEXTURE_CELLS`.
 
 ---
 
@@ -1363,6 +1457,8 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 18. Cần hai gate/entry cho cùng pattern `(4/4, 2/4)` trong `SUITE_MOVEMENTS`; `use_suite_schottish` phải đăng ký/unregister cả hai.
 19. Phase 4 cần `TEXTURE_CELLS` + `render_cell` dispatch + `bar_plan` coverage cho `Slot.cell`; hiện `bar_plan` chỉ đếm `figure`, sentence cell sẽ fallback toàn movement.
 20. Phase 4 `melody_eighth` phải rebind theo `bar_offset`; nếu không tile bar >0 sẽ đọc passage gốc.
+21. `SentenceSpec._validate` đang reject `Slot.cell` ngoài `span.cycle`; phải bỏ rule đó trước Phase 4.
+22. `PatternDraft` hiện chỉ có `sentences`; cần `figures[]` + `cellId` + tags, không tạo hai nguồn.
 
 ---
 
@@ -1384,4 +1480,6 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 4. **Plan seam tách bạch**: AABA/trio/ABAB/external plan nằm trong `sentence_plan.py`; renderer không biết policy. External JSON qua `explicit`, có validate và reject rõ.
 5. **Selection scope**: movement III cho `1M/3M`, movement duy nhất cho `1W`; hai gate 4/4 + 2/4; 4/4 chỉ fallback/rollback.
 6. **Phase 4**: figure pool + tag; `TextureSpec` cell + `TEXTURE_CELLS` + `render_texture_bar`; pitch relative; door 2/4 bar; promote explicit.
+7. **`SentenceSpec` cell**: cho phép `Slot.cell` trong tile; cycle vẫn bắt buộc cell; test tile 4 bar + galop.
+8. **`PatternDraft`**: `figures[]` (id/cellId/spec/bars/tags) là nguồn; `sentences[]` giữ SentenceSpec; `keyFigures` chỉ projection.
 7. **`movement_span`**: thêm vào `_Ctx`/render/audio để scope `(span,index)` phân biệt `1M/3M` với `1Y`.

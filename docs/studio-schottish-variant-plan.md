@@ -274,6 +274,8 @@ figure pool có đủ **5 tag** (xem Track A §3.5):
 ```
 
 - User gắn tag cho figure đã có; không tạo riêng intro/outro/key artifact.
+- `PatternDraft.figures[]` là nguồn cell/tag; `sentences[]` giữ SentenceSpec, không auto-add figure.
+- `figures[].cellId` map 1:1 `TEXTURE_CELLS`; Studio-generated mặc định `cellId = id`.
 - Một figure có thể mang nhiều tag nếu bar count khớp.
 - `previewMode` chỉ thuộc figure tag `key`; không áp dụng cho intro/outro.
 - `aaba` không bao giờ trộn intro/outro vào loop.
@@ -395,3 +397,4 @@ Chỉ làm sau Track A Phase 2, dùng chung schema với `sentence_plan.py`:
 9. **Pickup:** lấy từ `ImportSummary.pickupBars`; không dùng onset heuristic.
 10. **Error shape:** `existing + previewMode` và invalid `previewMode` đều `200 {ok:false}`.
 11. **`pickupBars` propagation:** backend summary + `MusicXmlImportSummary` + client normalizer; test snake_case/camelCase.
+12. **`PatternDraft.figures[]`:** nguồn cell/tag; `sentences[]` giữ SentenceSpec; `cellId` map 1:1 `TEXTURE_CELLS`.
