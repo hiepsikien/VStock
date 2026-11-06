@@ -124,7 +124,7 @@ Yêu cầu:
   - MVP: chấp nhận mỗi lần Preview = 1 request/quota; UI ghi rõ.
   - Phase sau: cache cả hai variant trong một response hoặc cache theo key.
 
-Đề xuất MVP: **mỗi Preview = 1 draft**, ghi rõ UI; không trả cả hai variant trong một request.
+MVP: **mỗi Preview = 1 draft**, ghi rõ UI; không trả cả hai variant trong một request.
 
 ---
 
@@ -239,9 +239,9 @@ Chỉ làm sau Track A Phase 2:
 
 ---
 
-## 11. Câu cần chốt
+## 11. Quyết định đã chốt
 
-1. Output length: `selectionBars` (đề xuất) hay `max(4, selectionBars)`?
-2. Pickup: skip pickup bar hay cho phép + warning?
-3. MVP quota: mỗi Preview = 1 draft (đề xuất) hay cache cả hai?
-4. tên UI: “AABA bar loop” (đề xuất) hay “AABA key loop”?
+1. **Output length = `selectionBars`.** Không tự kéo lên 4 bar; selection 3 bar → 3 bar.
+2. **Pickup:** skip pickup bar khi chọn A/B mặc định; nếu user chỉ chọn pickup bar thì cho phép + warning.
+3. **MVP quota:** mỗi lần `Preview sentence` = 1 draft request/quota; không cache cả hai variant trong một response.
+4. **UI label:** **“AABA bar loop”**, không dùng “AABA key loop” hay “AABA sentence”.
