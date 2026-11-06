@@ -1,400 +1,110 @@
-# Kế hoạch: MusicXML → Sentence, ẩn Gemini
+# Kế hoạch đơn giản: MusicXML → Sentence / Pattern
 
 Trạng thái: đề xuất, chưa triển khai.
 Phạm vi: Studio trên `v2`; `main` không đổi.
-Cập nhật gần nhất: sau `ccaa7bd` + hardening follow-up.
 
 ---
 
 ## 1. Mục tiêu
 
-1. **Ẩn luồng Gemini/image scan** khỏi Studio, nhưng **không xoá code**.
-   - Giữ `studio_vision`, `app/studio/vision.py`, Gemini client cho tương lai.
-   - UI và router mặc định off; không có network call khi ẩn.
-2. **Tạo Sentence mới từ MusicXML** theo cách đơn giản:
-   - chọn passage;
-   - nhận 1–3 draft `SentenceSpec`;
-   - review diff;
-   - load vào editor;
-   - Validate → Preview → Publish.
-3. **Hỗ trợ texture mới**:
-   - texture mới dùng figure/pitch policy hiện có;
-   - texture mới cần rhythm-template/algorithm mới;
-   - không để Studio tự đưa texture chưa review vào composer.
-
-## 2. Nguyên tắc
-
-- MusicXML chỉ cung cấp **rhythm + voice role**, không cấp absolute pitch cho production.
-- Pitch production lấy từ price action / chord progression.
-- Không tự động ghi đè SentenceSpec đang edit.
-- Không auto-publish draft.
-- Flag mới mặc định off; flag off phải byte-identical.
-- Không commit file nhạc có bản quyền; chỉ lưu derived rhythm + metadata.
-- API MusicXML cần được scope theo `X-Studio-Session` trước khi coi là ổn định.
-
-## 3. Hiện trạng
-
-### Đã có
-
-```text
-MusicXML upload
-  → summary + notes + per-measure meter
-  → passage (bar/beat, Lead/Mid/Bass)
-  → preview-only TextureSpec (literal MIDI)
-  → WAV
-```
-
-- Parser deterministic, hỗ trợ chord/tie/slur/tuplet/grace warning.
-- Per-measure meter; `1/4`, `2/4`, `3/4`, `4/4`, `6/8`.
-- Passage beat range, clipping, rebase, BPM cho playhead.
-- UI role-lane matrix, zoom, playhead, drag chọn beat.
-- Full backend/frontend tests xanh.
-
-### Chưa có
-
-- Nút “tạo Sentence” từ passage.
-- Matcher rhythm → figure/cell.
-- TextureSpec rhythm-template cho production.
-- Registry/promotion cho texture mới.
-- Owner scoping cho MusicXML imports/passages.
+1. **Ẩn Gemini** khỏi Studio, nhưng giữ code để bật lại sau.
+2. Từ một passage MusicXML, tạo được:
+   - sentence mới cho **pattern đã có**;
+   - **pattern mới** dùng renderer/figure family đã có.
+3. Người dùng không phải sửa JSON ở luồng cơ bản.
+4. Preview được trước khi lưu.
+5. Studio draft **không tự** vào composer runtime; cần bước promote.
 
 ---
 
-## 4. Kiến trúc đích
+## 2. Mô hình tối giản
 
 ```text
-MusicXML upload
-  → passage
-  → rhythm signature
-  → sentence draft
-      ├─ texture có sẵn  → SentenceSpec (figure/cell hiện có)
-      └─ texture mới     → rhythm-template TextureSpec
-  → Validate → Preview → Publish
-  → composer runtime
+Composer / Suite
+  └─ Pattern            ví dụ: suite_mazurka, villa_pattern
+       └─ SentenceSpec  ví dụ: suite_mazurka_arpeggio_aaba
+            └─ Slot → Figure/Cell
 ```
 
-### Phân biệt “sentence mới” và “texture mới”
+- `Pattern` = họ texture + selector.
+- `SentenceSpec` = một câu cụ thể trong pattern.
+- `Figure/Cell` = renderer thật.
+- “Lobos” là composer/suite grouping, **không phải** một SentenceSpec.
 
-| Trường hợp | Dữ liệu cần | Code? |
+### Hai loại việc
+
+| Việc | Dùng khi | Cần pattern mới? |
 |---|---|---|
-| Pattern cũ + figure cũ | SentenceSpec mới | Không |
-| Pattern mới + figure cũ | SentenceSpec + pattern registration/selection | Ít |
-| Rhythm mới + pitch policy cũ | TextureSpec rhythm-template + interpreter | Backend vừa |
-| Algorithm/instrument mới | Figure/materializer mới | Backend PR |
+| **Add to existing pattern** | rhythm khớp figure hiện có | Không |
+| **Create new pattern** | muốn một texture/pattern riêng | Có |
 
-Một `SentenceSpec` đơn lẻ **không tạo ra texture mới**. Texture mới cần:
-- pattern id;
-- materializer/figure;
-- selection policy;
-- registry/flag.
+MVP chỉ hỗ trợ **pattern mới dùng renderer/figure family có sẵn**.
+Chưa hỗ trợ viết figure/algorithm mới từ Studio.
 
 ---
 
-## 5. Phase 1 — Ẩn Gemini
-
-### UI
-
-- Thêm flag `EXPO_PUBLIC_STUDIO_VISION` mặc định off.
-- Khi off:
-  - ẩn card `IMG · Score photo`;
-  - ẩn card `IMG · Gemini draft`;
-  - ẩn crop/upload/analyze state;
-  - không gọi `/access`, `/uploads`, `/analyze`.
-- Giữ code trong repo để bật lại sau.
-
-### Backend
-
-- `studio_vision` router mount sau `VSTOCK_STUDIO_VISION` default off.
-- Khi off: route trả `404` hoặc không mount.
-- Giữ `vision.py`, `gemini_companion`, tests backend.
-- Không xoá Gemini client toàn cục vì `companion` còn dùng.
-
-### Acceptance
-
-- Studio không gửi request vision/Gemini khi flag off.
-- UI chỉ còn MusicXML + Sentence editor + publish.
-- Bật flag lại vẫn hoạt động như cũ.
-- Test: flag off không có route; flag on route cũ pass.
-
----
-
-## 6. Phase 2 — Passage → Sentence draft (MVP)
-
-### 6.1 Rhythm signature
-
-Module mới:
+## 3. Luồng UI: 4 bước
 
 ```text
-backend/app/studio/musicxml_sentence.py
+┌──────────────────────────────────────────────┐
+│ 1. MusicXML                                  │
+│    [Choose file]  [Upload]                   │
+├──────────────────────────────────────────────┤
+│ 2. Passage                                   │
+│    Lead / Mid / Bass matrix                  │
+│    kéo chọn beat · Play · zoom               │
+│    Selection: bar 2 · beat 1 → bar 5 · beat 2│
+├──────────────────────────────────────────────┤
+│ 3. Create sentence                           │
+│    (•) Existing pattern                      │
+│        Pattern [suite_mazurka ▼]             │
+│        Template [auto / đổi ▼]               │
+│    ( ) New pattern                           │
+│        Name [villa_choro_mazurka]            │
+│        Composer [Villa-Lobos ▼]              │
+│        Family [Villa ▼]                      │
+│        Meter 3/4 (auto)                      │
+│        Figure [arpeggio ▼]                   │
+│    [Preview]                                 │
+├──────────────────────────────────────────────┤
+│ 4. Result                                    │
+│    Mini matrix + audio                       │
+│    [Save draft]  [Export bundle]             │
+│    Advanced ▸ JSON / full matrix             │
+└──────────────────────────────────────────────┘
 ```
 
-Input: passage đã chọn.
+### Nguyên tắc UI
 
-Output:
+- Mặc định **không hiện JSON**; chỉ hiện trong `Advanced`.
+- `Create sentence` là hành động chính sau khi chọn passage.
+- Preview ngay trong panel, không chuyển trang.
+- Sai/không khớp: hiện **một lý do rõ ràng**, không dump hàng loạt lỗi.
+- Không auto-overwrite spec đang edit.
+- Không auto-publish.
 
-```json
-{
-  "meter": "3/4",
-  "bars": 4,
-  "lanes": {
-    "lead": [
-      {"bar": 0, "beat": 0, "duration": 2, "rest": false, "tie": "none"}
-    ],
-    "mid": [],
-    "bass": []
-  },
-  "density": {"lead": 6, "mid": 2, "bass": 4},
-  "onsets": [0, 1, 2, 3]
-}
-```
+---
 
-Không giữ absolute pitch; pitch chỉ dùng để phân role.
-
-### 6.2 Matcher
-
-#### Thuật ngữ: pattern vs SentenceSpec
-
-- **Pattern** (tên cũ) là **họ texture + selector identity**: `castillo`, `sonatina`, `galop`, `villa_pattern`… Pattern quyết định renderer/selector nào chạy trong composer.
-- **SentenceSpec** là **một câu cụ thể trong một pattern/meter**: `id`, `pattern`, `meter`, `select`, `span`, `slots` (figure/cell/procedure).
-- Một pattern có thể có **nhiều SentenceSpec**. Ví dụ `castillo` 3/4 có `castillo_34_walk` và `castillo_34_cadence`; 4/4 có nhiều biến thể theo độ dài phrase.
-- **46 example** là 46 `SentenceSpec` đã commit, không phải 46 pattern. Vì vậy matcher làm việc trên example/SentenceSpec, không match trực tiếp trên tên pattern.
-
-`SentenceSpec` **không tương đương** pattern:
-- `SentenceSpec.pattern` trỏ tới pattern;
-- pattern là runtime family/selector;
-- tạo pattern mới cần registration/selection/flag, không chỉ thêm một SentenceSpec.
-
-#### Lý do thứ tự match
-
-1. **Cùng meter**
-   - Registry key là `(pattern, meter)`.
-   - Figure/slot được viết cho meter cụ thể; sai meter thường làm figure overflow hoặc sai grouping.
-
-2. **Cùng số bar hoặc tile gần nhất**
-   - `Slot.start/bars` là bar offset; `Span.tile` quyết định lặp/clip.
-   - Passage 4 bar khớp template 4 bar tốt hơn template 9 bar bị cắt.
-
-3. **Density/onset/rest pattern**
-   - Đây là phần gần nhất với “rhythm” của passage.
-   - Không dùng absolute pitch; chỉ so số note/onset/rest/tie theo lane.
-   - Density quyết định figure nào có thể thay thế mà không nhồi quá nhiều/nốt quá thưa.
-
-4. **Top 3**
-   - Matcher là heuristic, không có exact match cho một passage mới.
-   - Trả nhiều candidate để user nghe/so sánh; không auto-publish.
-
-5. **Chỉ dùng figure/cell có trong registry**
-   - Production resolve figure/cell qua owner module.
-   - Figure không tồn tại → spec invalid hoặc publish fail.
-   - Không bịa figure id từ passage.
-
-#### Lưu ý: 46 example gồm cả candidate
-
-- 38 example production ổn định + 8 candidate (Villa/Suite/Barrios/Brouwer).
-- Draft mặc định chỉ nên **ưu tiên 38 production**.
-- Candidate gated phải trả thêm `productionReady: false` và `flag`/`reason`; user có thể preview nhưng không publish như production khi flag off.
-
-So signature với 46 example hiện có:
-
-- ưu tiên cùng meter;
-- cùng số bar hoặc tile gần nhất;
-- so density/onset/rest pattern;
-- trả top 3 candidate.
-
-Mỗi candidate là `SentenceSpec` hợp lệ, chỉ dùng figure/cell có trong registry.
-
-Nếu không khớp:
-- trả `noMatch` + lý do;
-- không tạo spec rác;
-- gợi ý “Create rhythm texture”.
-
-Với `2/4` (Scotish):
-- chỉ thử pattern `ANY_METER` (`sonatina`, `fandanguillo`, `galop`);
-- nếu figure không hợp, báo cần figure/texture `2/4`.
-
-### 6.2.1 Ví dụ: đưa 3 bản Villa-Lobos vào “Lobos”
-
-“Lobos” là **nhóm composer/suite**, không phải một SentenceSpec. Trong registry hiện tại Villa-Lobos được chia thành nhiều pattern:
-
-| Bản nhạc | Meter thực tế | Pattern đích | SentenceSpec template | Nếu không khớp |
-|---|---|---|---|---|
-| Choro-Mazurka | thường `3/4` | `suite_mazurka` | `suite_mazurka_arpeggio_aaba` | tạo SentenceSpec mới dưới `suite_mazurka` |
-| Valse-Mazurka | thường `3/4` | `suite_valsa` | `suite_valsa_arpeggio_period` | tạo SentenceSpec mới dưới `suite_valsa` |
-| Scottish-Mazurka | `4/4` hoặc `1/4→2/4` | `suite_schottish` nếu `4/4` | `suite_schottish_arpeggio_abab` | nếu `2/4`: cần pattern/figure `2/4` mới |
-
-Điểm quan trọng:
-
-- Không “ghép vào một SentenceSpec Lobos” chung. Mỗi bản phải chọn **pattern + meter**, rồi tạo **SentenceSpec mới** dưới key đó.
-- SentenceSpec cũ chỉ là **template** để lấy `figure`, `span`, `select`; không overwrite nó.
-- Ví dụ draft mới:
-
-```json
-{
-  "id": "suite_mazurka_musicxml_abc123",
-  "pattern": "suite_mazurka",
-  "meter": "3/4",
-  "select": {"length_min": 4, "length_max": null, "n_parity": "any"},
-  "span": {"tile": 4, "remainder": "same_figure", "cycle": false, "exact": false},
-  "slots": [
-    {"start": 0, "bars": 1, "figure": 1},
-    {"start": 1, "bars": 1, "figure": 1},
-    {"start": 2, "bars": 1, "figure": 2},
-    {"start": 3, "bars": 1, "figure": 1}
-  ]
-}
-```
-
-- Registry sau khi promote:
-
-```python
-SENTENCE_SPECS[("suite_mazurka", "3/4")] = (
-    suite_mazurka_arpeggio_aaba,          # template cũ
-    suite_mazurka_musicxml_abc123,        # sentence mới từ MusicXML
-)
-```
-
-- **Publish trong Studio ≠ composer runtime.** `studio_publish` chỉ lưu/version SQLite và chưa đăng ký vào `SENTENCE_SPECS`. Muốn composer dùng thật, sentence mới phải được promote vào code registry/interpreter registry (Phase 4) hoặc một loader DB có flag.
-- Nếu Scottish thực tế là `1/4→2/4` như file mẫu, `suite_schottish` hiện tại (`4/4` stand-in) **không phải** match hợp lệ; cần pattern/figure `2/4` mới hoặc dùng pattern `ANY_METER`.
-
-### 6.3 API
+## 4. Backend: 1 endpoint draft + preview
 
 ```text
 POST /v1/studio/import/musicxml/{importId}/sentence-draft
 {
   "barStart": 2, "beatStart": 0,
   "barEnd": 5, "beatEnd": 2,
-  "pattern": "castillo",             // optional
-  "templateId": "castillo_34_walk"   // optional
-}
-```
 
-Response:
+  "mode": "existing" | "new",
 
-```json
-{
-  "ok": true,
-  "passageId": "mxp_...",
-  "candidates": [
-    {
-      "spec": {"...SentenceSpec...": true},
-      "fixture": {"length": 4, "n": 2, "closes": false, "rise": 1},
-      "pattern": "castillo",
-      "meter": "3/4",
-      "templateId": "castillo_34_walk",
-      "confidence": 0.82,
-      "warnings": ["bar 3 density differs"],
-      "unmatchedBars": [3]
-    }
-  ],
-  "noMatchReason": null
-}
-```
+  "pattern": "suite_mazurka",        // existing
+  "templateId": "suite_mazurka_arpeggio_aaba",
 
-Không thêm endpoint publish riêng. UI load candidate rồi dùng:
-- `POST /sentence/validate`
-- `POST /sentence/preview`
-- `POST /sentence/publish`
-
-### 6.4 UI
-
-Thay `Use passage` bằng **`Draft sentence`**:
-
-1. Chọn passage.
-2. `Draft sentence`.
-3. Hiện 1–3 candidate:
-   - pattern/meter;
-   - template nguồn;
-   - confidence;
-   - rhythm diff;
-   - warnings.
-4. Chọn candidate.
-5. `Open in editor`:
-   - nếu editor dirty → confirm overwrite;
-   - nếu không → load JSON.
-6. `Validate → Preview → Publish`.
-
-Không auto-overwrite, không auto-publish.
-
-### Acceptance
-
-- Valsa `3/4`: passage 4 bar → ít nhất 1 candidate preview được.
-- Scotish `2/4`: có candidate hoặc thông báo rõ “chưa có figure 2/4”.
-- Không có `literal_midi` trong production spec.
-- Publish/rollback hiện có không đổi.
-
----
-
-## 7. Phase 3 — Texture mới
-
-### 7.1 Rhythm-template TextureSpec
-
-Dùng `TextureSpec` + `PitchRef` hiện có, không tạo model mới.
-
-Ví dụ event:
-
-```json
-{
-  "bar": 0,
-  "beat": 0,
-  "duration_beats": 2,
-  "voice": 1,
-  "pitch": {"kind": "melody_eighth", "eighth": 0},
-  "tie": "none",
-  "review": "edited"
-}
-```
-
-Mapping role:
-
-| Role | Pitch policy |
-|---|---|
-| Lead | `melody_eighth` / `melody_at_beat` |
-| Mid | `chord_degree` 2/3/4 |
-| Bass | `chord_root` / `bass_root` |
-
-Cần bổ sung:
-- `melody_at_beat`: melody note theo onset, không chỉ eighth index;
-- `bass_root`: root ở register bass.
-
-### 7.2 Interpreter
-
-Hiện `texture_interpreter` chỉ dispatch `chord_melody`. Cần:
-
-- generic `render_rhythm_template_bar`;
-- dispatch key `(pattern, meter signature, excerpt digest)`;
-- `runtime: "interpreter"`;
-- `materializer: "rhythm_template"`;
-- `provenance.schema_version: "texture-spec-1"`.
-
-Flag `VSTOCK_TEXTURE_INTERPRETER` default off. Off phải byte-identical.
-
-### 7.3 Pattern mới
-
-#### A. Manual/palette texture (MVP)
-
-- Pattern mới chỉ xuất hiện khi user chọn.
-- Không cần rule tự động.
-- Vẫn cần pattern id, label/composer/meter, registry spec, flag.
-
-#### B. Auto-selection trong composer
-
-- Thêm rule vào `_select_body`/`_patterns`.
-- Thêm flag.
-- Matrix row + digest pin + full tests.
-- Đây là “promote production”, không phải Studio tự làm.
-
-### 7.4 API
-
-```text
-POST /v1/studio/import/musicxml/{importId}/texture-draft
-{
-  "barStart": 2, "beatStart": 0,
-  "barEnd": 5, "beatEnd": 2,
-  "pattern": "new_texture",
-  "pitchPolicy": {
-    "lead": "melody",
-    "mid": "chord_degree",
-    "bass": "bass_root"
+  "newPattern": {                    // new
+    "id": "villa_choro_mazurka",
+    "label": "Choro-Mazurka",
+    "composer": "Villa-Lobos",
+    "renderer": "villa",
+    "meter": "3/4",
+    "templateId": "suite_mazurka_arpeggio_aaba"
   }
 }
 ```
@@ -404,142 +114,164 @@ Response:
 ```json
 {
   "ok": true,
-  "textureSpec": {"...TextureSpec..." : true},
-  "preview": {"renderHash": "...", "audioUrl": "..."},
-  "warnings": [],
+  "mode": "new",
+  "spec": { "...SentenceSpec..." : true },
+  "fixture": { "length": 4, "n": 2, "closes": false, "rise": 1 },
+  "preview": {
+    "renderHash": "sha256:...",
+    "audioUrl": "/v1/studio/sentence/audio/....wav",
+    "notes": 24
+  },
+  "warnings": ["template tile 4 used; passage has 4 bars"],
   "productionReady": false
 }
 ```
 
-### 7.5 UI “Create rhythm texture”
+### Cách tạo draft
 
-Khi không có candidate:
+1. Passage → rhythm summary (bar/beat/role/rest).
+2. Chọn **một** template gần nhất:
+   - cùng meter;
+   - cùng số bar/tile gần nhất;
+   - density/onset/rest gần nhất.
+3. Copy `select`/`span`/`slots` từ template, chỉnh `tile`/`bars`.
+4. Với `mode:"new"`:
+   - giữ nguyên figure/cell của renderer family;
+   - đổi `pattern` sang pattern mới;
+   - tạo `id` mới.
+5. Preview bằng renderer family, không cần pattern đã đăng ký production.
+6. Trả **một** draft, không trả top 3.
 
-- `Create rhythm texture`;
-- form:
-  - texture id / pattern id;
-  - meter từ passage;
-  - role mapping;
-  - pitch policy;
-  - preview fixture;
-- kết quả:
-  - TextureSpec draft;
-  - preview WAV;
-  - validation;
-  - `Save draft`.
-- Trạng thái: **preview-only / not production**.
-- Promote: manual palette trước, auto-selection sau.
+UI có dropdown `Template` để user đổi nếu draft đầu chưa đúng.
 
-### 7.6 Lưu trữ / promote
+### New pattern preview
 
-`texture_registry` hiện chỉ đọc JSON trong repo và không ghi repo từ server.
+Cần thêm một seam nhỏ:
 
-Đề xuất:
+```text
+preview_draft_sentence(spec, renderer="villa")
+```
 
-- Draft lưu DB `studio_texture_specs`.
-- Preview dùng draft DB.
-- Promote production:
-  - **Option 1 (khuyến nghị):** export JSON + commit có review.
-  - **Option 2:** DB-backed registry + flag + version gate + rollback.
-
-MVP chọn Option 1.
-
-### Acceptance
-
-- Texture `2/4` mới preview được, không literal MIDI.
-- Flag off byte-identical.
-- Không tự vào composer nếu chưa promote.
-- Có digest/preview cho texture mới.
-- Spec production không chứa absolute MusicXML pitch.
+Nó dùng đúng figure/validator của family, nhưng cho phép `spec.pattern` là pattern draft chưa có trong `VILLA_PATTERNS`.
+Không đăng ký pattern, không ghi global.
 
 ---
 
-## 8. Phase 4 — Hardening
+## 5. Pattern mới
 
-1. **Owner scoping**
-   - `X-Studio-Session` → owner.
-   - Import/passage record lưu owner.
-   - GET/passage kiểm tra owner.
-   - Import id có thể hash thêm owner.
-2. **Pickup/implicit measure**
-   - Hiện dùng full meter length.
-   - Tương lai: lưu `measure_lengths` thật.
-3. **Tie/visual**
-   - Spec/audio đã xử lý split note.
-   - UI mới vẽ connector; hiện chỉ accessibility label.
-4. **Warning hygiene**
-   - Truncate extreme values trong warning.
-   - Entity declaration bị từ chối.
-5. **Docs**
-   - Cập nhật contract, giới hạn pickup, quy tắc tie, owner.
+### Pattern draft
 
----
+```json
+{
+  "id": "villa_choro_mazurka",
+  "label": "Choro-Mazurka",
+  "composer": "Villa-Lobos",
+  "renderer": "villa",
+  "meter": "3/4",
+  "sentence": { "...SentenceSpec..." : true }
+}
+```
 
-## 9. Test plan
+MVP:
+- một pattern = một sentence;
+- dùng figure/cell của renderer family;
+- không tạo figure mới;
+- không auto-select trong composer.
 
-### Backend
+### Promote
 
-- Rhythm signature: bar/beat/role/rest/tie.
-- Matcher: cùng meter, khác bar, no-match, 2/4.
-- Draft spec validate 100%.
-- Không có `literal_midi` trong production draft.
-- Publish/rollback không đổi.
-- Interpreter rhythm-template:
-  - flag off identical;
-  - flag on deterministic digest.
-- Mixed meter bị chặn.
-- Entity/extreme values không 500.
-- Owner isolation.
-
-### Frontend
-
-- Draft candidate cards.
-- Dirty editor confirm.
-- Không overwrite khi cancel.
-- 2/4 no-match warning.
-- New texture wizard preview + save draft.
-- Không request vision khi flag off.
-
-### Manual
-
-- Valsa `3/4`: passage → draft → preview → publish.
-- Scotish `2/4`: draft hoặc “cần texture 2/4”.
-- New texture: rhythm-template → preview → save draft → promote flag.
+- `Export bundle` tải JSON pattern + sentence + fixture.
+- Promote production bằng code/registry:
+  - thêm `SentenceSpec` vào owner;
+  - thêm pattern metadata + flag;
+  - nếu muốn composer tự chọn: thêm selection rule.
+- Chưa làm DB-backed texture registry trong MVP.
 
 ---
 
-## 10. Thứ tự thực hiện
+## 6. Gemini
+
+- Flag `EXPO_PUBLIC_STUDIO_VISION` + `VSTOCK_STUDIO_VISION`, default off.
+- Ẩn hai card ảnh và không gọi API vision.
+- Giữ `studio_vision`, `vision.py`, Gemini client, tests backend.
+- Bật lại bằng flag khi cần.
+
+---
+
+## 7. Ví dụ 3 bản Villa-Lobos
+
+| Bản nhạc | Meter | Pattern mới | Template |
+|---|---|---|---|
+| Choro-Mazurka | `3/4` | `villa_choro_mazurka` | `suite_mazurka_arpeggio_aaba` |
+| Valse-Mazurka | `3/4` | `villa_valse_mazurka` | `suite_valsa_arpeggio_period` |
+| Scottish-Mazurka | `4/4` | `villa_scottish_mazurka` | `suite_schottish_arpeggio_abab` |
+
+Nếu Scottish thực tế là `1/4 → 2/4`:
+- không dùng template `4/4` đó;
+- cần figure/family `2/4` mới;
+- UI báo “chưa hỗ trợ meter/figure này”, không tạo draft sai.
+
+---
+
+## 8. Không làm trong MVP
+
+- Top 3 candidate / matcher phức tạp.
+- Rhythm-template `TextureSpec` + interpreter generic.
+- Tạo figure/algorithm mới từ UI.
+- DB-backed texture registry.
+- Auto-selection pattern trong composer.
+- Owner scoping MusicXML (hardening sau).
+- Pickup/implicit measure length thật.
+
+---
+
+## 9. Thứ tự làm
 
 | Sprint | Việc | Kết quả |
 |---|---|---|
-| A | Ẩn Gemini sau flag | Studio chỉ còn MusicXML |
-| B | Rhythm signature + matcher + `sentence-draft` | Passage → Sentence draft |
-| C | UI Draft sentence + load editor + preview/publish | Luồng tạo sentence hoàn chỉnh |
-| D | Rhythm-template TextureSpec + generic interpreter | Texture mới preview được |
-| E | Pattern registration/promote + docs | Texture mới dùng được ở palette |
+| A | Ẩn Gemini sau flag | Studio sạch |
+| B | Draft endpoint + new-pattern preview seam | 1 draft + preview |
+| C | UI 4 bước | Người dùng tạo sentence/pattern không cần JSON |
+| D | Export bundle + promote docs | Đưa vào composer có kiểm soát |
 
-MVP nên dừng ở **A + B + C**. Phase D/E sau khi có ít nhất một texture `2/4` thực tế.
-
----
-
-## 11. Rủi ro / cần chốt
-
-1. Matcher chỉ là gợi ý; luôn cần user xác nhận.
-2. `2/4` hiện thiếu figure; có thể cần figure `2/4` trước Scotish.
-3. Texture mới auto-selection cần code, không chỉ JSON.
-4. Không lưu absolute pitch từ MusicXML vào production spec.
-5. Bản quyền: không commit score; chỉ lưu derived rhythm + metadata, hoặc xoá upload sau TTL.
-6. Gemini: ẩn bằng flag, không xoá code.
-7. Owner scoping cần làm trước khi coi MusicXML API là ổn định.
+MVP dừng ở **A + B + C**.
 
 ---
 
-## 12. Đề xuất bắt đầu
+## 10. Test
 
-Làm ngay **Sprint A + B + C**:
+- Passage 3/4, 4/4 → draft preview được.
+- New pattern preview bằng renderer family, không cần đăng ký.
+- Không match template → lỗi rõ, không tạo spec rác.
+- 2/4 không có figure → báo “chưa hỗ trợ”.
+- Gemini flag off → không request vision.
+- Draft không overwrite editor.
+- Export bundle đúng spec/fixture.
+- Composer vẫn byte-identical khi flag mới off.
 
-1. Ẩn Gemini sau flag.
-2. `sentence-draft` từ passage cho pattern/figure hiện có.
-3. UI `Draft sentence` → chọn candidate → load editor → Validate/Preview/Publish.
+---
 
-Sau khi có kết quả thực tế với Valsa/Scotish, mới làm texture mới (Phase D/E).
+## 11. Quyết định cần giữ
+
+1. Một draft gợi ý, không top 3.
+2. Pattern mới dùng renderer/figure family có sẵn.
+3. JSON chỉ trong `Advanced`.
+4. Studio draft không tự vào composer.
+5. Gemini ẩn, không xoá.
+
+---
+
+## 12. Kết luận
+
+Luồng đơn giản là:
+
+```text
+Upload XML
+  → chọn passage
+  → Create sentence
+  → Existing pattern  hoặc  New pattern
+  → Preview
+  → Save draft / Export
+```
+
+Không cần matcher phức tạp, không cần interpreter mới, không cần JSON editor cho người dùng thường.
