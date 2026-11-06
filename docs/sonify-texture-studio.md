@@ -606,6 +606,8 @@ Trong Phase 0–2:
 - Sentence `when.meter` là gate tĩnh, resolve lúc load spec.
 - Không dùng `kind_at` làm meter.
 
+**Ngoại lệ preview-only:** MusicXML import đọc meter theo từng measure để dựng matrix và chọn passage. Passage chỉ nhận range có **một** meter; range vắt qua meter change bị từ chối. Production runtime vẫn per-movement.
+
 ---
 
 ## 5. Pattern, sentence, door
@@ -1483,8 +1485,25 @@ backend/app/routers/studio_export.py   # compile/export bundle (JSON, no writes)
 backend/app/routers/studio_vision.py   # access, uploads, analyze
 backend/app/routers/studio_texture.py  # POST /texture/validate (offline)
 backend/app/routers/studio_jobs.py     # POST /v1/studio/jobs, GET /jobs/{id}
+backend/app/routers/studio_musicxml.py # import upload, summary, passage, audio link
+backend/app/studio/musicxml_import.py  # deterministic solo-guitar MusicXML importer
+backend/app/studio/musicxml_source.py  # parser dataclass <-> API note seam
 backend/app/studio/                    # sentence_spec, texture_spec, preview, dispatch, compiler, jobs, publish, audio, session, quota, store, vision, candidates
 ```
+
+**MusicXML import (preview-only, đã code):** prefix `/v1/studio/import`. Upload file `.musicxml`/`.xml`, nhận summary + note (kể cả rest), chọn bar range 1-based inclusive, nhận passage `TextureSpec` + WAV. Parser chỉ đọc part đầu tiên; bar nội bộ 0-based; guitar written → sounding `-12`; repeats/endings/grace chỉ warning, không expand.
+
+| Method | Path | Việc |
+|---|---|---|
+| `POST` | `/musicxml` | Upload + parse (multipart `file`) |
+| `GET` | `/musicxml/{importId}` | Summary + notes + warnings |
+| `POST` | `/musicxml/{importId}/passage` | `{barStart, barEnd, voices?}` → spec/notes/WAV |
+| `GET` | `/musicxml/passages/{passageId}` | Passage đã build |
+
+- `summary.measureMeters` index 0 = bar 1; `summary.meterChanges[].bar` 1-based và chỉ liệt kê thay đổi sau bar 1.
+- Meter hỗ trợ: `1/4`, `2/4`, `3/4`, `4/4`, `6/8` (`6/8` = 3 quarter beats). Range trộn meter → `ok:false`, `path:"meter"`.
+- Passage `spec` dùng literal MIDI, `materializer=null`, **không** tự ghi vào SentenceSpec; WAV dùng code-only synth.
+- UI matrix: role lane **Lead** (voice 1), **Mid** (chord tone còn lại), **Bass** (nốt thấp nhất mỗi onset); grid **24 tick/quarter**; pitch ẩn; ô trống = rest; tie nối block.
 
 Sentence prefix: `/v1/studio/sentence`; vision/session `/v1/musicalize/studio`; jobs `/v1/studio/jobs`. Job queue là **in-memory/process-local** (không durable): cap global 64, cap 8 active/owner, `GET` scope theo owner (owner khác → 404), terminal job giải phóng `spec/fixture`; vẫn chưa có crop server-side, audio/MuseScore queue hay export file trên đĩa.
 
