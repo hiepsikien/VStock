@@ -65,6 +65,9 @@ VILLA_METERS = {
 # A minor-mode contour in the guitar's singing range. It repeats to fill the
 # fixture; the phrase is one continuous run, so the swell and apex are stable.
 _VILLA_CONTOUR = (64, 67, 69, 71, 69, 67, 64, 62)
+# The generated 2/4 sentence has no committed example; keep its lead in the
+# source-music register so the preview does not sound bass-only.
+_VILLA_CONTOUR_24 = tuple(note + 12 for note in _VILLA_CONTOUR)
 
 # A context-free Villa sentence has no n/closes/rise input, so the preview
 # matrix stays small: lengths 1-8 at n 0/1, open only, no rise.
@@ -360,8 +363,9 @@ def _villa_notes(
 ) -> tuple[list, list[str]]:
     meter = VILLA_METERS[str(fixture["meter"])]
     length = int(fixture["length"])
+    contour = _VILLA_CONTOUR_24 if meter == METER_24 else _VILLA_CONTOUR
     melody = [
-        _VILLA_CONTOUR[index % len(_VILLA_CONTOUR)]
+        contour[index % len(contour)]
         for index in range(length * meter.eighths_per_bar)
     ]
     figures = _figure_at(plan)

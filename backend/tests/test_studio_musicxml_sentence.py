@@ -18,7 +18,7 @@ from app.routers import studio as studio_router
 from app.routers import studio_audio as studio_audio_router
 from app.routers import studio_export as studio_export_router
 from app.routers import studio_musicxml
-from app.studio import dispatch, musicxml_sentence
+from app.studio import dispatch, musicxml_sentence, villa_preview
 from app.studio.candidates import villa_candidate_spec
 from app.studio.sentence_spec import parse_spec
 from app.studio.villa_preview import validate_villa_spec
@@ -740,3 +740,15 @@ def test_new_two_four_pattern_uses_the_default_villa_template() -> None:
     assert body["fixture"]["meter"] == "2/4"
     assert _AUDIO_URL.match(body["preview"]["audioUrl"] or "")
     assert body["preview"]["notes"] > 0
+
+    preview = villa_preview.preview_villa_sentence(
+        parse_spec(body["spec"]),
+        body["fixture"],
+        allowed_patterns={body["spec"]["pattern"]},
+    )
+    lead = [
+        note["midi"]
+        for note in preview.notes
+        if note.get("voice") == 1
+    ]
+    assert lead and min(lead) >= 70
