@@ -744,3 +744,233 @@ def test_passage_spec_and_notes_are_json_serialisable() -> None:
     # json.dumps is what the store already does, but keep the assertion so a
     # future parser value (e.g. Decimal) cannot leak into the response.
     assert json.loads(json.dumps(body)) == body
+
+
+# ---------------------------------------------------------------------------
+# Quarter-note beat ranges
+
+
+def _note_map(body: dict) -> dict[tuple[int, float, int], float]:
+    """(bar, beat, midi) -> duration for readable clipping assertions."""
+    return {
+        (note["bar"], note["beat"], note["midi"]): note["duration"]
+        for note in body["notes"]
+    }
+
+
+def test_whole_bar_request_is_unchanged_without_beats() -> None:
+    client = _client()
+    import_id = _upload(client).json()["importId"]
+
+    plain = _passage(client, import_id, barStart=1, barEnd=4).json()
+    explicit = _passage(
+        client, import_id, barStart=1, barEnd=4, beatStart=0, beatEnd=4
+    ).json()
+
+    assert plain["ok"] is True, plain["errors"]
+    assert plain["notes"] == explicit["notes"]
+    assert plain["spec"] == explicit["spec"]
+    assert plain["durationSec"] == explicit["durationSec"]
+    # The existing whole-bar rebasing is untouched.
+    assert _note_map(plain) == {
+        (0, 0.0, 52): 2.0,
+        (1, 0.0, 52): 2.0,
+        (1, 2.0, 59): 2.0,
+        (2, 0.0, 55): 2.0,
+        (2, 0.0, 59): 2.0,
+        (3, 0.0, 60): 2.0,
+        (3, 2.0, 62): 2.0,
+        (3, 0.0, 45): 4.0,
+    }
+    # By contrast, an explicit beat range gets its own id.
+    assert explicit["passageId"] != plain["passageId"]
+
+
+def test_partial_beat_passage_clips_and_rebases() -> None:
+    client = _client()
+    import_id = _upload(client).json()["importId"]
+
+    body = _passage(
+        client, import_id, barStart=2, beatStart=1, barEnd=3, beatEnd=1
+    ).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "4/4"
+    assert body["beatsPerBar"] == 4
+    assert body["bpm"] == 96
+    assert _AUDIO_URL.match(body["audioUrl"] or "")
+    # Selection starts at bar 2 beat 1. Relative bars are anchored there, so
+    # the four-quarter range fits inside relative bar 0.
+    assert _note_map(body) == {
+        (0, 0.0, 52): 1.0,  # E4 started before the range: tail kept
+        (0, 1.0, 59): 2.0,  # B4 inside the range: unchanged
+        (0, 3.0, 55): 1.0,  # G4 chord shortened at the range end
+        (0, 3.0, 59): 1.0,  # B4 chord shortened at the range end
+    }
+    # Four quarter beats at 96 BPM plus the 0.5 s tail.
+    assert body["durationSec"] == pytest.approx(4 * 0.625 + 0.5, abs=0.05)
+    assert {note["bar"] for note in body["notes"]} == {0}
+    assert {event["bar"] for event in body["spec"]["authored"]["events"]} == {0}
+
+
+def test_beat_end_zero_stops_before_the_next_bar() -> None:
+    client = _client()
+    import_id = _upload(client).json()["importId"]
+
+    # barEnd=3 with beatEnd=0 is the start of bar 3: bar 3 is not included.
+    body = _passage(client, import_id, barStart=2, barEnd=3, beatEnd=0).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "4/4"
+    assert {note["bar"] for note in body["notes"]} == {0}
+    assert {note["midi"] for note in body["notes"]} == {52, 59}
+    assert 55 not in {note["midi"] for note in body["notes"]}
+
+
+def test_notes_are_clipped_at_both_range_edges() -> None:
+    client = _client()
+    import_id = _upload(client).json()["importId"]
+
+    body = _passage(
+        client, import_id, barStart=2, beatStart=1, barEnd=2, beatEnd=3
+    ).json()
+    assert body["ok"] is True, body["errors"]
+    # E4 [bar 2 beat 0..2) loses its head; B4 [beat 2..4) loses its tail.
+    assert _note_map(body) == {
+        (0, 0.0, 52): 1.0,
+        (0, 1.0, 59): 1.0,
+    }
+
+
+def test_beat_offsets_are_validated() -> None:
+    client = _client()
+    import_id = _upload(client).json()["importId"]
+
+    cases = (
+        (
+            {"barStart": 2, "beatStart": -1, "barEnd": 3},
+            "beatStart",
+        ),
+        (
+            {"barStart": 2, "beatStart": 5, "barEnd": 3},
+            "beatStart",
+        ),
+        (
+            {"barStart": 2, "barEnd": 3, "beatEnd": 5},
+            "beatEnd",
+        ),
+        (
+            {"barStart": 2, "beatStart": 3, "barEnd": 2, "beatEnd": 1},
+            "beatEnd",
+        ),
+        (
+            {"barStart": 2, "beatStart": 2, "barEnd": 2, "beatEnd": 2},
+            "beatEnd",
+        ),
+        (
+            # beatStart at the end of bar 2 and beatEnd at the start of bar 3
+            # describe the same instant: an empty range.
+            {"barStart": 2, "beatStart": 4, "barEnd": 3, "beatEnd": 0},
+            "beatEnd",
+        ),
+    )
+    for body, path in cases:
+        payload = _passage(client, import_id, **body).json()
+        assert payload["ok"] is False, body
+        assert path in {error["path"] for error in payload["errors"]}, body
+        assert payload["spec"] is None
+        assert payload["notes"] == []
+        assert payload["audioUrl"] is None
+        assert payload["durationSec"] == 0.0
+
+
+def test_beat_ranges_reject_a_mixed_meter() -> None:
+    client = _client()
+    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+
+    body = _passage(
+        client, import_id, barStart=1, beatStart=0, barEnd=2, beatEnd=1
+    ).json()
+    assert body["ok"] is False
+    assert [error["path"] for error in body["errors"]] == ["meter"]
+    assert "1/4" in body["errors"][0]["message"]
+    assert "2/4" in body["errors"][0]["message"]
+    assert body["spec"] is None
+    assert body["notes"] == []
+    assert body["audioUrl"] is None
+
+    # Ending exactly at the start of bar 2 only intersects bar 1, so the
+    # mixed-meter range is not actually selected.
+    boundary = _passage(
+        client, import_id, barStart=1, beatStart=0, barEnd=2, beatEnd=0
+    ).json()
+    assert boundary["ok"] is True, boundary["errors"]
+    assert boundary["meter"] == "1/4"
+    assert {note["bar"] for note in boundary["notes"]} == {0}
+
+
+def test_passage_id_includes_the_beat_range() -> None:
+    client = _client()
+    import_id = _upload(client).json()["importId"]
+
+    ids = {
+        _passage(client, import_id, barStart=2, beatStart=0, barEnd=3).json()[
+            "passageId"
+        ],
+        _passage(client, import_id, barStart=2, beatStart=1, barEnd=3).json()[
+            "passageId"
+        ],
+        _passage(
+            client, import_id, barStart=2, beatStart=1, barEnd=3, beatEnd=1
+        ).json()["passageId"],
+        _passage(
+            client, import_id, barStart=2, beatStart=1, barEnd=3, beatEnd=2
+        ).json()["passageId"],
+        _passage(client, import_id, barStart=2, barEnd=3).json()["passageId"],
+    }
+    assert len(ids) == 5
+
+    # The same beat range is deterministic and fetchable by id.
+    first = _passage(
+        client, import_id, barStart=2, beatStart=1, barEnd=3, beatEnd=1
+    ).json()
+    fetched = client.get(
+        f"/v1/studio/import/musicxml/passages/{first['passageId']}"
+    )
+    assert fetched.status_code == 200
+    assert fetched.json() == first
+
+
+def test_two_four_beat_range_still_works() -> None:
+    client = _client()
+    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+
+    body = _passage(
+        client, import_id, barStart=2, beatStart=0.5, barEnd=3, beatEnd=1.5
+    ).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "2/4"
+    assert body["beatsPerBar"] == 2
+    assert body["bpm"] == 96
+    assert _AUDIO_URL.match(body["audioUrl"] or "")
+    assert _note_map(body) == {
+        (0, 0.0, 52): 1.5,
+        # The second note crosses the offset relative barline at tick 2, so
+        # it is split there and the tail starts bar 1.
+        (0, 1.5, 52): 0.5,
+        (1, 0.0, 52): 1.0,
+    }
+    assert body["durationSec"] == pytest.approx(3 * 0.625 + 0.5, abs=0.05)
+
+
+def test_one_four_beat_range_still_works() -> None:
+    client = _client()
+    import_id = _upload(client, _meter_change_fixture()).json()["importId"]
+
+    body = _passage(
+        client, import_id, barStart=1, beatStart=0.25, barEnd=1, beatEnd=0.75
+    ).json()
+    assert body["ok"] is True, body["errors"]
+    assert body["meter"] == "1/4"
+    assert body["beatsPerBar"] == 1
+    assert _AUDIO_URL.match(body["audioUrl"] or "")
+    assert _note_map(body) == {(0, 0.0, 52): 0.5}
+    assert body["durationSec"] > 0.0

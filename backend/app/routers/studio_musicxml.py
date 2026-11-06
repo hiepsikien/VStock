@@ -7,12 +7,18 @@ database:
 
 * ``POST /musicxml``                      — multipart upload, parsed once
 * ``GET  /musicxml/{importId}``           — the stored summary/notes/warnings
-* ``POST /musicxml/{importId}/passage``   — one bar range → spec + synth notes
+* ``POST /musicxml/{importId}/passage``   — one tick range → spec + synth notes
 * ``GET  /musicxml/passages/{passageId}`` — the passage built by the POST
 
 Bars are **1-based and inclusive** in requests, matching the measure numbers a
 musician reads in the score. Parser notes are 0-based internally; the response
-spec/notes are rebased so ``barStart`` is bar 0 of the passage.
+spec/notes are rebased so the selection start is bar 0 of the passage.
+
+``beatStart``/``beatEnd`` are optional quarter-note offsets inside
+``barStart``/``barEnd``. They select the absolute range
+``[start_of(barStart) + beatStart, start_of(barEnd) + beatEnd)``; omitting
+``beatEnd`` keeps the whole of ``barEnd``, so a bar-only request is unchanged.
+Notes are clipped to the range and rebased to its start.
 
 Storage is process-local and bounded: uploads are written under
 ``VSTOCK_STUDIO_DIR/imports`` (or ``backend/var/studio/imports``), parsed
@@ -38,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import threading
 import time
@@ -144,6 +151,10 @@ class PassageRequest(BaseModel):
     # 1-based, inclusive, matching the printed measure numbers.
     barStart: int
     barEnd: int
+    # Quarter-note offsets inside barStart/barEnd. ``None`` means the omitted
+    # default: 0 for beatStart and the end of barEnd for beatEnd.
+    beatStart: float | None = None
+    beatEnd: float | None = None
     voices: list[int] | None = None
 
 
@@ -154,6 +165,9 @@ class PassageResponse(BaseModel):
     # re-reading the import summary. Null when the passage was rejected.
     meter: str | None = None
     beatsPerBar: int | None = None
+    # The preview synth's fixed tempo, so the UI can map audio.currentTime
+    # to quarter-note ticks without duplicating the constant.
+    bpm: int = int(round(studio_audio.PREVIEW_BPM))
     spec: dict[str, Any] | None = None
     notes: list[dict[str, Any]] = Field(default_factory=list)
     audioUrl: str | None = None
@@ -576,6 +590,239 @@ def _validate_voices(voices: list[int] | None) -> list[ErrorOut]:
     return errors
 
 
+_QUARTER_EPS = 1e-9
+
+
+@dataclass(frozen=True)
+class _BeatWindow:
+    """One resolved beat range: a constant meter plus absolute quarter ticks."""
+
+    meter: str
+    bar_length: float
+    beat_start: float
+    beat_end: float
+    first_bar: int
+    first_bar_beat: float
+    range_start: float
+    range_end: float
+    starts: tuple[float, ...]
+
+
+def _quarter_lengths(measure_meters: list[str]) -> list[float | None]:
+    """One bar length in quarter notes per measure, or ``None`` if unsupported."""
+    lengths: list[float | None] = []
+    for raw in measure_meters:
+        meter = _normalize_meter(raw)
+        lengths.append(None if meter is None else float(_SUPPORTED_METERS[meter][1]))
+    return lengths
+
+
+def _resolve_beat_window(
+    summary: ImportSummary,
+    bar_start: int,
+    bar_end: int,
+    beat_start: float | None,
+    beat_end: float | None,
+) -> tuple[_BeatWindow | None, list[ErrorOut]]:
+    """Resolve the meter and absolute tick window for a beat range.
+
+    ``beatEnd`` is exclusive. Intersected bars must share one meter; a range
+    that ends exactly on a bar boundary does not include the next bar.
+    """
+    start0 = bar_start - 1
+    end0 = bar_end - 1
+    lengths = _quarter_lengths(summary.measureMeters)
+    if len(lengths) < bar_end:
+        return None, [_error("meter", "the selected bars have no meter")]
+
+    # Lengths are needed to validate the offsets, so an unsupported meter
+    # anywhere in the requested bar span is reported before the tick range.
+    for index in range(start0, bar_end):
+        raw = summary.measureMeters[index]
+        if lengths[index] is None:
+            return None, [
+                _error(
+                    "meter",
+                    f"meter {raw!r} is not supported yet "
+                    f"({', '.join(_SUPPORTED_METERS)})",
+                )
+            ]
+
+    start_length = float(lengths[start0])
+    end_length = float(lengths[end0])
+    if beat_start is None:
+        beat_start = 0.0
+    if beat_end is None:
+        beat_end = end_length
+
+    errors: list[ErrorOut] = []
+    if not math.isfinite(beat_start):
+        errors.append(_error("beatStart", "beatStart must be a finite number"))
+    elif not 0.0 <= beat_start <= start_length:
+        errors.append(
+            _error(
+                "beatStart",
+                f"beatStart {beat_start:g} is outside 0..{start_length:g} "
+                f"quarter beats of bar {bar_start}",
+            )
+        )
+    if not math.isfinite(beat_end):
+        errors.append(_error("beatEnd", "beatEnd must be a finite number"))
+    elif not 0.0 <= beat_end <= end_length:
+        errors.append(
+            _error(
+                "beatEnd",
+                f"beatEnd {beat_end:g} is outside 0..{end_length:g} "
+                f"quarter beats of bar {bar_end}",
+            )
+        )
+    if errors:
+        return None, errors
+
+    starts: list[float] = []
+    cursor = 0.0
+    for length in lengths:
+        starts.append(cursor)
+        cursor += float(length)
+
+    range_start = starts[start0] + beat_start
+    range_end = starts[end0] + beat_end
+    if range_start >= range_end - _QUARTER_EPS:
+        return None, [
+            _error(
+                "beatEnd",
+                "the selected range is empty or reversed; beatEnd must be "
+                "after beatStart",
+            )
+        ]
+
+    bars = [
+        index
+        for index in range(start0, bar_end)
+        if starts[index] < range_end - _QUARTER_EPS
+        and starts[index] + float(lengths[index]) > range_start + _QUARTER_EPS
+    ]
+    if not bars:
+        return None, [_error("beatEnd", "the selected range has no bars")]
+
+    distinct: list[str] = []
+    for index in bars:
+        meter = _normalize_meter(summary.measureMeters[index])
+        if meter is not None and meter not in distinct:
+            distinct.append(meter)
+    if len(distinct) > 1:
+        return None, [
+            _error(
+                "meter",
+                f"bars {bars[0] + 1}-{bars[-1] + 1} mix meters "
+                f"{', '.join(distinct)}; request a range with a single "
+                "constant meter",
+            )
+        ]
+
+    meter = distinct[0]
+    first_bar = bars[0]
+    return (
+        _BeatWindow(
+            meter=meter,
+            bar_length=float(lengths[first_bar]),
+            beat_start=beat_start,
+            beat_end=beat_end,
+            first_bar=first_bar,
+            first_bar_beat=range_start - starts[first_bar],
+            range_start=range_start,
+            range_end=range_end,
+            starts=tuple(starts),
+        ),
+        [],
+    )
+
+
+def _clip_and_rebase(
+    notes: list[dict[str, Any]], window: _BeatWindow
+) -> list[dict[str, Any]]:
+    """Clip notes to the tick window and rebase the selection start to bar 0.
+
+    A note that starts before the window keeps its tail and moves to onset 0;
+    a note that ends after the window is shortened. Notes that only touch a
+    boundary (zero overlap) are dropped.
+    """
+    rebased: list[dict[str, Any]] = []
+    for note in notes:
+        try:
+            bar = int(note["bar"])
+            beat = float(note.get("beat") or 0.0)
+            duration = float(note.get("duration") or 0.0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not math.isfinite(beat) or not math.isfinite(duration):
+            continue
+        if duration <= 0.0 or bar < 0 or bar >= len(window.starts):
+            continue
+
+        onset = window.starts[bar] + beat
+        end = onset + duration
+        if end <= window.range_start + _QUARTER_EPS:
+            continue
+        if onset >= window.range_end - _QUARTER_EPS:
+            continue
+
+        start_clipped = onset < window.range_start - _QUARTER_EPS
+        end_clipped = end > window.range_end + _QUARTER_EPS
+        clipped_start = window.range_start if start_clipped else onset
+        clipped_end = window.range_end if end_clipped else end
+        clipped_duration = clipped_end - clipped_start
+        if not math.isfinite(clipped_duration) or clipped_duration <= 0.0:
+            continue
+
+        if start_clipped:
+            relative_bar = 0
+            relative_beat = 0.0
+        elif window.first_bar_beat == 0.0:
+            # Whole-bar selection: keep the parser's exact beat value.
+            relative_bar = bar - window.first_bar
+            relative_beat = beat
+        else:
+            # The relative bar grid is anchored at the selection start, so a
+            # note before the original barline's beat offset belongs to the
+            # previous relative bar.
+            shifted = beat - window.first_bar_beat
+            if shifted >= 0.0:
+                relative_bar = bar - window.first_bar
+                relative_beat = shifted
+            elif bar > window.first_bar:
+                relative_bar = bar - window.first_bar - 1
+                relative_beat = shifted + window.bar_length
+            else:
+                relative_bar = 0
+                relative_beat = 0.0
+
+        # A note may cross a relative barline that is offset from the source
+        # barline (a beat range starts mid-bar). Split it there so every
+        # authored event stays inside one bar, as the spec validator requires.
+        remaining = (
+            duration if not (start_clipped or end_clipped) else clipped_duration
+        )
+        while remaining > _QUARTER_EPS:
+            room = window.bar_length - relative_beat
+            if room <= _QUARTER_EPS:
+                relative_bar += 1
+                relative_beat = 0.0
+                continue
+            piece = min(remaining, room)
+            if remaining - piece <= _QUARTER_EPS:
+                piece = remaining
+            copy = dict(note)
+            copy["bar"] = relative_bar
+            copy["beat"] = relative_beat
+            copy["duration"] = piece
+            rebased.append(copy)
+            remaining -= piece
+            relative_bar += 1
+            relative_beat = 0.0
+    return rebased
+
+
 def _rebase(
     notes: list[dict[str, Any]], bar_start0: int, bar_end: int
 ) -> list[dict[str, Any]]:
@@ -750,19 +997,26 @@ def _render_hash(notes: list[dict[str, Any]]) -> str:
 
 
 def _passage_id(
-    import_id: str, bar_start: int, bar_end: int, voices: list[int]
+    import_id: str,
+    bar_start: int,
+    bar_end: int,
+    voices: list[int],
+    beat_start: float | None = None,
+    beat_end: float | None = None,
 ) -> str:
-    seed = json.dumps(
-        {
-            "importId": import_id,
-            "barStart": bar_start,
-            "barEnd": bar_end,
-            "voices": sorted(voices),
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return _PASSAGE_ID_PREFIX + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+    seed: dict[str, Any] = {
+        "importId": import_id,
+        "barStart": bar_start,
+        "barEnd": bar_end,
+        "voices": sorted(voices),
+    }
+    # Keep the old id for a plain whole-bar request, but never let two beat
+    # ranges inside the same bars collide.
+    if beat_start is not None or beat_end is not None:
+        seed["beatStart"] = float(beat_start or 0.0)
+        seed["beatEnd"] = float(beat_end or 0.0)
+    payload = json.dumps(seed, sort_keys=True, separators=(",", ":"))
+    return _PASSAGE_ID_PREFIX + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _range_meter(
@@ -803,16 +1057,31 @@ def _passage_payload(
     bar_end: int,
     voices: list[int],
     record: _ImportRecord,
+    beat_start: float | None = None,
+    beat_end: float | None = None,
 ) -> dict[str, Any]:
     score = record.score
     start0 = bar_start - 1
-    meter, meter_errors = _range_meter(record.summary, bar_start, bar_end)
-    if meter_errors:
-        return PassageResponse(
-            ok=False,
-            warnings=list(record.warnings),
-            errors=meter_errors,
-        ).model_dump()
+    window: _BeatWindow | None = None
+    if beat_start is not None or beat_end is not None:
+        window, beat_errors = _resolve_beat_window(
+            record.summary, bar_start, bar_end, beat_start, beat_end
+        )
+        if beat_errors or window is None:
+            return PassageResponse(
+                ok=False,
+                warnings=list(record.warnings),
+                errors=beat_errors,
+            ).model_dump()
+        meter = window.meter
+    else:
+        meter, meter_errors = _range_meter(record.summary, bar_start, bar_end)
+        if meter_errors:
+            return PassageResponse(
+                ok=False,
+                warnings=list(record.warnings),
+                errors=meter_errors,
+            ).model_dump()
     form_meter, beats_per_bar = _SUPPORTED_METERS[meter]
 
     try:
@@ -836,7 +1105,11 @@ def _passage_payload(
         )
     )
 
-    notes = _rebase(raw_notes, start0, bar_end)
+    notes = (
+        _clip_and_rebase(raw_notes, window)
+        if window is not None
+        else _rebase(raw_notes, start0, bar_end)
+    )
     missing_voices = sorted(
         {
             int(voice)
@@ -965,7 +1238,14 @@ def _passage_payload(
     else:
         errors.append(_error("audio", "the passage has no notes to synthesize"))
 
-    passage_id = _passage_id(import_id, bar_start, bar_end, list(voices))
+    passage_id = _passage_id(
+        import_id,
+        bar_start,
+        bar_end,
+        list(voices),
+        beat_start=window.beat_start if window is not None else None,
+        beat_end=window.beat_end if window is not None else None,
+    )
     response = PassageResponse(
         ok=not errors,
         passageId=passage_id,
@@ -997,7 +1277,7 @@ def _passage_payload(
     responses={404: {"model": ErrorResponse}},
 )
 def create_musicxml_passage(import_id: str, body: PassageRequest) -> Any:
-    """Validate and preview one 1-based, inclusive bar range."""
+    """Validate and preview one 1-based tick range (bars plus beat offsets)."""
     with _LOCK:
         _prune_locked(time.time())
         record = _IMPORTS.get(import_id)
@@ -1021,6 +1301,8 @@ def create_musicxml_passage(import_id: str, body: PassageRequest) -> Any:
         bar_end=body.barEnd,
         voices=voices,
         record=record,
+        beat_start=body.beatStart,
+        beat_end=body.beatEnd,
     )
 
 
