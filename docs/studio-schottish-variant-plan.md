@@ -256,28 +256,32 @@ Preview mode:
 - Không trộn hai mode trong một sentence.
 - Có thể có nhiều sentence source/aaba trong pattern draft để so sánh; duplicate id vẫn chặn.
 
-### 7.1. Pattern draft completeness: Intro / Key / Outro
+### 7.1. Pattern draft completeness: figure pool + tags
 
-**Đã chốt.** Track B chỉ tạo **Key** sentence. Một pattern Studio chỉ `complete` khi có đủ
-**3 role / 5 artifact** (xem Track A §3.5):
+**Đã chốt.** Track B tạo figure/key sentence như bình thường; pattern chỉ `complete` khi
+figure pool có đủ **5 tag** (xem Track A §3.5):
 
 ```json
 {
-  "keyFigures": {
-    "intro": { "short": { "bars": 2 }, "long": { "bars": 4 } },
-    "key":   { "bars": 4, "previewMode": "aaba" },
-    "outro": { "short": { "bars": 2 }, "long": { "bars": 4 } }
-  }
+  "figures": [
+    { "id": "fig_key", "bars": 4, "tags": ["key"], "previewMode": "aaba" },
+    { "id": "fig_intro_2", "bars": 2, "tags": ["intro.short"] },
+    { "id": "fig_intro_4", "bars": 4, "tags": ["intro.long"] },
+    { "id": "fig_outro_2", "bars": 2, "tags": ["outro.short"] },
+    { "id": "fig_outro_4", "bars": 4, "tags": ["outro.long"] }
+  ]
 }
 ```
 
-- `previewMode` chỉ thuộc `key`/sentence; không áp dụng cho intro/outro.
+- User gắn tag cho figure đã có; không tạo riêng intro/outro/key artifact.
+- Một figure có thể mang nhiều tag nếu bar count khớp.
+- `previewMode` chỉ thuộc figure tag `key`; không áp dụng cho intro/outro.
 - `aaba` không bao giờ trộn intro/outro vào loop.
 - Track B **không tự sinh door** từ `_villa_pattern_door`; mặc định `complete:false`.
-- UI ghi rõ: “Key-only preview; doors required before promote.”
+- UI ghi rõ: “Key-only preview; tag intro/outro before promote.”
 - Export draft được phép khi thiếu; ghi `complete:false` + `missing[]`.
-- Promote/publish bị chặn nếu thiếu bất kỳ artifact nào.
-- UI hiển thị `3/3 role`, `5/5 artifact`; door có preview `2 bars` / `4 bars`.
+- Promote/publish bị chặn nếu thiếu bất kỳ tag nào.
+- UI hiển thị `3/3 role`, `5/5 tag`; figure intro/outro preview `2 bars` / `4 bars`.
 
 ---
 
@@ -314,7 +318,8 @@ Preview mode:
   - `MusicXmlSentenceDraftRequest`;
   - `SentenceDraftResponse`;
   - `PatternDraftSentence`;
-  - `PatternDraft.keyFigures` (`intro.short/long`, `key`, `outro.short/long`);
+  - `PatternDraft.figures[].tags` (`key`, `intro.short/long`, `outro.short/long`);
+  - `keyFigures` projection optional;
   - `sentenceDraftKey`;
   - `buildPatternDraftExport` (gồm `complete`/`missing`);
   - `sentenceDraftSourceLabel`.
@@ -347,7 +352,7 @@ Preview mode:
 - Switching invalidates preview but keeps draft.
 - Export round-trip `previewMode`.
 - Quota one unit per request.
-- Pattern draft `complete:false` khi thiếu door artifact; `missing[]` đúng.
+- Pattern draft `complete:false` khi thiếu tag; `missing[]` đúng.
 - `previewMode` chỉ thuộc key, không áp dụng intro/outro.
 
 ---
@@ -386,7 +391,7 @@ Chỉ làm sau Track A Phase 2, dùng chung schema với `sentence_plan.py`:
 5. **`existing` + `previewMode`:** reject, không ignore.
 6. **`loop_texture_bars`:** nhận `meter: MeterSpec`, clip theo bar length, tie pair-aware.
 7. **<4 bar:** warning, không chặn.
-8. **Thiếu door:** chỉ warning + `complete:false`; **không** tự lấy default `_villa_pattern_door`.
+8. **Thiếu tag:** chỉ warning + `complete:false`; **không** tự lấy default `_villa_pattern_door`.
 9. **Pickup:** lấy từ `ImportSummary.pickupBars`; không dùng onset heuristic.
 10. **Error shape:** `existing + previewMode` và invalid `previewMode` đều `200 {ok:false}`.
 11. **`pickupBars` propagation:** backend summary + `MusicXmlImportSummary` + client normalizer; test snake_case/camelCase.

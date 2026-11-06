@@ -28,7 +28,7 @@ Track B (Studio preview `source`/`aaba`) tách riêng tại
 | `p.apex` là `Run`, không phải int | Dùng `p.rise` |
 | `plan_slots` thiếu `offset` | Thêm `offset` + test phrase > 0 |
 | 4 phrase không bridge có thể mất B | B bắt buộc ở `b_index = min(2, len(body)-2)`; rise chỉ nâng cấp |
-| `keyFigures` scope quá rộng | Chỉ pattern mới/promote; pattern cũ grandfathered |
+| `figures[].tags` scope quá rộng | Chỉ pattern mới/promote; pattern cũ grandfathered |
 | Phase 3 chưa có FormSpec path | Chốt movement III (1M/3M), 1W toàn bộ; pickup không vào production |
 | AABA/trio hardcode trong gate | Tách `sentence_plan.py`: `PlanPolicy` + `CompositePolicy` + `explicit` JSON; renderer chỉ nhận `PlannedSlot[]` |
 
@@ -185,7 +185,7 @@ Code hiện tại:
   `_outro_short`/`_outro_long`.
 
 Vì vậy yêu cầu “3 key figure” là **chuẩn hóa điều pattern cũ đã làm**, không phải schema mới
-cho production. Nhưng Studio hiện chưa capture đủ 5 artifact này.
+cho production. Nhưng Studio hiện chưa capture đủ tag này.
 
 ---
 
@@ -722,13 +722,13 @@ nên bản 4/4 có thể được chọn ở movement I/II/IV hoặc `1Y` month 
 
 ### 3.4. Phase 4 — key figure tùy ý
 
-Mục tiêu: user chọn passage MusicXML, tạo **key figure** (body) + intro/outro, preview/export,
-rồi promote thành pattern production. Không tạo schema song song; dùng `TextureSpec`/`PitchRef`
-hiện có, thêm runtime cell resolver.
+Mục tiêu: user chọn passage MusicXML, tạo **figure**, gắn tag `key`/`intro.*`/`outro.*`,
+preview/export, rồi promote thành pattern production. Không tạo schema song song; dùng
+`TextureSpec`/`PitchRef` hiện có, thêm runtime cell resolver.
 
 #### 3.4.1. Input
 
-- Passage sau pickup, 1–4 bar (key), 2 bar (door short), 4 bar (door long).
+- Figure 1–4 bar từ passage; tag quyết định dùng làm key hay intro/outro 2/4 bar.
 - Cùng meter/ensemble với pattern đích.
 - Mỗi note có: `bar`, `beat`, `duration_beats`, `voice`, `pitch`, `tie`, `slur`, `accent`.
 - Voice map:
@@ -858,19 +858,24 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 
 #### 3.4.7. Studio flow
 
-1. User chọn passage cho **Key**; preview `source`/`aaba` (Track B) để nghe rhythm.
-2. Bấm **Create key figure** → `TextureSpec` + cell.
-3. User chọn passage 2 bar → **Intro short**, 4 bar → **Intro long**;
-   tương tự Outro short/long.
-4. `Preview with doors` ghép intro + key + outro; `Preview key only` chỉ key.
-5. `Add to pattern` lưu `keyFigures.key`/intro/outro; **không** auto-apply SentenceSpec editor.
-6. Export JSON gồm 5 artifact + `complete`.
-7. Promote chỉ khi đủ 5 artifact và validation pass.
+1. User tạo **figure** từ passage như bình thường (1–4 bar); preview `source`/`aaba`
+   (Track B) để nghe rhythm.
+2. Figure vào **Figure pool**; chưa cần chọn vai trò.
+3. User gắn tag cho figure đã có:
+   - `key` cho body;
+   - `intro.short` / `intro.long`;
+   - `outro.short` / `outro.long`.
+4. Có thể tái dùng cùng figure cho nhiều tag nếu bar count khớp.
+5. `Preview with doors` ghép intro + key + outro; `Preview key only` chỉ key.
+6. `Add to pattern` lưu tags; **không** auto-apply SentenceSpec editor.
+7. Export JSON gồm `figures[].tags` + `complete`/`missing[]`.
+8. Promote chỉ khi đủ 5 tag và validation pass.
 
 #### 3.4.8. Promote
 
-- Compile `TextureSpec` → `TEXTURE_CELLS`/`DOORS` trong module pattern mới.
-- `SentenceSpec` body dùng `Slot(cell=...)`.
+- Compile tagged figures → `TEXTURE_CELLS`/`DOORS` trong module pattern mới.
+- `key` tag → `SentenceSpec` body dùng `Slot(cell=...)`.
+- `intro.*`/`outro.*` tag → door callable.
 - `ensure_registered`/`valid_cells`; flag default off.
 - Promote là code/flag explicit; Studio chỉ export/publish draft trước.
 - Không mutate `SENTENCE_SPECS`/`DOORS` từ request thường.
@@ -885,7 +890,7 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 - Door short/long/3-bar/1-bar; `frame_role_bar` mapping.
 - Seam intro→key→outro: no tie treo, no overlap.
 - Preview/export/promote cùng notes; flag off byte-identical.
-- `complete` gate 5/5.
+- Complete gate 5/5 tag; multi-tag validation.
 
 #### 3.4.10. Acceptance
 
@@ -901,17 +906,17 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 - PlanVariant external UI (Track B future).
 - Quota 70/30 enforcement (Phase 5).
 
-### 3.5. Pattern door contract (Studio)
+### 3.5. Pattern figure contract (Studio)
 
-**Đã chốt:** mỗi pattern Studio phải có **3 role** và **5 artifact**:
+**Đã chốt:** mỗi pattern Studio cần **3 role** nhưng user chỉ **tag 5 vai trò** trên figure pool:
 
-| Role | Artifact | Bars | Dùng khi |
+| Role | Tag | Bars | Dùng khi |
 |---|---|---|---|
-| Intro | `short` | 2 | frame ≤2 bar, `steps=2` |
-| Intro | `long` | 4 | frame >2 bar, `steps=4` |
+| Intro | `intro.short` | 2 | frame ≤2 bar, `steps=2` |
+| Intro | `intro.long` | 4 | frame >2 bar, `steps=4` |
 | Key | `key` | body | sentence/key figure |
-| Outro | `short` | 2 | frame ≤2 bar, `steps=2` |
-| Outro | `long` | 4 | frame >2 bar, `steps=4` |
+| Outro | `outro.short` | 2 | frame ≤2 bar, `steps=2` |
+| Outro | `outro.long` | 4 | frame >2 bar, `steps=4` |
 
 - 3 role: `intro`, `key`, `outro`.
 - `key` là **key figure đại diện cho body**, không thay danh sách sentence; pattern vẫn có thể chứa nhiều `SentenceSpec`.
@@ -920,76 +925,125 @@ def render_texture_bar(texture, ctx, target_bar, *, cell_bar=0):
 - Frame 3 bar: long script co theo `frame_roles` → role 0, 2, 3.
 - Frame 4 bar: đủ long script 0, 1, 2, 3.
 
-#### Draft shape
+#### Figure pool + tags
+
+**Đã chốt:** user không tạo 3 artifact riêng. Pattern có **một pool figure**; user gắn tag
+`key` / `intro` / `outro` (kèm short/long) cho figure đã có.
 
 ```json
 {
-  "keyFigures": {
-    "intro": {
-      "short": { "bars": 2, "spec": { "...TextureSpec..." } },
-      "long":  { "bars": 4, "spec": { "...TextureSpec..." } }
+  "figures": [
+    {
+      "id": "fig_arpeggio",
+      "spec": { "...TextureSpec..." },
+      "bars": 4,
+      "tags": ["key"]
     },
-    "key": { "bars": 4, "spec": { "...TextureSpec..." } },
-    "outro": {
-      "short": { "bars": 2, "spec": { "...TextureSpec..." } },
-      "long":  { "bars": 4, "spec": { "...TextureSpec..." } }
+    {
+      "id": "fig_intro_2",
+      "spec": { "...TextureSpec..." },
+      "bars": 2,
+      "tags": ["intro.short"]
+    },
+    {
+      "id": "fig_intro_4",
+      "spec": { "...TextureSpec..." },
+      "bars": 4,
+      "tags": ["intro.long"]
+    },
+    {
+      "id": "fig_outro_2",
+      "spec": { "...TextureSpec..." },
+      "bars": 2,
+      "tags": ["outro.short"]
+    },
+    {
+      "id": "fig_outro_4",
+      "spec": { "...TextureSpec..." },
+      "bars": 4,
+      "tags": ["outro.long"]
     }
-  }
+  ]
 }
 ```
+
+- Tag enum:
+  - `key`
+  - `intro.short`
+  - `intro.long`
+  - `outro.short`
+  - `outro.long`
+- Một figure có thể mang nhiều tag nếu bar count tương thích
+  (ví dụ 2-bar dùng chung `intro.short` + `outro.short`).
+- MVP: **một figure chính cho mỗi tag**; nhiều `key` variant là future.
+- `keyFigures` chỉ là **projection** từ tags khi export/back-compat, không phải nguồn dữ liệu.
+- Figure pool có thể chứa figure chưa tag; pattern chỉ `complete` khi đủ tag.
 
 #### Completeness gate
 
 - `draft` được lưu/export để review dù thiếu; export ghi `complete:false` + `missing[]`.
+- `missing[]` tính từ tag, không từ section UI.
 - `promote`/registry chỉ chấp nhận khi:
-  - đủ 5 artifact;
+  - đủ 5 tag: `key`, `intro.short`, `intro.long`, `outro.short`, `outro.long`;
+  - mỗi tag có đúng 1 figure chính (MVP);
+  - figure mang nhiều tag phải đúng bar count cho **tất cả** tag;
   - cùng `meter`/`ensemble`/pattern;
-  - đúng bar count (2/4/2/4);
   - key ≥1 bar;
   - không tràn bar;
   - không có tie/slur bắc qua biên door → body hoặc body → door.
-- UI hiển thị `3/3 role`, `5/5 artifact`; thiếu role nào đánh dấu role đó.
+- UI hiển thị `3/3 role`, `5/5 tag`; tag nào thiếu đánh dấu tag đó.
 
 #### Studio UX
 
-- Pattern draft có 3 section: **Intro**, **Key**, **Outro**.
-- Intro/Outro có tab **2 bars** / **4 bars**; preview riêng từng tab.
-- `Add sentence` chỉ điền **Key**; door có `Add intro` / `Add outro`.
-- `source`/`aaba` preview chỉ áp dụng cho **Key**, không áp dụng cho door.
-- Door preview không tự ghép vào body; muốn nghe seam thì có `Preview with doors`.
+- Pattern draft có **Figure pool**; mỗi card có tag chips.
+- User gắn tag bằng menu:
+  - `Set as Key`
+  - `Set as Intro short (2 bars)`
+  - `Set as Intro long (4 bars)`
+  - `Set as Outro short (2 bars)`
+  - `Set as Outro long (4 bars)`
+- Gắn tag không duplicate figure, không tạo artifact mới.
+- Đổi tag: figure cũ giữ nguyên, tag chuyển sang figure mới.
+- `Add sentence` vẫn tạo/ dùng figure bình thường; **không auto-tag**.
+- Preview:
+  - figure tag `key` → `source`/`aaba` như Track B;
+  - figure tag intro/outro → preview theo 2/4 bar;
+  - `Preview with doors` ghép figure `intro.*` + `key` + `outro.*`.
+- `source`/`aaba` chỉ áp dụng cho `key`, không áp dụng door.
 
 #### Production mapping
 
-- Compile 4 door artifact thành một callable cho `DOORS[(ensemble, pattern)]`:
+- Compile 4 door tag thành callable cho `DOORS[(ensemble, pattern)]`:
 
 ```python
 def door(ctx, bar, role, *, steps, closing, index):
-    if closing:
-        specs = outro_short if steps == 2 else outro_long
-    else:
-        specs = intro_short if steps == 2 else intro_long
-    return specs[role](ctx, bar)
+    figure = (
+        outro_figures[steps] if closing else intro_figures[steps]
+    )
+    return render_figure_at(figure, ctx, bar, role=role)
 ```
 
 - `frame_roles`/`_dispatch` giữ nguyên; không thêm selection path mới.
+- `key` tag → body cell/sentence.
 - `_RETAINED_DOORS` **đã có** `("villa", "suite_schottish") -> _villa_pattern_door`.
   Không thêm row trùng; chỉ override nếu muốn door riêng khác `_villa_pattern_door`.
 - Nếu pattern chưa có door riêng: `_dispatch` tiếp tục fallback composer door.
 
 #### Scope + storage
 
-- `keyFigures` là metadata **Studio authoring + export**, không phải registry production mới.
-- `key` là `TextureSpec` preview; production body vẫn là `SentenceSpec`/`source` key figure.
-- Intro/outro `TextureSpec` compile thành callable trong `DOORS` khi promote.
+- `figures[].tags` là metadata **Studio authoring + export**, không phải registry production mới.
+- `key` là `TextureSpec`/cell; production body vẫn là `SentenceSpec`.
+- Intro/outro tagged figures compile thành callable trong `DOORS` khi promote.
 - Lưu ở:
-  - client `PatternDraft` (localStorage/state);
-  - export JSON `keyFigures` + `complete`/`missing`;
+  - client `PatternDraft.figures` (localStorage/state);
+  - export JSON `figures[]` + `complete`/`missing`;
+  - `keyFigures` projection optional;
   - payload promote (optional) — **không** thêm SQLite/schema production.
 - Gate `complete` chỉ áp dụng cho:
   - pattern mới tạo trong Studio; hoặc
-  - draft có `keyFigures` và user bấm promote.
-- Candidate/pattern cũ **grandfathered**, không bị đánh `incomplete` chỉ vì chưa có `keyFigures`.
-- Track B key-only draft: `complete:false`, UI ghi rõ “preview only; doors required before promote”.
+  - draft có `figures[].tags` và user bấm promote.
+- Candidate/pattern cũ **grandfathered**, không bị đánh `incomplete` chỉ vì chưa có tags.
+- Track B key-only draft: `complete:false`, UI ghi rõ “preview only; tag intro/outro before promote”.
 
 #### Tests
 
@@ -997,8 +1051,9 @@ def door(ctx, bar, role, *, steps, closing, index):
 - short/long đúng bar count và không tràn;
 - intro kết dẫn vào body; outro kết tonic;
 - seam body/door không tie treo;
-- `complete` gate chặn promote khi thiếu 1/5 artifact;
-- export round-trip 5 artifact;
+- tag validation: thiếu tag, trùng tag, multi-tag sai bar count;
+- `complete` gate chặn promote khi thiếu 1/5 tag;
+- export round-trip `figures[].tags` + `missing[]`;
 - 2/4 door không copy 4/4 accent.
 
 ---
@@ -1058,8 +1113,9 @@ Khi thêm pattern/meter variant:
 - `villa_preview.VILLA_PATTERNS`;
 - `dispatch.family_for` / family override;
 - `/sentence/preview`, `/sentence/audio`, `/sentence/export`;
-- `PatternDraft.keyFigures` (`intro.short/long`, `key`, `outro.short/long`);
-- completeness gate `3 role / 5 artifact` trước promote;
+- `PatternDraft.figures[].tags` (`key`, `intro.short/long`, `outro.short/long`);
+- `keyFigures` projection optional; không phải nguồn dữ liệu;
+- completeness gate `figure pool + 5 tag` trước promote;
 - door preview `2 bars` / `4 bars` + `Preview with doors`;
 - examples/candidate JSON;
 - `sentenceDraft` template picker nếu authorable.
@@ -1095,7 +1151,7 @@ Một pattern chỉ được coi là “xong” khi:
 7. Flag off byte-identical; flag on deterministic digest.
 8. Studio preview/export và composer render cùng một nội dung.
 9. Form thật có intro/outro/frame vẫn chọn được pattern.
-10. Pattern Studio có đủ 3 role / 5 artifact: intro short+long, key, outro short+long.
+10. Pattern Studio có đủ 5 tag: `key`, `intro.short`, `intro.long`, `outro.short`, `outro.long`.
 11. Seam intro→key và key→outro không tie treo, không tràn bar.
 
 ---
@@ -1141,19 +1197,20 @@ Không nhảy thẳng Phase 3 khi Phase 0/1/2 chưa xong.
 6. **Preset trước, user-authorable sau.** Phase 1–2 preset; Phase 3–4 mở Studio.
 7. **Key figure:** bar 2/3 sau pickup; ưu tiên rhythm fidelity; chỉ dùng `PitchRef` kind hiện có. Phase 4 dùng `TextureSpec` cell, không tạo `KeyFigureSpec`.
 8. **Multi-spec opt-in.** `SuiteGate` single-spec path byte-identical cho 3 movement còn lại.
-9. **Pattern Studio phải có 3 role / 5 artifact.** Intro short(2)+long(4), Key, Outro short(2)+long(4); thiếu thì không promote.
+9. **Pattern Studio = figure pool + 5 tag.** User gắn tag `key`, `intro.short`, `intro.long`, `outro.short`, `outro.long` cho figure đã có; không tạo 3 artifact riêng. Thiếu tag thì không promote.
 10. **Door dùng `frame_roles`/`DOORS` hiện có.** `suite_schottish` đã có row `_villa_pattern_door`; `short` = steps 2, `long` = steps 4.
-11. **`keyFigures` là metadata Studio/export**, không phải registry production mới; gate chỉ áp cho pattern mới/promote.
-12. **Track B chỉ warning khi thiếu door.** Không tự lấy default `_villa_pattern_door`; `complete:false` đến khi user thêm đủ intro/outro.
+11. **`figures[].tags` là metadata Studio/export**; `keyFigures` chỉ là projection; gate chỉ áp cho pattern mới/promote.
+12. **Track B chỉ warning khi thiếu tag.** Không tự lấy default `_villa_pattern_door`; `complete:false` đến khi user tag đủ intro/outro.
 13. **Pickup metadata là nguồn duy nhất.** `summary.pickupBars` từ import; không dùng onset heuristic.
 14. **Plan selection tách khỏi renderer.** `sentence_plan.py` chứa `PlanPolicy`/`CompositePolicy`/`build_plan`; `render_plan` chỉ nhận `PlannedSlot[]`. External plan dùng JSON `explicit`, không mutate registry.
 15. **AABA/trio/ABAB là policy data**, không phải nhánh `if` trong `SuiteGate`.
 16. **Schottish chỉ ở movement III** (1M/3M) và movement duy nhất (1W); `1W` dùng 2/4, `1M/3M` movement III dùng 2/4. 4/4 chỉ fallback/rollback.
 17. **Hai gate/entry** cho `(suite_schottish, 4/4)` và `(suite_schottish, 2/4)` trong `SUITE_MOVEMENTS`; scope bằng `movement_scopes={(span,index)}` gồm `("1W",0),("1M",2),("3M",2)`, loại `1Y`.
-18. **Phase 4 key figure = `TextureSpec` cell** trong `TEXTURE_CELLS`; `Slot.cell` dispatch qua `render_texture_bar`, không thêm vào `VILLA_FIGURES`.
+18. **Phase 4 key figure = `TextureSpec` cell** trong `TEXTURE_CELLS`; figure `key` tag trỏ tới cell; `Slot.cell` dispatch qua `render_texture_bar`, không thêm vào `VILLA_FIGURES`.
 19. **Pitch production là relative** (`scale_step`/`chord_degree`/`chord_root`); `literal_midi` preview-only, `melody_eighth` phải rebind khi tile.
-20. **Door Phase 4 compile từ TextureSpec** 2/4 bar; `frame_role_bar` map 1/2/3/4 bar; 1-bar compressed crop.
+20. **Door Phase 4 compile từ tagged figures** 2/4 bar; `frame_role_bar` map 1/2/3/4 bar; 1-bar compressed crop.
 21. **Promote Phase 4 là explicit**; Studio chỉ preview/export, không auto-apply SentenceSpec/registry.
+22. **Figure pool + tag là nguồn duy nhất**: user tag figure có sẵn; không tạo riêng intro/outro/key artifact. Multi-tag cho phép nếu bar count khớp.
 
 ---
 
@@ -1263,7 +1320,7 @@ Phase 5 phải chọn một và test:
 2. Phase 1: **4/4 fold ABAB** — foundation, không final.
 3. Phase 2: **phrase-level + cadence artifact**.
 4. Phase 3: **native 2/4**, meter-aware wave/frame; `1W` toàn movement, `1M`/`3M` movement III.
-5. Phase 4: key figure = `TextureSpec` cell + `TEXTURE_CELLS`; pitch relative; door compile 2/4 bar; promote explicit.
+5. Phase 4: figure pool + tags (`key`/`intro.*`/`outro.*`); `TextureSpec` cell + `TEXTURE_CELLS`; pitch relative; door compile 2/4 bar; promote explicit.
 6. Phase 5: quota 70% ±10% là **target policy only**; chưa enforce đến Phase 5, semantics TBD.
 7. Pickup 1/4: không tính là bar 1; A/B/key figure lấy full bar sau pickup; production 2/4 không giữ pickup bar.
 8. Multi-spec/partial path opt-in; 3 movement còn lại byte-identical.
@@ -1295,8 +1352,8 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 7. `PitchRef` thiếu `melody_at_beat`/`bass_root` → Phase 4 chỉ dùng kind hiện có.
 8. Pickup 1/4 chưa có rule production → Phase 3, thống nhất với Track B.
 9. `SuiteGate` dùng chung 4 movement → multi-spec/partial opt-in, test byte-identical.
-10. Studio chưa capture đủ door: mỗi pattern cần 3 role / 5 artifact (intro short+long, key, outro short+long) → Phase 3/4.
-11. `_RETAINED_DOORS` đã có row `suite_schottish`; gap thật là Studio chưa capture door artifacts, không phải thiếu DOORS row.
+10. Studio chưa capture đủ tag: mỗi pattern cần 5 tag (key, intro.short/long, outro.short/long) → Phase 3/4.
+11. `_RETAINED_DOORS` đã có row `suite_schottish`; gap thật là Studio chưa có figure pool/tag, không phải thiếu DOORS row.
 12. `Phrase.apex` là `Run`; `rise` phải đọc `p.rise`.
 13. `plan_slots`/`plan_sentence` chưa có `offset`; phrase 2+ sẽ plan về bar 0 nếu không sửa.
 14. 4 phrase không bridge phải vẫn có B ở `min(2, len(body)-2)`; rise không thêm B.
@@ -1314,7 +1371,7 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 1. **Partial merge = cách A**: render base toàn movement, thay base events trên `covered` bar.
 2. **`SentenceVoices.covered = frozenset[int] | None`**, `None` = toàn movement.
 3. **Close dùng `VILLA_CADENCE = 5`** ở Phase 2; không dựa vào figure hiện có.
-4. **Pattern Studio = 3 role / 5 artifact**: intro short(2)+long(4), key, outro short(2)+long(4).
+4. **Pattern Studio = figure pool + 5 tag**: `key`, `intro.short`, `intro.long`, `outro.short`, `outro.long`; tag figure có sẵn, không tạo artifact riêng.
 5. **Door map vào `DOORS` + `frame_roles` hiện có**; `short` = steps 2, `long` = steps 4, 1-bar compressed, 3-bar long co còn role 0/2/3.
 
 ---
@@ -1322,9 +1379,9 @@ Không trộn `previewMode` với production `SentenceSpec`/plan.
 ## 16. Chốt sau review vòng 5
 
 1. **Native 2/4 gán vào movement III** cho `1M`/`3M`; `1W` dùng 2/4 cho toàn movement.
-2. **Track B không tự sinh door**: chỉ warning + `complete:false`; user phải thêm intro/outro trước promote.
+2. **Track B không tự sinh door**: chỉ warning + `complete:false`; user phải tag intro/outro trước promote.
 3. **Không còn câu hỏi mở** cho Phase 0; các thay đổi code bắt đầu từ Phase 0 theo §3.0.
 4. **Plan seam tách bạch**: AABA/trio/ABAB/external plan nằm trong `sentence_plan.py`; renderer không biết policy. External JSON qua `explicit`, có validate và reject rõ.
 5. **Selection scope**: movement III cho `1M/3M`, movement duy nhất cho `1W`; hai gate 4/4 + 2/4; 4/4 chỉ fallback/rollback.
-6. **Phase 4 key figure**: `TextureSpec` cell + `TEXTURE_CELLS` + `render_texture_bar`; pitch relative; door 2/4 bar; promote explicit.
+6. **Phase 4**: figure pool + tag; `TextureSpec` cell + `TEXTURE_CELLS` + `render_texture_bar`; pitch relative; door 2/4 bar; promote explicit.
 7. **`movement_span`**: thêm vào `_Ctx`/render/audio để scope `(span,index)` phân biệt `1M/3M` với `1Y`.
