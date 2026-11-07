@@ -4067,11 +4067,14 @@ const withExtras = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
   production: { campanella: true, restFill: true, scales: 'pipeline' },
 });
 if (!withExtras.ok) throw new Error(withExtras.error);
-deepEqual(withExtras.request.production, {
-  ...DEFAULT_FIGURE_RENDER_PRODUCTION,
-  campanella: true,
-  restFill: true,
-  scales: 'pipeline',
+deepEqual(withExtras.request.options, {
+  includeDoors: true,
+  production: {
+    ...DEFAULT_FIGURE_RENDER_PRODUCTION,
+    campanella: true,
+    restFill: true,
+    scales: 'pipeline',
+  },
 });
 
 const builtRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo);

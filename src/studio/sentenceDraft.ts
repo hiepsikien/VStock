@@ -1099,8 +1099,10 @@ export type FigureRenderRequest = {
   form: FigureRenderForm;
   /** Optional; falls back to the draft label. */
   title?: string;
-  production: FigureRenderProduction;
-  options: { includeDoors: boolean };
+  options: {
+    includeDoors: boolean;
+    production: FigureRenderProduction;
+  };
 };
 
 export type FigureRenderOptions = {
@@ -1242,8 +1244,10 @@ export function buildFigureRenderRequest(
     plan: { id: planId },
     series: { kind: 'bars', bars: normalized.bars },
     form,
-    production,
-    options: { includeDoors: options.includeDoors ?? true },
+    options: {
+      includeDoors: options.includeDoors ?? true,
+      production,
+    },
     ...(title ? { title } : {}),
   };
   return { ok: true, request };

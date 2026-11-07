@@ -179,6 +179,9 @@ class ScalePassage:
     passage_eighths: int
     replaced_base_intrinsic_eighths: int
     tier: str = "passage"
+    # Studio's last-resort direct walk already wrote this line. A later
+    # restamp must not re-run ``_line`` and replace it with the flat host line.
+    forced: bool = False
 
 
 @dataclass(frozen=True)
@@ -2961,6 +2964,10 @@ def restamp_passage_hairpins(ctx: _Ctx, patterns: list[str], plan: ScalePlan, le
     the hairpin the previous one just printed. `plan.passages` run first.
     """
     for passage in (*plan.passages, *plan.tier1):
+        if passage.forced:
+            # A direct Studio fallback already owns these pitches. Re-running
+            # ``_line`` here would restore the flat host line.
+            continue
         built = _line(ctx, patterns, passage)
         if built is None:
             continue

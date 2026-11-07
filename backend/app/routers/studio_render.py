@@ -136,6 +136,10 @@ class RenderRequestIn(BaseModel):
     form: RenderFormIn = Field(default_factory=RenderFormIn)
     title: str | None = Field(default=None, max_length=200)
     options: RenderOptionsIn = Field(default_factory=RenderOptionsIn)
+    # Deprecated: the Studio web client once sent production at the top level,
+    # where Pydantic silently ignored it. Keep the alias until that bundle is
+    # gone; the documented shape is ``options.production``.
+    production: RenderProductionIn | None = None
 
 
 class RenderAudioErrorOut(BaseModel):
@@ -369,6 +373,14 @@ def render_piece_route(
                 )
             ],
         )
+    # Prefer the documented nested shape when the client sent it. The old
+    # top-level alias only fills in for clients that never sent options.production.
+    if "production" in body.options.model_fields_set:
+        production_in = body.options.production
+    elif body.production is not None:
+        production_in = body.production
+    else:
+        production_in = body.options.production
     request = RenderPieceRequest(
         pattern=body.pattern,
         meter=body.meter,
@@ -381,14 +393,14 @@ def render_piece_route(
         title=body.title,
         include_doors=body.options.includeDoors,
         production=StudioProductionOptions(
-            preludio_bass=body.options.production.preludioBass,
-            campanella=body.options.production.campanella,
-            bells=body.options.production.bells,
-            fanfares=body.options.production.fanfares,
-            transitions=body.options.production.transitions,
-            caesuras=body.options.production.caesuras,
-            rest_fill=body.options.production.restFill,
-            scales=body.options.production.scales,
+            preludio_bass=production_in.preludioBass,
+            campanella=production_in.campanella,
+            bells=production_in.bells,
+            fanfares=production_in.fanfares,
+            transitions=production_in.transitions,
+            caesuras=production_in.caesuras,
+            rest_fill=production_in.restFill,
+            scales=production_in.scales,
         ),
         session=owner_id,
     )

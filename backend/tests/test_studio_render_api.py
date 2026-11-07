@@ -503,6 +503,48 @@ def test_production_extras_are_optional_and_change_the_hash(
     )
 
 
+def test_legacy_top_level_production_still_reaches_the_service(
+    client: TestClient,
+) -> None:
+    body = _body()
+    body["production"] = {"scales": "pipeline"}
+    body["options"] = {"includeDoors": True, "audio": False}
+
+    response = client.post("/v1/studio/figure/render", json=body)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True, payload
+    assert any("scales (pipeline)" in item for item in payload["warnings"])
+    assert any("pipeline scales selected" in item for item in payload["warnings"])
+
+
+def test_nested_production_wins_over_legacy_top_level(
+    client: TestClient,
+) -> None:
+    nested = _body()
+    nested["options"] = {
+        "includeDoors": True,
+        "audio": False,
+        "production": {"scales": "pipeline"},
+    }
+    both = _body()
+    both["production"] = {"scales": "off"}
+    both["options"] = nested["options"]
+
+    nested_payload = client.post(
+        "/v1/studio/figure/render", json=nested
+    ).json()
+    both_payload = client.post("/v1/studio/figure/render", json=both).json()
+
+    assert both_payload["ok"] is True, both_payload
+    assert both_payload["renderHash"] == nested_payload["renderHash"]
+    assert any(
+        "pipeline scales selected" in item
+        for item in both_payload["warnings"]
+    )
+
+
 def test_scales_fill_lead_gaps_without_overwriting_authored_notes() -> None:
     from app.sonify.studio_piece import StudioProductionOptions
     from app.studio.musicxml_import import parse_musicxml

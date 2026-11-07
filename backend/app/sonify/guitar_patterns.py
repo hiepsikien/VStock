@@ -4260,6 +4260,25 @@ def _studio_synthetic_impulses(ctx: _Ctx) -> tuple:
     return tuple(impulses)
 
 
+def _studio_lead_moves(
+    events: list[NoteEvent], start: int, target: int, epb: int
+) -> bool:
+    """True when the realized lead has at least three passage pitches.
+
+    A flat price window makes every eighth a ``_slots`` anchor; the original
+    engine then returns the same pitch for the whole window. That is a valid
+    harmony hold, but it is not a scale and must not be reported as one.
+    """
+    found: set[int] = set()
+    for event in events:
+        if event.midi is None:
+            continue
+        begin = event.bar * epb + int(round(event.beat * 2))
+        if start <= begin <= target:
+            found.add(event.midi)
+    return len(found) >= 3
+
+
 def _studio_forced_scale_passages(
     ctx: _Ctx,
     lead: list[NoteEvent],
@@ -4268,9 +4287,15 @@ def _studio_forced_scale_passages(
 ):
     """Try production realization directly on Studio windows.
 
-    This bypasses the impulse/host selector but keeps the optimized ``_line``,
-    contour coloring, velocity curve, bass and support rewrites. It is the
-    last-resort path for a smooth demo series whose impulse detector is empty.
+    This bypasses the impulse/host selector. A host realization keeps the
+    optimized ``_line``, contour coloring, velocity curve, bass and support
+    rewrites. It is the last-resort path for a smooth demo series whose impulse
+    detector is empty.
+
+    When the host line cannot move (a flat price window), a direct diatonic
+    walk overwrites the same window with the base melody velocity; the later
+    guitar wave still shapes that line. Otherwise ``pipeline`` reported scale
+    eighths while the score kept repeating one held pitch.
     """
     from app.sonify.guitar_scale_passages import (
         ScalePassage,
@@ -4281,12 +4306,21 @@ def _studio_forced_scale_passages(
     support_out = list(support)
     low_out = list(low)
     accepted: list[ScalePassage] = []
+    body_eighths = sum(
+        ctx.epb
+        for bar in range(ctx.bars)
+        if ctx.kind_at.get(bar, "phrase") not in _PEDAL
+    )
+    budget = max(ctx.epb, (30 * body_eighths) // 100)
+    used = 0
     hosts = ("etude1", "etude11", "thumb_cantabile")
     for bar in range(ctx.bars):
         if ctx.kind_at.get(bar, "phrase") in _PEDAL:
             continue
         base = bar * ctx.epb
-        lengths = sorted(set(range(3, ctx.epb + 1)), reverse=True)
+        # One- or two-bar runs. A two-bar run starts on a barline; shorter
+        # runs may start inside the bar. Four eighths was too easy to miss.
+        lengths = sorted(set(range(3, 2 * ctx.epb + 1)), reverse=True)
         offsets = tuple(
             dict.fromkeys(
                 (0, ctx.epb // 2, 1, ctx.epb // 2 + 1)
@@ -4294,11 +4328,29 @@ def _studio_forced_scale_passages(
         )
         placed = False
         for length in lengths:
+            if used + length > budget:
+                continue
             for offset in offsets:
-                if offset < 0 or offset + length > ctx.epb:
+                if length > ctx.epb:
+                    if offset != 0:
+                        continue
+                elif offset < 0 or offset + length > ctx.epb:
                     continue
                 start = base + offset
                 target = start + length - 1
+                if target >= ctx.bars * ctx.epb:
+                    continue
+                if any(
+                    ctx.kind_at.get(other, "phrase") in _PEDAL
+                    for other in range(
+                        start // ctx.epb, target // ctx.epb + 1
+                    )
+                ):
+                    continue
+                # Production separates passages by at least one bar. Without
+                # this, the fallback would chain every bar into one long run.
+                if accepted and start - accepted[-1].target < ctx.epb:
+                    continue
                 first = _melody_at(ctx, start)
                 last = _melody_at(ctx, target)
                 direction = "up" if last >= first else "down"
@@ -4320,17 +4372,83 @@ def _studio_forced_scale_passages(
                     )
                     if realized is None:
                         continue
+                    if not _studio_lead_moves(
+                        realized[0], start, target, ctx.epb
+                    ):
+                        # A held/flat line is not a scale. Try the next host,
+                        # then fall through to the direct walk below.
+                        continue
                     lead_out, support_out, low_out = realized
                     accepted.append(passage)
+                    used += length
                     placed = True
                     break
+                if placed:
+                    break
+                # Host realization rejected every window or produced a hold.
+                # Write a real diatonic run over the same window. This keeps
+                # the Studio fallback audible without touching the historical
+                # production path.
+                first = _melody_at(ctx, start)
+                last = _melody_at(ctx, target)
+                sign = 1 if last >= first else -1
+                floor = ctx.treble_floor
+                ceiling = min(ctx.treble_top, ctx.ceiling)
+                pitches: list[int] = []
+                best_sign = sign
+                best_distinct = -1
+                for candidate_sign in (sign, -sign):
+                    candidate = [
+                        _walk(
+                            first,
+                            candidate_sign * step,
+                            ctx.mode,
+                            floor,
+                            ceiling,
+                        )
+                        for step in range(length)
+                    ]
+                    distinct = len(set(candidate))
+                    if distinct > best_distinct:
+                        pitches = candidate
+                        best_sign = candidate_sign
+                        best_distinct = distinct
+                    if distinct == len(candidate):
+                        break
+                if best_distinct < 3:
+                    continue
+                sign = best_sign
+                fresh: list[NoteEvent] = []
+                for step, pitch in enumerate(pitches):
+                    fresh.extend(
+                        _eighth_event(
+                            start + step,
+                            1,
+                            pitch,
+                            ctx.epb,
+                            1,
+                            _MELODY,
+                        )
+                    )
+                lead_out = _splice(
+                    lead_out, start * 2, (target + 1) * 2, fresh, ctx.epb
+                )
+                accepted.append(
+                    replace(
+                        passage,
+                        direction="up" if sign > 0 else "down",
+                        net_span=max(6, abs(pitches[-1] - pitches[0])),
+                        forced=True,
+                    )
+                )
+                used += length
+                placed = True
                 if placed:
                     break
             if placed:
                 break
     if not accepted:
         return None
-    body = ctx.bars * ctx.epb
     from app.sonify.guitar_scale_passages import ScalePlan
 
     return (
@@ -4338,14 +4456,14 @@ def _studio_forced_scale_passages(
         support_out,
         low_out,
         ScalePlan(
-            body_eighths=body,
+            body_eighths=body_eighths,
             base_intrinsic_eighths=0,
-            max_scale_eighths=body,
-            room=body,
+            max_scale_eighths=budget,
+            room=budget,
             passages=tuple(accepted),
             perpetual_bars=(),
             tier1=(),
-            room_after=max(0, body - sum(p.passage_eighths for p in accepted)),
+            room_after=max(0, budget - used),
         ),
     )
 
@@ -4380,7 +4498,12 @@ def _studio_pipeline_scales(
                 lead_out, support_out, low_out, plan = apply_scale_passages(
                     ctx, patterns, lead, support, low
                 )
-                if plan.scale_eighths:
+                if plan.scale_eighths and all(
+                    _studio_lead_moves(
+                        lead_out, passage.start, passage.target, ctx.epb
+                    )
+                    for passage in (*plan.passages, *plan.tier1)
+                ):
                     return lead_out, support_out, low_out, plan
     finally:
         ctx.impulses = original_impulses

@@ -1288,9 +1288,18 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=sound_for(marking)))
             roles = _tuplet_roles(ordered)
             sixteenth = _triplet_sixteenth_members(ordered)
+            cursor = 0
             index = 0
             while index < len(ordered):
                 event = ordered[index]
+                target = max(0, int(round(event.beat * score.divisions)))
+                if target > cursor:
+                    # Studio keeps authored rests as gaps, not rest events.
+                    # Move the voice cursor with an invisible <forward> so the
+                    # note lands on its real beat.
+                    forward = _add(measure, "forward")
+                    _add(forward, "duration", str(target - cursor))
+                    cursor = target
                 role = roles[index]
                 harmony = _chord_on(
                     score,
@@ -1389,6 +1398,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                                 triplet_sixteenth=group_sixteenth[note_index],
                                 **note_kwargs(note, harmony),
                             )
+                    cursor = target + units
                     index = nxt_index
                     continue
                 if voice_index == 0:
@@ -1427,7 +1437,15 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                         triplet_sixteenth=sixteenth[index],
                         **note_kwargs(event, harmony),
                     )
+                cursor = target + _duration(event.duration_beats, score.divisions)
                 index += 1
+            # Studio can keep an authored voice underfull (restFill off). A
+            # full-measure <backup> then starts the next voice before beat 0.
+            # An invisible <forward> brings the cursor to the barline first;
+            # the note list and printed rests stay unchanged.
+            if cursor < bar_units_int:
+                forward = _add(measure, "forward")
+                _add(forward, "duration", str(bar_units_int - cursor))
             if voice_index == 0 and tempos:
                 # MuseScore ignores a negative <offset> at the end of a measure
                 # and drops the tempos after it. Walk back to each one instead.

@@ -476,6 +476,155 @@ def test_compressed_frame_clears_tie_and_slur_at_the_seam() -> None:
     assert second.slur_stop is False
 
 
+def test_pipeline_forced_scales_move_on_a_flat_price_window() -> None:
+    from app.sonify.guitar_patterns import (
+        _eighth_event,
+        _studio_lead_moves,
+        _studio_pipeline_scales,
+    )
+
+    ctx = _ctx(METER_44, 8)
+    epb = ctx.epb
+    # A flat price line makes every eighth a host anchor. The original host
+    # line holds one pitch; the production entry point must still write a real
+    # scale through its forced fallback.
+    ctx.melody[:] = [60] * len(ctx.melody)
+    ctx.raw[:] = [60] * len(ctx.raw)
+    lead = [
+        event
+        for bar in range(ctx.bars)
+        for eighth in range(epb)
+        for event in _eighth_event(
+            bar * epb + eighth, 1, 60, epb, 1, 64
+        )
+    ]
+
+    lead_out, _support, _low, plan = _studio_pipeline_scales(
+        ctx, lead, [], []
+    )
+
+    assert plan.passages
+    assert all(passage.forced for passage in plan.passages)
+    assert max(passage.passage_eighths for passage in plan.passages) >= 2 * epb
+    for passage in plan.passages:
+        assert _studio_lead_moves(
+            lead_out, passage.start, passage.target, epb
+        )
+
+
+def test_forced_scales_never_cross_a_pedal_bar_or_the_end() -> None:
+    from app.sonify.form import _PEDAL
+    from app.sonify.guitar_patterns import (
+        _eighth_event,
+        _studio_forced_scale_passages,
+    )
+
+    ctx = _ctx(METER_44, 12)
+    epb = ctx.epb
+    ctx.kind_at[3] = "intro"
+    ctx.kind_at[8] = "outro"
+    ctx.melody[:] = [60] * len(ctx.melody)
+    ctx.raw[:] = [60] * len(ctx.raw)
+    lead = [
+        event
+        for bar in range(ctx.bars)
+        for eighth in range(epb)
+        for event in _eighth_event(
+            bar * epb + eighth, 1, 60, epb, 1, 64
+        )
+    ]
+
+    result = _studio_forced_scale_passages(ctx, lead, [], [])
+
+    assert result is not None
+    _lead_out, _support, _low, plan = result
+    for passage in plan.passages:
+        assert passage.target < ctx.bars * epb
+        for bar in range(passage.start // epb, passage.target // epb + 1):
+            assert ctx.kind_at.get(bar, "phrase") not in _PEDAL
+
+
+def test_underfull_studio_voices_keep_the_musicxml_cursor_valid() -> None:
+    import xml.etree.ElementTree as ET
+
+    cell = TextureSpec(
+        id="key",
+        composer="Test",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=tuple(
+            AuthoredEvent(
+                bar=0,
+                beat=0.0,
+                duration_beats=1.0,
+                voice=voice,
+                pitch=PitchRef.literal_midi(midi),
+            )
+            for voice, midi in ((1, 60), (2, 55), (3, 40))
+        ),
+    )
+    piece = StudioPiece(
+        pattern="studio_test",
+        meter="4/4",
+        cells={"key": cell},
+        arrangement=(("cell", "key", 0),),
+    )
+
+    xml = score_to_musicxml(_render_piece(piece, METER_44, 1, studio=piece))
+    root = ET.fromstring(xml)
+    divisions = int(root.findtext(".//divisions") or 0)
+    beats = int(root.findtext(".//beats") or 0)
+    beat_type = int(root.findtext(".//beat-type") or 0)
+    bar_units = divisions * beats * 4 // beat_type
+    saw_forward = False
+    for measure in root.iter("measure"):
+        cursor = 0
+        for child in measure:
+            if child.tag == "backup":
+                cursor -= int(child.findtext("duration") or 0)
+            elif child.tag == "forward":
+                saw_forward = True
+                cursor += int(child.findtext("duration") or 0)
+            elif (
+                child.tag == "note"
+                and child.find("chord") is None
+                and child.find("grace") is None
+            ):
+                cursor += int(child.findtext("duration") or 0)
+            assert cursor >= 0, f"measure {measure.get('number')} cursor {cursor}"
+        assert cursor == bar_units
+    assert saw_forward
+
+
+def test_forced_pipeline_passages_survive_hairpin_restamp() -> None:
+    from app.sonify.guitar_patterns import _eighth_event
+    from app.sonify.guitar_scale_passages import (
+        ScalePassage,
+        ScalePlan,
+        restamp_passage_hairpins,
+    )
+
+    ctx = _ctx(METER_44, 1)
+    passage = ScalePassage(
+        0, 7, "up", 8, 1.0, (), False, 8, 0, "passage", True
+    )
+    plan = ScalePlan(8, 0, 8, 8, (passage,), (), (), 0)
+    pitches = (60, 62, 64, 65, 67, 69, 71, 72)
+    lead = [
+        event
+        for eighth, pitch in enumerate(pitches)
+        for event in _eighth_event(eighth, 1, pitch, ctx.epb, 1, 64)
+    ]
+
+    restamped = restamp_passage_hairpins(
+        ctx, ["etude1"], plan, lead, lead
+    )
+
+    assert restamped == lead
+
+
 def test_safe_scales_do_not_fill_a_gap_after_a_tie_or_slur() -> None:
     from app.sonify.guitar_patterns import _studio_scale_passages
     from app.sonify.model import NoteEvent

@@ -514,7 +514,9 @@ STUDIO_RENDER_REVISION = 5
 Lý do: cùng một request cũ có thể trả MusicXML/WAV khác sau khi thay đổi
 role/register hoặc line policy. Không bump sẽ khiến cache cũ che mất thay đổi.
 
-Ghi chú: revision đã lên **5** sau fix compressed seam.
+Ghi chú: revision đã lên **7** sau fix Studio pipeline scale fallback +
+MusicXML voice cursor. Revision 6 là bản trung gian chưa release trong cùng
+cụm fix; revision 5 là fix compressed seam.
 
 ---
 
@@ -585,7 +587,7 @@ Ghi chú: revision đã lên **5** sau fix compressed seam.
 1. Phân vai theo median pitch của từng source line; rewrite role voice 1/2/3/4.
 2. Bass dùng `Chord.bass_midi` fold vào 40..53.
 3. Mid fold chord tone vào 50..65.
-4. Bump revision khi note thực tế đổi (hiện là 5).
+4. Bump revision khi note thực tế đổi (hiện là 7).
 5. Render lại cùng figure pool, nghe thử bass/mid/lead.
 
 **Dừng ở đây để user nghe.** Chỉ làm Phase 1 nếu Phase 0 ổn.
