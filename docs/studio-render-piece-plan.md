@@ -995,7 +995,7 @@ Variation bỏ qua các eighth đã thuộc scale passage để tránh chồng p
 Đưa vào `renderHash`:
 
 - `variation` mode;
-- bump `STUDIO_RENDER_REVISION` khi note thực tế đổi (hiện là **9**).
+- bump `STUDIO_RENDER_REVISION` khi note thực tế đổi (hiện là **10**).
 
 Output plan hiện không được hash riêng; mode đã đủ để tách cache `off/auto/force`.
 
@@ -1037,16 +1037,24 @@ Follow-up:
 
 ### 18.12. Studio lead register
 
-Studio lead được hạ window xuống **2 semitone** so với guitar mặc định:
+Studio lead được hạ **một diatonic step** (~2 semitone) so với guitar mặc định:
 
 ```text
 standard: 59..81
 Studio:   57..79   (lead_shift = -2)
 ```
 
-- Chỉ áp dụng cho `StudioPiece`; legacy/production guitar giữ 59..81.
-- `_place_melody` nhận floor/top đã hạ.
-- `ctx.treble_floor/top` trong pattern layer cũng hạ theo để `scale_step`/line
-  resolution nhất quán.
-- Mid/bass register không đổi.
+Cách làm:
+
+- `_place_melody` vẫn đặt line trong window chuẩn 59..81;
+- sau đó `lead_shift` hạ từng note xuống một diatonic step bằng `_walk`,
+  tránh việc phrase bị rớt nguyên octave;
+- `ctx.treble_floor/top` trong pattern layer hạ theo để `scale_step`/line
+  resolution nhất quán;
+- `_compass` cap scale/pipeline top theo `ctx.studio_lead_ceiling`, nên
+  pipeline scales không vượt quá 79;
+- chỉ áp dụng cho `StudioPiece`; legacy/production guitar giữ 59..81;
+- literal-MIDI authored cells **không** bị hạ; chỉ melody/scale_step và các
+  line resolve theo context bị ảnh hưởng;
+- mid/bass register không đổi;
 - `StudioPiece.lead_shift` có thể override; default `-2`.

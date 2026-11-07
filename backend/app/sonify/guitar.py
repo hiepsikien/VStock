@@ -142,23 +142,28 @@ def _render_guitar_score_impl(
         else:
             # Direct unit tests omit raw_pitches. Never detect on quantized pitches.
             impulses = ()
-    lead_floor = register.guitar_treble_floor
-    lead_top = register.guitar_treble_top
-    if studio_piece is not None:
-        shift = getattr(studio_piece, "lead_shift", 0)
-        lead_floor = max(register.guitar_floor, lead_floor + shift)
-        lead_top = min(register.guitar_ceiling, lead_top + shift)
     melody = _place_melody(
         pitches,
         phrases,
-        lead_floor,
-        lead_top,
+        register.guitar_treble_floor,
+        register.guitar_treble_top,
         chord_at,
         mode,
         raw_pitches=raw_pitches,
         impulses=impulses,
         ensemble=ensemble,
     )
+    if studio_piece is not None:
+        shift = getattr(studio_piece, "lead_shift", 0)
+        if shift:
+            from app.sonify.guitar_patterns import _walk
+
+            # Studio lowers the placed line by a diatonic step instead of
+            # moving the whole window and dropping a phrase by an octave.
+            low = max(register.guitar_floor, register.guitar_treble_floor + shift)
+            high = min(register.guitar_ceiling, register.guitar_treble_top + shift)
+            steps = -1 if shift < 0 else 1
+            melody = [_walk(note, steps, mode, low, high) for note in melody]
     melody, slots, chord_at, harmonies = _picardy_close(
         melody, slots, phrases, chord_at, kind_at, harmonies, mode, ensemble
     )

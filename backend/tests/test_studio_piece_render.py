@@ -707,22 +707,47 @@ def test_pattern_variation_changes_a_weak_repeat_not_the_strong_beat() -> None:
     assert _apply_studio_variation(ctx, lead, "off") == lead
 
 
-def test_lower_studio_lead_window_lowers_a_high_phrase() -> None:
-    from app.sonify.chords import C
-    from app.sonify.guitar import _place_melody
-    from app.sonify.model import Phrase, Run
-
-    raw = [81, 79, 77, 76]
-    phrase = Phrase(
-        0,
-        4,
-        (Run(0, 1, 81), Run(1, 1, 79), Run(2, 1, 77), Run(3, 1, 76)),
+def test_studio_lead_shift_lowers_a_scale_step_cell() -> None:
+    cell = TextureSpec(
+        id="cell_lead_shift",
+        composer="Test",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0,
+                beat=0.0,
+                duration_beats=1.0,
+                voice=1,
+                pitch=PitchRef.scale_step(0),
+            ),
+        ),
+    )
+    base = StudioPiece(
+        pattern="studio_lead_shift",
+        meter="4/4",
+        cells={"cell_lead_shift": cell},
+        arrangement=(("cell", "cell_lead_shift", 0),),
+        lead_shift=0,
+    )
+    low = StudioPiece(
+        pattern="studio_lead_shift",
+        meter="4/4",
+        cells={"cell_lead_shift": cell},
+        arrangement=(("cell", "cell_lead_shift", 0),),
+        lead_shift=-2,
     )
 
-    high = _place_melody(raw, (phrase,), 59, 81, {0: C}, "major")
-    low = _place_melody(raw, (phrase,), 57, 79, {0: C}, "major")
+    base_score = _render_piece(base, METER_44, 1, studio=base)
+    low_score = _render_piece(low, METER_44, 1, studio=low)
+    base_lead = [note.midi for note in base_score.lead if note.midi is not None]
+    low_lead = [note.midi for note in low_score.lead if note.midi is not None]
 
-    assert sum(low) / len(low) < sum(high) / len(high)
+    assert base_lead and low_lead
+    assert sum(low_lead) / len(low_lead) < sum(base_lead) / len(base_lead)
+    assert all(abs(right - left) <= 2 for left, right in zip(base_lead, low_lead))
 
 
 def test_pattern_variation_changes_more_than_one_note_in_a_long_plateau() -> None:
@@ -793,6 +818,18 @@ def test_forced_scale_folds_instead_of_sticking_to_the_ceiling() -> None:
         longest = max(longest, current)
     assert longest <= 2
     assert max(pitches) - min(pitches) <= min(ctx.treble_top, ctx.ceiling) - ctx.treble_floor
+
+
+def test_studio_lead_ceiling_caps_scale_compass() -> None:
+    from app.sonify.guitar_scale_passages import _compass
+
+    ctx = _ctx(METER_44, 1)
+    ctx.treble_top = 79
+    ctx.studio_lead_ceiling = 79
+
+    _low, top = _compass(ctx, None)
+
+    assert top == 79
 
 
 def test_forced_scale_clamps_first_into_the_register() -> None:

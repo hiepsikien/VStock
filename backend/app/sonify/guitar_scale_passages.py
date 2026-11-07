@@ -864,6 +864,9 @@ def _compass(ctx: _Ctx, passage: ScalePassage | None) -> tuple[int, int]:
     """
     semi = ctx.semitones
     top = min(83 - semi, ctx.ceiling)
+    studio_top = getattr(ctx, "studio_lead_ceiling", None)
+    if isinstance(studio_top, int):
+        top = min(top, studio_top)
     standard_floor = 59 - semi
     long = passage is not None and passage.passage_eighths >= ctx.epb
     if long and ctx.ensemble in {"villa", "brouwer"}:

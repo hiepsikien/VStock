@@ -3504,6 +3504,7 @@ def render_patterned_voices(
         shift = getattr(studio_piece, "lead_shift", 0)
         ctx.treble_floor = max(register.guitar_floor, ctx.treble_floor + shift)
         ctx.treble_top = min(register.guitar_ceiling, ctx.treble_top + shift)
+        ctx.studio_lead_ceiling = ctx.treble_top
     patterns = _patterns(ctx) if phrases else []
     headline = _HEADLINE.get()
     if headline is not None:

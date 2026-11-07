@@ -514,7 +514,7 @@ STUDIO_RENDER_REVISION = 5
 Lý do: cùng một request cũ có thể trả MusicXML/WAV khác sau khi thay đổi
 role/register hoặc line policy. Không bump sẽ khiến cache cũ che mất thay đổi.
 
-Ghi chú: revision hiện là **9** sau Studio lead register. Revision 8 là variation policy; 7 là fix
+Ghi chú: revision hiện là **10** sau Studio lead register semantics. Revision 8 là variation policy; 7 là fix
 Studio pipeline scale fallback + MusicXML voice cursor; revision 6 là bản
 trung gian chưa release; revision 5 là fix compressed seam.
 
@@ -587,7 +587,7 @@ trung gian chưa release; revision 5 là fix compressed seam.
 1. Phân vai theo median pitch của từng source line; rewrite role voice 1/2/3/4.
 2. Bass dùng `Chord.bass_midi` fold vào 40..53.
 3. Mid fold chord tone vào 50..65.
-4. Bump revision khi note thực tế đổi (hiện là 9).
+4. Bump revision khi note thực tế đổi (hiện là 10).
 5. Render lại cùng figure pool, nghe thử bass/mid/lead.
 
 **Dừng ở đây để user nghe.** Chỉ làm Phase 1 nếu Phase 0 ổn.
@@ -644,7 +644,7 @@ Mid  = chord tone folded to 50..65
 Lead = price melody, 59..81
 Scope = StudioPiece + villa only
 Legacy = unchanged
-Revision = 9
+Revision = 10
 ```
 
 Sau Phase 0: user nghe thử, kiểm tra bass đã xuống đúng octave chưa, rồi quyết
@@ -658,7 +658,7 @@ Mid  = MA5
 Bass = MA20
 Quantize = nearest chord tone in register band
 Ordering = soft average, warning only
-Revision = 10
+Revision = 11
 ```
 
 Chưa implement Phase 1 trong tài liệu này.
