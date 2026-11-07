@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from app.sonify.model import Bar
 from app.sonify.pattern_figures import PatternFigure
+from app.sonify.studio_piece import StudioProductionOptions
 from app.studio import (
     render_audio,
     render_jobs,
@@ -107,9 +108,20 @@ class RenderFormIn(BaseModel):
     )
 
 
+class RenderProductionIn(BaseModel):
+    preludioBass: bool = False
+    campanella: bool = False
+    bells: bool = False
+    fanfares: bool = False
+    transitions: bool = False
+    caesuras: bool = False
+    restFill: bool = False
+
+
 class RenderOptionsIn(BaseModel):
     includeDoors: bool = True
     audio: bool = True
+    production: RenderProductionIn = Field(default_factory=RenderProductionIn)
 
 
 class RenderRequestIn(BaseModel):
@@ -367,6 +379,15 @@ def render_piece_route(
         bpm=body.form.bpm,
         title=body.title,
         include_doors=body.options.includeDoors,
+        production=StudioProductionOptions(
+            preludio_bass=body.options.production.preludioBass,
+            campanella=body.options.production.campanella,
+            bells=body.options.production.bells,
+            fanfares=body.options.production.fanfares,
+            transitions=body.options.production.transitions,
+            caesuras=body.options.production.caesuras,
+            rest_fill=body.options.production.restFill,
+        ),
         session=owner_id,
     )
     try:

@@ -26,11 +26,13 @@ import {
 import {
   DEFAULT_FIGURE_RENDER_BPM,
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
+  DEFAULT_FIGURE_RENDER_PRODUCTION,
   DEMO_SERIES_OPTIONS,
   FIGURE_RENDER_BPM_MAX,
   FIGURE_RENDER_BPM_MIN,
   FIGURE_RENDER_BPM_PRESETS,
   FIGURE_RENDER_FORM_SPANS,
+  FIGURE_RENDER_PRODUCTION_OPTIONS,
   FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
   VILLA_COMPOSER,
@@ -64,6 +66,8 @@ import {
   villaTemplateOptions,
   type DemoSeriesRange,
   type FigureRenderAudio,
+  type FigureRenderProduction,
+  type FigureRenderProductionKey,
   type FigureRenderFormSpan,
   type FigureRenderPlanId,
   type FigureRenderResponse,
@@ -1136,6 +1140,9 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
   const [span, setSpan] = useState<FigureRenderFormSpan>('1W');
   const [dataRange, setDataRange] = useState<DemoSeriesRange>('1D');
   const [bpmText, setBpmText] = useState(String(DEFAULT_FIGURE_RENDER_BPM));
+  const [production, setProduction] = useState<FigureRenderProduction>(
+    DEFAULT_FIGURE_RENDER_PRODUCTION,
+  );
   const [movementIndex, setMovementIndex] = useState(
     DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   );
@@ -1145,6 +1152,9 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
     parsedBpm >= FIGURE_RENDER_BPM_MIN &&
     parsedBpm <= FIGURE_RENDER_BPM_MAX;
   const bpm = bpmValid ? parsedBpm : DEFAULT_FIGURE_RENDER_BPM;
+  const toggleProduction = (key: FigureRenderProductionKey) => {
+    setProduction((current) => ({ ...current, [key]: !current[key] }));
+  };
   const [render, setRender] = useState<FigureRenderResponse | null>(null);
   const [audio, setAudio] = useState<FigureRenderAudio | null>(null);
   const [renderBusy, setRenderBusy] = useState(false);
@@ -1186,7 +1196,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
     setError(null);
     setNote(null);
     stopAudio();
-  }, [bpm, dataRange, draftKey, movementIndex, plan, span, stopAudio]);
+  }, [bpm, dataRange, draftKey, movementIndex, plan, production, span, stopAudio]);
 
   useEffect(
     () => () => {
@@ -1244,6 +1254,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
         span === '1M'
           ? { span, movementIndex, bpm }
           : { span, bpm },
+      production,
     });
     if (!built.ok) {
       setError({ text: built.error });
@@ -1289,7 +1300,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
         setRenderBusy(false);
       }
     }
-  }, [bpm, draft, movementIndex, plan, series, span, stopAudio]);
+  }, [bpm, draft, movementIndex, plan, production, series, span, stopAudio]);
 
   const play = useCallback(async () => {
     const renderHash = render?.renderHash;
@@ -1533,6 +1544,29 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
         <Text style={styles.fieldMeta}>
           Default is 96. Lower values play slower; the selected tempo is part
           of the render hash.
+        </Text>
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.inputLabel}>Production extras</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {FIGURE_RENDER_PRODUCTION_OPTIONS.map((option) => (
+            <Chip
+              key={`render-production:${option.key}`}
+              label={option.label}
+              active={production[option.key]}
+              onPress={() => toggleProduction(option.key)}
+              accessibilityLabel={`${option.label}: ${option.hint}`}
+            />
+          ))}
+        </ScrollView>
+        <Text style={styles.fieldMeta}>
+          All off by default. These passes may add or rewrite notes; the
+          authored cell is no longer the final note list when one is on.
         </Text>
       </View>
 

@@ -472,6 +472,34 @@ def test_bpm_override_changes_tempo_and_hash(client: TestClient) -> None:
     assert "<per-minute>72</per-minute>" in xml
 
 
+def test_production_extras_are_optional_and_change_the_hash(
+    client: TestClient,
+) -> None:
+    default = client.post("/v1/studio/figure/render", json=_body())
+    body = _body()
+    body["options"] = {
+        "includeDoors": True,
+        "audio": False,
+        "production": {
+            "campanella": True,
+            "restFill": True,
+        },
+    }
+    extra = client.post("/v1/studio/figure/render", json=body)
+
+    assert extra.status_code == 200
+    payload = extra.json()
+    assert payload["ok"] is True, payload
+    assert payload["renderHash"] != default.json()["renderHash"]
+
+    off = _body()
+    off["options"] = {"includeDoors": True, "audio": False}
+    assert (
+        client.post("/v1/studio/figure/render", json=off).json()["renderHash"]
+        == default.json()["renderHash"]
+    )
+
+
 def test_bpm_outside_the_supported_band_is_rejected(
     client: TestClient,
 ) -> None:

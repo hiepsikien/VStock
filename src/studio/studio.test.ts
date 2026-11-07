@@ -181,12 +181,14 @@ import {
 import {
   DEFAULT_FIGURE_RENDER_BPM,
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
+  DEFAULT_FIGURE_RENDER_PRODUCTION,
   DEMO_SERIES_LABEL,
   DEMO_SERIES_OPTIONS,
   FIGURE_RENDER_BPM_MAX,
   FIGURE_RENDER_BPM_MIN,
   FIGURE_RENDER_BPM_PRESETS,
   FIGURE_RENDER_PLANS,
+  FIGURE_RENDER_PRODUCTION_OPTIONS,
   FIGURE_TAGS,
   GENERIC_PATTERN_IDS,
   KEY_BODY_MISSING,
@@ -4023,6 +4025,27 @@ equal(DEFAULT_FIGURE_RENDER_BPM, 96);
 equal(FIGURE_RENDER_BPM_MIN, 40);
 equal(FIGURE_RENDER_BPM_MAX, 180);
 deepEqual(FIGURE_RENDER_BPM_PRESETS, [56, 64, 72, 84, 96]);
+deepEqual(DEFAULT_FIGURE_RENDER_PRODUCTION, {
+  preludioBass: false,
+  campanella: false,
+  bells: false,
+  fanfares: false,
+  transitions: false,
+  caesuras: false,
+  restFill: false,
+});
+deepEqual(
+  FIGURE_RENDER_PRODUCTION_OPTIONS.map((option) => option.key),
+  [
+    'preludioBass',
+    'campanella',
+    'bells',
+    'fanfares',
+    'transitions',
+    'caesuras',
+    'restFill',
+  ],
+);
 
 const slowRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
   form: { span: '1W', bpm: 72 },
@@ -4033,6 +4056,16 @@ const badBpm = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
   form: { span: '1W', bpm: 500 },
 });
 equal(badBpm.ok, false);
+
+const withExtras = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
+  production: { campanella: true, restFill: true },
+});
+if (!withExtras.ok) throw new Error(withExtras.error);
+deepEqual(withExtras.request.production, {
+  ...DEFAULT_FIGURE_RENDER_PRODUCTION,
+  campanella: true,
+  restFill: true,
+});
 
 const builtRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo);
 if (!builtRender.ok) throw new Error(builtRender.error);

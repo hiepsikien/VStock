@@ -1034,6 +1034,43 @@ export type FigureRenderForm = {
   bpm?: number;
 };
 
+/** Production passes normally disabled for StudioPiece. */
+export type FigureRenderProduction = {
+  preludioBass: boolean;
+  campanella: boolean;
+  bells: boolean;
+  fanfares: boolean;
+  transitions: boolean;
+  caesuras: boolean;
+  restFill: boolean;
+};
+
+export const DEFAULT_FIGURE_RENDER_PRODUCTION: FigureRenderProduction = {
+  preludioBass: false,
+  campanella: false,
+  bells: false,
+  fanfares: false,
+  transitions: false,
+  caesuras: false,
+  restFill: false,
+};
+
+export type FigureRenderProductionKey = keyof FigureRenderProduction;
+
+export const FIGURE_RENDER_PRODUCTION_OPTIONS: readonly {
+  key: FigureRenderProductionKey;
+  label: string;
+  hint: string;
+}[] = [
+  { key: 'preludioBass', label: 'Preludio bass', hint: 'Root pedal in intro/outro' },
+  { key: 'campanella', label: 'Campanella', hint: 'Ring support notes under lead' },
+  { key: 'bells', label: 'Bells', hint: 'High chord tone in intro/outro' },
+  { key: 'fanfares', label: 'Fanfares', hint: 'Downbeat chord on loud sections' },
+  { key: 'transitions', label: 'Transitions', hint: 'Pickups at section boundaries' },
+  { key: 'caesuras', label: 'Caesuras', hint: 'Breath silence before peaks' },
+  { key: 'restFill', label: 'Rest fill', hint: 'Complete each voice with rests' },
+];
+
 export type FigureRenderRequest = {
   pattern: string;
   meter: string;
@@ -1043,6 +1080,7 @@ export type FigureRenderRequest = {
   form: FigureRenderForm;
   /** Optional; falls back to the draft label. */
   title?: string;
+  production: FigureRenderProduction;
   options: { includeDoors: boolean };
 };
 
@@ -1056,6 +1094,8 @@ export type FigureRenderOptions = {
   title?: string | null;
   /** Defaults to `{ span: "1W" }`. */
   form?: FigureRenderFormSpan | FigureRenderForm;
+  /** Defaults to all false. */
+  production?: Partial<FigureRenderProduction>;
 };
 
 export type FigureRenderBuildResult =
@@ -1166,6 +1206,10 @@ export function buildFigureRenderRequest(
   }
 
   const title = text(options.title) ?? text(draft.label);
+  const production: FigureRenderProduction = {
+    ...DEFAULT_FIGURE_RENDER_PRODUCTION,
+    ...(options.production ?? {}),
+  };
   const request: FigureRenderRequest = {
     pattern,
     meter,
@@ -1179,6 +1223,7 @@ export function buildFigureRenderRequest(
     plan: { id: planId },
     series: { kind: 'bars', bars: normalized.bars },
     form,
+    production,
     options: { includeDoors: options.includeDoors ?? true },
     ...(title ? { title } : {}),
   };

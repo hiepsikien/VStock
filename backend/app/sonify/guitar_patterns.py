@@ -51,7 +51,7 @@ from app.sonify.plan_rules_classic import ClassicPhraseInputs, classic_pattern
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 if TYPE_CHECKING:
-    from app.sonify.studio_piece import StudioPiece
+    from app.sonify.studio_piece import StudioPiece, StudioProductionOptions
 
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
 _OPENS = (40, 45, 50, 55, 59, 64)
@@ -3537,6 +3537,7 @@ def render_patterned_voices(
             micro_velocity_token=micro_velocity_token,
             preludio_bass=False,
             studio_mode=True,
+            studio_production=studio_piece.production,
         )
     # Feature-gated Villa sentence, Suite movements, and Brouwer A-B-A. Off by
     # default, so the existing bar loop below is byte-identical. Each gate
@@ -4106,6 +4107,41 @@ def _render_sentence_tail(
     )
 
 
+def _studio_extra(
+    options: "StudioProductionOptions | None",
+    name: str,
+) -> bool:
+    return bool(options is not None and getattr(options, name, False))
+
+
+def _studio_pedal_bass(ctx: _Ctx, low: list[NoteEvent]) -> list[NoteEvent]:
+    """Add one root pedal per intro/outro bar, without touching authored bass."""
+    leading, trailing = _pedal_regions(ctx)
+    events: list[NoteEvent] = []
+    for bar in (*leading, *trailing):
+        if any(
+            event.bar == bar
+            and event.midi is not None
+            and abs(event.beat) <= 1e-9
+            for event in low
+        ):
+            continue
+        chord = ctx.chord(bar)
+        sung = _melody_at(ctx, bar * ctx.epb)
+        root = _choose_bass(
+            chord,
+            0,
+            sung,
+            ctx.bass_low,
+            ctx.bass_high,
+            ctx.semitones,
+        )
+        events.extend(
+            _eighth_event(bar * ctx.epb, ctx.epb, root, ctx.epb, 3, _BASS)
+        )
+    return [*low, *events]
+
+
 def _finish_voices(
     ctx: _Ctx,
     patterns: list[str],
@@ -4121,6 +4157,7 @@ def _finish_voices(
     figure_at: dict | None = None,
     preludio_bass: bool = True,
     studio_mode: bool = False,
+    studio_production: "StudioProductionOptions | None" = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     """The shared post-wave tail: bells, transitions, scale, wave, pinned, fill.
 
@@ -4151,6 +4188,8 @@ def _finish_voices(
     # Preludio bass rings for two bars, counted from each contiguous region.
     if preludio_bass and not studio_mode:
         low.extend(_preludio_bass(ctx, patterns))
+    elif studio_mode and _studio_extra(studio_production, "preludio_bass"):
+        low = _studio_pedal_bass(ctx, low)
     ringing = {
         bar
         for bar in range(musical_bars)
@@ -4165,7 +4204,9 @@ def _finish_voices(
             "brouwer_etude",
         }
     }
-    if ringing and not studio_mode:
+    if studio_mode and _studio_extra(studio_production, "campanella"):
+        ringing = set(range(ctx.bars))
+    if ringing and (not studio_mode or _studio_extra(studio_production, "campanella")):
         support = _apply_campanella(ctx, support, lead, ringing, low)
     from app.sonify.guitar_scale_passages import (
         ScalePlan,
@@ -4242,16 +4283,51 @@ def _finish_voices(
             reverse=True,
         )
         bell_bars = set(ranked_bells[:2])
-    if not studio_mode:
+    if studio_mode:
+        if _studio_extra(studio_production, "bells"):
+            leading, trailing = _pedal_regions(ctx)
+            studio_bells = set(leading) | set(trailing)
+            if studio_bells:
+                lead, support = _insert_bells(ctx, lead, support, studio_bells)
+        if _studio_extra(studio_production, "fanfares"):
+            fanfare_bars = {
+                int(section.start)
+                for section in ctx.sections
+                if ctx.band(int(section.start)) == "f"
+            }
+            for bar in sorted(fanfare_bars):
+                lead, support, low = _apply_fanfare(ctx, lead, support, low, bar)
+    else:
         bell_bars -= {eighth // epb for eighth in scale_eighths}
         lead, support = _insert_bells(ctx, lead, support, bell_bars)
         for bar in _fanfare_bars(ctx, levels):
             lead, support, low = _apply_fanfare(ctx, lead, support, low, bar)
     relaxed: set[int] = set()
     if studio_mode:
-        # Boundary pickups, frame paints, and transitions rewrite the last
-        # eighth of a bar. An authored cell keeps its own ending.
-        pass
+        # Boundary pickups and transitions rewrite the last eighth of a bar.
+        # They only run when the user explicitly asks for production extras.
+        if _studio_extra(studio_production, "transitions"):
+            if _framed(ctx):
+                lead, support, low, relaxed = _smooth_boundaries(
+                    ctx,
+                    patterns,
+                    lead,
+                    support,
+                    low,
+                    scale_eighths,
+                    figure_bars=set(figure_at),
+                )
+            else:
+                lead, support, low = _transitions(
+                    ctx,
+                    patterns,
+                    levels,
+                    lead,
+                    support,
+                    low,
+                    scale_eighths,
+                    figure_bars=set(figure_at),
+                )
     elif _framed(ctx):
         lead, support, low = _strip_pedal(ctx, lead, support, low)
         lead, support, low = _paint_frames(ctx, patterns, lead, support, low)
@@ -4262,7 +4338,7 @@ def _finish_voices(
         lead, support, low = _transitions(
             ctx, patterns, levels, lead, support, low, scale_eighths, figure_bars=set(figure_at)
         )
-    if not studio_mode:
+    if not studio_mode or _studio_extra(studio_production, "caesuras"):
         for eighth in _caesura_eighths(ctx, levels):
             if eighth in scale_eighths:
                 continue
@@ -4371,7 +4447,7 @@ def _finish_voices(
     # `divisions = 4` cannot overwrite 12.
     if "etude11" in patterns or _needs_twelfths([*lead, *support, *low]):
         divisions = 12
-    if studio_mode:
+    if studio_mode and not _studio_extra(studio_production, "rest_fill"):
         # No rest fill: the authored cell is the complete voice. Adding rest
         # events here would make the Studio score differ from the cell the user
         # auditioned, and the MusicXML writer already handles gaps.

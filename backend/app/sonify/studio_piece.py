@@ -36,6 +36,7 @@ __all__ = [
     "ARRANGEMENT_KINDS",
     "ArrangementBar",
     "StudioPiece",
+    "StudioProductionOptions",
     "render_studio_arrangement",
 ]
 
@@ -114,6 +115,25 @@ def _coerce_arrangement_bar(entry: Any, index: int) -> ArrangementBar:
 
 
 @dataclass(frozen=True)
+class StudioProductionOptions:
+    """Optional production passes for a StudioPiece.
+
+    All default off: the authored cell owns every note. Turning one on asks
+    the shared renderer to run the same production pass it would run for a
+    historical pattern. Some passes may rewrite authored notes; the UI labels
+    them as production extras.
+    """
+
+    preludio_bass: bool = False
+    campanella: bool = False
+    bells: bool = False
+    fanfares: bool = False
+    transitions: bool = False
+    caesuras: bool = False
+    rest_fill: bool = False
+
+
+@dataclass(frozen=True)
 class StudioPiece:
     """A complete Figure Studio render plan for the existing guitar renderer.
 
@@ -126,6 +146,9 @@ class StudioPiece:
     meter: str
     cells: Mapping[str, TextureSpec]
     arrangement: tuple[ArrangementBar, ...] = field(default_factory=tuple)
+    production: StudioProductionOptions = field(
+        default_factory=StudioProductionOptions
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cells", dict(self.cells))
@@ -137,6 +160,8 @@ class StudioPiece:
                 for index, entry in enumerate(self.arrangement)
             ),
         )
+        if not isinstance(self.production, StudioProductionOptions):
+            object.__setattr__(self, "production", StudioProductionOptions())
 
     def validate(self) -> tuple[str, ...]:
         """Return every structural problem. An empty tuple means the piece is renderable."""

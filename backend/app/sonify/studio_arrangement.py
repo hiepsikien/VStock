@@ -34,7 +34,7 @@ from app.sonify.pattern_figures import (
     missing_figure_tags,
     validate_figures,
 )
-from app.sonify.studio_piece import StudioPiece
+from app.sonify.studio_piece import StudioPiece, StudioProductionOptions
 from app.studio.texture_spec import TextureSpec
 
 __all__ = [
@@ -263,6 +263,7 @@ def build_arrangement(
     policy: str = "auto_aaba",
     textures: Mapping[str, TextureSpec] | None = None,
     require_doors: bool = True,
+    production: StudioProductionOptions | None = None,
 ) -> ArrangementResult:
     """Build a :class:`StudioPiece` for ``form`` from a tagged figure pool.
 
@@ -366,6 +367,7 @@ def build_arrangement(
         meter=meter,
         cells=used_cells,
         arrangement=tuple(arrangement),
+        production=production or StudioProductionOptions(),
     )
     errors = piece.validate()
     if errors:

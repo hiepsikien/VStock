@@ -118,10 +118,23 @@ Request:
   },
   "options": {
     "includeDoors": true,
-    "audio": true
+    "audio": true,
+    "production": {
+      "preludioBass": false,
+      "campanella": false,
+      "bells": false,
+      "fanfares": false,
+      "transitions": false,
+      "caesuras": false,
+      "restFill": false
+    }
   }
 }
 ```
+
+`options.production` là các pass production tuỳ chọn cho `StudioPiece`.
+Mặc định tất cả **false** để authored cell vẫn là note list cuối cùng. Bật một
+pass có thể thêm hoặc rewrite note authored; UI phải cảnh báo rõ.
 
 `series` có thể là:
 
@@ -344,8 +357,25 @@ Plan:
 BPM:
 [ 56 ] [ 64 ] [ 72 ] [ 84 ] [ 96 ]  [ 72 ]
 
+Production extras:
+[ Preludio bass ] [ Campanella ] [ Bells ] [ Fanfares ]
+[ Transitions ] [ Caesuras ] [ Rest fill ]
+
 [ Render piece ]  [ Play ]  [ Export WAV ]  [ Export MusicXML ]
 ```
+
+Production extras:
+
+- `preludioBass`: root pedal ở intro/outro.
+- `campanella`: cho support note ngân dưới lead.
+- `bells`: chèn high chord tone ở intro/outro.
+- `fanfares`: downbeat chord ở section có band `f`.
+- `transitions`: pickup/relax ở boundary section.
+- `caesuras`: khoảng lặng trước peak.
+- `restFill`: điền rest cho đủ voice.
+
+Các pass này **có thể ghi đè authored note**. Mặc định off. Bật/tắt phải
+invalidate render và nằm trong `renderHash`.
 
 Hành vi:
 

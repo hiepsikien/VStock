@@ -44,6 +44,7 @@ from app.sonify.pattern_promote import PromotionPlan, promote_figures
 from app.sonify.render import render
 from app.sonify.span import plan_month, plan_week
 from app.sonify.studio_arrangement import ArrangementResult, build_arrangement
+from app.sonify.studio_piece import StudioProductionOptions
 from app.studio import render_audio, render_store
 from app.studio.texture_resolve import check_authored_playable
 from app.studio.texture_spec import (
@@ -135,6 +136,10 @@ class RenderPieceRequest:
     bpm: int | None = None
     title: str | None = None
     include_doors: bool = True
+    # Optional production passes; all default off so authored cells win.
+    production: StudioProductionOptions = field(
+        default_factory=StudioProductionOptions
+    )
     # Optional namespace metadata only; it never changes the content hash.
     session: str = "anonymous"
 
@@ -670,6 +675,15 @@ def _render_hash(
             "bars": form.bars,
             "meter": request.meter,
             "includeDoors": request.include_doors,
+            "production": {
+                "preludioBass": request.production.preludio_bass,
+                "campanella": request.production.campanella,
+                "bells": request.production.bells,
+                "fanfares": request.production.fanfares,
+                "transitions": request.production.transitions,
+                "caesuras": request.production.caesuras,
+                "restFill": request.production.rest_fill,
+            },
         },
         "title": title,
         "paramsHash": params_hash(active_params()),
@@ -786,6 +800,7 @@ def _build_piece(
             policy=request.plan,
             textures=cells,
             require_doors=request.include_doors,
+            production=request.production,
         )
     except ValueError as exc:
         message = str(exc)
@@ -830,6 +845,11 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
     figures, pitch_warnings = _bind_production_pitches(
         request.figures, meter.eighths_per_bar
     )
+    production = (
+        request.production
+        if isinstance(request.production, StudioProductionOptions)
+        else StudioProductionOptions()
+    )
     normalized = RenderPieceRequest(
         pattern=pattern,
         meter=meter_name,
@@ -841,6 +861,7 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         bpm=request.bpm,
         title=request.title,
         include_doors=request.include_doors,
+        production=production,
         session=request.session,
     )
 
