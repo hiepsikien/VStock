@@ -24,8 +24,12 @@ import {
   savePatternDraft,
 } from './patternDraftStorage';
 import {
+  DEFAULT_FIGURE_RENDER_BPM,
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   DEMO_SERIES_OPTIONS,
+  FIGURE_RENDER_BPM_MAX,
+  FIGURE_RENDER_BPM_MIN,
+  FIGURE_RENDER_BPM_PRESETS,
   FIGURE_RENDER_FORM_SPANS,
   FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
@@ -1131,9 +1135,16 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
   const [plan, setPlan] = useState<FigureRenderPlanId>('auto_aaba');
   const [span, setSpan] = useState<FigureRenderFormSpan>('1W');
   const [dataRange, setDataRange] = useState<DemoSeriesRange>('1D');
+  const [bpmText, setBpmText] = useState(String(DEFAULT_FIGURE_RENDER_BPM));
   const [movementIndex, setMovementIndex] = useState(
     DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   );
+  const parsedBpm = Number(bpmText);
+  const bpmValid =
+    Number.isInteger(parsedBpm) &&
+    parsedBpm >= FIGURE_RENDER_BPM_MIN &&
+    parsedBpm <= FIGURE_RENDER_BPM_MAX;
+  const bpm = bpmValid ? parsedBpm : DEFAULT_FIGURE_RENDER_BPM;
   const [render, setRender] = useState<FigureRenderResponse | null>(null);
   const [audio, setAudio] = useState<FigureRenderAudio | null>(null);
   const [renderBusy, setRenderBusy] = useState(false);
@@ -1175,7 +1186,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
     setError(null);
     setNote(null);
     stopAudio();
-  }, [dataRange, draftKey, movementIndex, plan, span, stopAudio]);
+  }, [bpm, dataRange, draftKey, movementIndex, plan, span, stopAudio]);
 
   useEffect(
     () => () => {
@@ -1229,7 +1240,10 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
 
   const renderNow = useCallback(async () => {
     const built = buildFigureRenderRequest(draft, plan, series, {
-      form: span === '1M' ? { span, movementIndex } : { span },
+      form:
+        span === '1M'
+          ? { span, movementIndex, bpm }
+          : { span, bpm },
     });
     if (!built.ok) {
       setError({ text: built.error });
@@ -1275,7 +1289,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
         setRenderBusy(false);
       }
     }
-  }, [draft, movementIndex, plan, series, span, stopAudio]);
+  }, [bpm, draft, movementIndex, plan, series, span, stopAudio]);
 
   const play = useCallback(async () => {
     const renderHash = render?.renderHash;
@@ -1478,6 +1492,47 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
             : 'Weekly form · 32 bars'}
           {' · '}
           {series.length} series bars, no truncation.
+        </Text>
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.inputLabel}>BPM</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {FIGURE_RENDER_BPM_PRESETS.map((preset) => (
+            <Chip
+              key={`render-bpm:${preset}`}
+              label={String(preset)}
+              active={bpmText === String(preset)}
+              onPress={() => setBpmText(String(preset))}
+              accessibilityLabel={`Use ${preset} BPM`}
+            />
+          ))}
+        </ScrollView>
+        <View style={styles.metaRow}>
+          <TextInput
+            value={bpmText}
+            onChangeText={(value) =>
+              setBpmText(value.replace(/[^0-9]/g, '').slice(0, 3))
+            }
+            keyboardType="number-pad"
+            style={[styles.input, styles.bpmInput]}
+            accessibilityLabel="Render piece BPM"
+            placeholder={String(DEFAULT_FIGURE_RENDER_BPM)}
+            placeholderTextColor={palette.textFaint}
+          />
+          <Text style={styles.fieldMeta}>
+            {bpmValid
+              ? `${bpm} BPM`
+              : `Enter ${FIGURE_RENDER_BPM_MIN}–${FIGURE_RENDER_BPM_MAX} BPM; using ${DEFAULT_FIGURE_RENDER_BPM}.`}
+          </Text>
+        </View>
+        <Text style={styles.fieldMeta}>
+          Default is 96. Lower values play slower; the selected tempo is part
+          of the render hash.
         </Text>
       </View>
 
@@ -1944,6 +1999,12 @@ const styles = StyleSheet.create({
     fontFamily: type.mono.fontFamily,
     fontSize: 12,
     lineHeight: 16,
+  },
+  bpmInput: {
+    width: 72,
+    minHeight: 30,
+    paddingVertical: 3,
+    textAlign: 'center',
   },
   metaRow: {
     flexDirection: 'row',

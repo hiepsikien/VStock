@@ -457,6 +457,30 @@ def test_phase0_roles_put_bass_in_the_low_register() -> None:
     assert sum(bass) / len(bass) < sum(mid) / len(mid) < sum(lead) / len(lead)
 
 
+def test_bpm_override_changes_tempo_and_hash(client: TestClient) -> None:
+    default = client.post("/v1/studio/figure/render", json=_body())
+    body = _body()
+    body["form"] = {"span": "1W", "bpm": 72}
+    body["options"] = {"includeDoors": True, "audio": False}
+    slow = client.post("/v1/studio/figure/render", json=body)
+
+    assert slow.status_code == 200
+    payload = slow.json()
+    assert payload["ok"] is True
+    assert payload["renderHash"] != default.json()["renderHash"]
+    xml = client.get(payload["musicxmlUrl"]).text
+    assert "<per-minute>72</per-minute>" in xml
+
+
+def test_bpm_outside_the_supported_band_is_rejected(
+    client: TestClient,
+) -> None:
+    body = _body()
+    body["form"] = {"span": "1W", "bpm": 500}
+    response = client.post("/v1/studio/figure/render", json=body)
+    assert response.status_code == 422
+
+
 def test_audio_can_be_disabled(client: TestClient) -> None:
     body = _body()
     body["options"] = {"includeDoors": True, "audio": False}

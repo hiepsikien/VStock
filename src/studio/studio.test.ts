@@ -179,9 +179,13 @@ import {
   type MusicXmlRoleLane,
 } from './musicxml';
 import {
+  DEFAULT_FIGURE_RENDER_BPM,
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   DEMO_SERIES_LABEL,
   DEMO_SERIES_OPTIONS,
+  FIGURE_RENDER_BPM_MAX,
+  FIGURE_RENDER_BPM_MIN,
+  FIGURE_RENDER_BPM_PRESETS,
   FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
   GENERIC_PATTERN_IDS,
@@ -4015,6 +4019,20 @@ deepEqual(
   ['auto_aaba', 'trio'],
 );
 equal(DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX, 2);
+equal(DEFAULT_FIGURE_RENDER_BPM, 96);
+equal(FIGURE_RENDER_BPM_MIN, 40);
+equal(FIGURE_RENDER_BPM_MAX, 180);
+deepEqual(FIGURE_RENDER_BPM_PRESETS, [56, 64, 72, 84, 96]);
+
+const slowRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
+  form: { span: '1W', bpm: 72 },
+});
+if (!slowRender.ok) throw new Error(slowRender.error);
+deepEqual(slowRender.request.form, { span: '1W', bpm: 72 });
+const badBpm = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
+  form: { span: '1W', bpm: 500 },
+});
+equal(badBpm.ok, false);
 
 const builtRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo);
 if (!builtRender.ok) throw new Error(builtRender.error);

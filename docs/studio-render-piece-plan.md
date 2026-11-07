@@ -113,7 +113,8 @@ Request:
     "date": "2026-10-14"
   },
   "form": {
-    "span": "1W"
+    "span": "1W",
+    "bpm": 72
   },
   "options": {
     "includeDoors": true,
@@ -127,6 +128,10 @@ Request:
 ```json
 { "kind": "bars", "bars": [{ "close": 100.0, "volume": 250.0 }] }
 ```
+
+`form.bpm` là optional. Bỏ trống thì dùng tempo mặc định của form
+(`1W` = 96). Giá trị hợp lệ: **40..180**. BPM nằm trong `form` nên được đưa
+vào `renderHash`; đổi BPM sẽ tạo bản render mới.
 
 Response:
 
@@ -335,6 +340,9 @@ Plan:
 
 1D series:
 [ VIC · 2026-10-14 ▼ ]  or  [ Use demo ]
+
+BPM:
+[ 56 ] [ 64 ] [ 72 ] [ 84 ] [ 96 ]  [ 72 ]
 
 [ Render piece ]  [ Play ]  [ Export WAV ]  [ Export MusicXML ]
 ```

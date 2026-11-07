@@ -62,6 +62,8 @@ __all__ = [
     "RenderPieceResult",
     "SUPPORTED_RENDER_SPANS",
     "SUPPORTED_METERS",
+    "SUPPORTED_BPM_MIN",
+    "SUPPORTED_BPM_MAX",
     "meter_from_name",
     "render_piece",
 ]
@@ -72,6 +74,10 @@ STUDIO_RENDER_REVISION = 4
 
 SUPPORTED_RENDER_SPANS = ("1W", "1M")
 SUPPORTED_PLAN_IDS = ("auto_aaba", "trio")
+# Slower than the weekly form's default is the common case; keep a sane band
+# wide enough for practice tempos without letting a typo create a 5 BPM piece.
+SUPPORTED_BPM_MIN = 40
+SUPPORTED_BPM_MAX = 180
 
 _METERS: dict[str, Meter] = {
     "1/4": METER_14,
@@ -125,6 +131,8 @@ class RenderPieceRequest:
     bars: tuple[Bar, ...] = field(default_factory=tuple)
     span: str = "1W"
     movement_index: int | None = None
+    # Optional tempo override. Omit to use the form default (96 for 1W).
+    bpm: int | None = None
     title: str | None = None
     include_doors: bool = True
     # Optional namespace metadata only; it never changes the content hash.
@@ -192,8 +200,24 @@ def _resolve_form(
     span: str,
     meter: Meter,
     movement_index: int | None,
+    bpm: int | None = None,
 ) -> tuple[FormSpec, int]:
     """Return the MVP form for a span and the resolved movement index."""
+    if bpm is not None:
+        if (
+            isinstance(bpm, bool)
+            or not isinstance(bpm, int)
+            or not SUPPORTED_BPM_MIN <= bpm <= SUPPORTED_BPM_MAX
+        ):
+            raise RenderPieceError(
+                [
+                    RenderError(
+                        "form.bpm",
+                        f"bpm must be an integer in "
+                        f"{SUPPORTED_BPM_MIN}..{SUPPORTED_BPM_MAX}",
+                    )
+                ]
+            )
     if span == "1W":
         spec = plan_week(1, variant="guitar", ensemble="villa")[0].spec
         index = 0
@@ -234,7 +258,7 @@ def _resolve_form(
     # which movement the suite planner happened to choose.
     return FormSpec(
         bars=spec.bars,
-        bpm=spec.bpm,
+        bpm=spec.bpm if bpm is None else bpm,
         sections=spec.sections,
         chunks=spec.chunks,
         borrowed=spec.borrowed,
@@ -645,6 +669,7 @@ def _render_hash(
         "form": {
             "span": span,
             "movementIndex": movement_index,
+            "bpm": form.bpm,
             "bars": form.bars,
             "meter": request.meter,
             "includeDoors": request.include_doors,
@@ -800,7 +825,7 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
             [RenderError("form.span", "span must be a non-empty string")]
         )
     form, movement_index = _resolve_form(
-        span, meter, request.movement_index
+        span, meter, request.movement_index, request.bpm
     )
     if not request.include_doors:
         form = _body_only(form)
@@ -816,6 +841,7 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         bars=request.bars,
         span=span,
         movement_index=request.movement_index,
+        bpm=request.bpm,
         title=request.title,
         include_doors=request.include_doors,
         session=request.session,

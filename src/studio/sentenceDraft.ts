@@ -1007,6 +1007,12 @@ export const FIGURE_RENDER_FORM_SPANS: readonly FigureRenderFormSpan[] = ['1W', 
 /** `1M` defaults to movement III (index 2), per the plan doc. */
 export const DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX = 2;
 
+/** Tempo picker: form default is 96; slower values are the common use. */
+export const DEFAULT_FIGURE_RENDER_BPM = 96;
+export const FIGURE_RENDER_BPM_MIN = 40;
+export const FIGURE_RENDER_BPM_MAX = 180;
+export const FIGURE_RENDER_BPM_PRESETS: readonly number[] = [56, 64, 72, 84, 96];
+
 export type FigureRenderBar = {
   close: number;
   volume: number;
@@ -1024,6 +1030,8 @@ export type FigureRenderForm = {
   span: FigureRenderFormSpan;
   /** Only sent for `1M`; the backend defaults to movement index 2 too. */
   movementIndex?: number;
+  /** Optional tempo override; omit to use the form default. */
+  bpm?: number;
 };
 
 export type FigureRenderRequest = {
@@ -1129,6 +1137,21 @@ export function buildFigureRenderRequest(
     return buildError(`unknown form span ${String(span)}; expected 1W or 1M`);
   }
   const form: FigureRenderForm = { span };
+  const requestedBpm =
+    typeof rawForm === 'object' && rawForm != null ? rawForm.bpm : undefined;
+  if (requestedBpm != null) {
+    if (
+      typeof requestedBpm !== 'number' ||
+      !Number.isInteger(requestedBpm) ||
+      requestedBpm < FIGURE_RENDER_BPM_MIN ||
+      requestedBpm > FIGURE_RENDER_BPM_MAX
+    ) {
+      return buildError(
+        `form.bpm must be an integer in ${FIGURE_RENDER_BPM_MIN}..${FIGURE_RENDER_BPM_MAX}`,
+      );
+    }
+    form.bpm = requestedBpm;
+  }
   if (span === '1M') {
     const requested =
       typeof rawForm === 'object' && rawForm != null ? rawForm.movementIndex : undefined;

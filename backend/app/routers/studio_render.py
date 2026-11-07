@@ -31,6 +31,8 @@ from app.studio import (
     session as studio_session,
 )
 from app.studio.render_piece import (
+    SUPPORTED_BPM_MAX,
+    SUPPORTED_BPM_MIN,
     RenderPieceError,
     RenderPieceRequest,
     RenderPieceResult,
@@ -100,6 +102,9 @@ class RenderSeriesIn(BaseModel):
 class RenderFormIn(BaseModel):
     span: str = Field(default="1W", min_length=1, max_length=8)
     movementIndex: int | None = Field(default=None, ge=0, le=3)
+    bpm: int | None = Field(
+        default=None, ge=SUPPORTED_BPM_MIN, le=SUPPORTED_BPM_MAX
+    )
 
 
 class RenderOptionsIn(BaseModel):
@@ -359,6 +364,7 @@ def render_piece_route(
         bars=tuple(bars),
         span=body.form.span,
         movement_index=body.form.movementIndex,
+        bpm=body.form.bpm,
         title=body.title,
         include_doors=body.options.includeDoors,
         session=owner_id,
