@@ -285,3 +285,15 @@ def test_compressed_frame_uses_both_cell_bars() -> None:
     midis = {event.midi for event in lead}
     assert 60 in midis and 61 in midis
     assert {round(event.beat, 3) for event in lead} == {0.0, 1.0, 2.0, 3.0}
+
+
+def test_cadence_entry_renders_villa_cadence() -> None:
+    piece = StudioPiece(
+        pattern="studio_close",
+        meter="4/4",
+        cells={},
+        arrangement=(("cadence", "villa_cadence", 0),),
+    )
+    ctx = _ctx(METER_44, 1)
+    lead, support, low = render_studio_arrangement(ctx, piece)
+    assert lead or support or low

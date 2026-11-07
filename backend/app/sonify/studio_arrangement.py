@@ -50,7 +50,7 @@ _INTRO_KINDS = frozenset({"intro", "warmup"})
 _OUTRO_KINDS = frozenset({"outro", "cooldown"})
 
 _WARN_B_FALLBACK = "B fallback: key"
-_WARN_CLOSE_FALLBACK = "close fallback: key"
+_WARN_CLOSE_FALLBACK = "close fallback: VILLA_CADENCE"
 
 
 @dataclass(frozen=True)
@@ -337,6 +337,20 @@ def build_arrangement(
         role = roles_by_phrase[body_index]
         body_index += 1
         if length <= 0:
+            continue
+        if role == "close" and "close" not in tags:
+            _warn(warnings, _WARN_CLOSE_FALLBACK)
+            key = tags["key"]
+            _texture_for(key, textures, used_cells)
+            used_tags.append("key")
+            for local_bar in range(length):
+                if local_bar == length - 1:
+                    arrangement.append(("cadence", "villa_cadence", 0))
+                else:
+                    arrangement.append(
+                        ("cell", key.cell_id, local_bar % key.bars)
+                    )
+                roles.append(role)
             continue
         figure, tag = _body_figure(role, tags, warnings)
         _texture_for(figure, textures, used_cells)

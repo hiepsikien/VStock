@@ -153,8 +153,8 @@ def test_close_falls_back_to_key_with_a_warning_when_close_is_absent() -> None:
     result = _build(form, figures=_pool(close=False))
 
     assert result.roles == ("A", "A", "B", "close")
-    assert _cells(result)[-1] == "cell_key"
-    assert "close fallback: key" in result.warnings
+    assert _cells(result)[-1] == "villa_cadence"
+    assert "close fallback: VILLA_CADENCE" in result.warnings
     assert "contrast" in result.used_tags
 
 
@@ -184,7 +184,10 @@ def test_default_pool_without_optional_tags_still_builds() -> None:
     result = _build(form, figures=_pool(contrast=False, close=False))
 
     assert result.roles == ("A", "B", "close")
-    assert result.warnings == ("B fallback: key", "close fallback: key")
+    assert result.warnings == (
+        "B fallback: key",
+        "close fallback: VILLA_CADENCE",
+    )
     assert result.piece.validate() == ()
 
 

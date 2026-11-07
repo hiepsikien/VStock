@@ -550,6 +550,23 @@ def _with_door_stubs(
     if key_pair is None:
         return request
     key_figure, key_texture = key_pair
+    existing = {
+        tag
+        for figure, _texture in request.figures
+        for tag in figure.tags
+    }
+    missing = tuple(
+        (tag, bars)
+        for tag, bars in (
+            ("intro.short", 2),
+            ("intro.long", 4),
+            ("outro.short", 2),
+            ("outro.long", 4),
+        )
+        if tag not in existing
+    )
+    if not missing:
+        return request
     stubs = tuple(
         (
             PatternFigure(
@@ -560,12 +577,7 @@ def _with_door_stubs(
             ),
             key_texture,
         )
-        for tag, bars in (
-            ("intro.short", 2),
-            ("intro.long", 4),
-            ("outro.short", 2),
-            ("outro.long", 4),
-        )
+        for tag, bars in missing
     )
     return replace(
         request,

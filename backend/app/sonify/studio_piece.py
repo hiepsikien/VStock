@@ -40,9 +40,9 @@ __all__ = [
 ]
 
 #: Kinds an arrangement entry may name. Phase A renders ``cell`` only.
-ARRANGEMENT_KINDS = ("cell", "figure", "compressed")
+ARRANGEMENT_KINDS = ("cell", "figure", "compressed", "cadence")
 
-ArrangementKind = Literal["cell", "figure", "compressed"]
+ArrangementKind = Literal["cell", "figure", "compressed", "cadence"]
 
 
 class ArrangementBar(NamedTuple):
@@ -57,6 +57,8 @@ class ArrangementBar(NamedTuple):
     * ``"compressed"`` mirrors the production one-bar frame: the first half of
       cell bar ``source_bar`` plus the first half of ``source_bar + 1`` shifted
       into the second half of the target bar.
+    * ``"cadence"`` renders the built-in ``VILLA_CADENCE`` figure for that bar;
+      ``source_id`` is only a label.
 
     It is a real tuple, so a stored plan may write
     ``("cell", cell_id, cell_bar)`` (or ``("figure", figure_id, bar)``)
@@ -168,6 +170,8 @@ class StudioPiece:
                 errors.append(
                     f"arrangement[{index}] names unknown cell {entry.source_id!r}"
                 )
+            if entry.kind == "cadence":
+                continue
             if entry.kind == "compressed":
                 texture = self.cells.get(entry.source_id)
                 if texture is None:
@@ -266,6 +270,15 @@ def render_studio_arrangement(
             texture = piece.cells[entry.source_id]
             cell_lead, cell_support, cell_low = _compressed_voices(
                 texture, ctx, target_bar, entry.source_bar
+            )
+        elif entry.kind == "cadence":
+            from app.sonify.guitar_villa_figures import (
+                VILLA_CADENCE,
+                render_villa_figure,
+            )
+
+            cell_lead, cell_support, cell_low = render_villa_figure(
+                ctx, target_bar, None, VILLA_CADENCE
             )
         elif entry.kind == "figure":
             # Phase A has no figure renderer. The arrangement schema keeps the

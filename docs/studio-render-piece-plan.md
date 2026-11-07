@@ -555,10 +555,11 @@ Fallback close bằng `VILLA_CADENCE` sẽ fail nếu arrangement chỉ hỗ tr�
 Chốt:
 
 ```python
-arrangement entry = ("cell", cell_id, cell_bar) | ("figure", figure_id, bar)
+arrangement entry = ("cell", cell_id, cell_bar)
+                  | ("cadence", "villa_cadence", 0)
 ```
 
-Hoặc tạo cadence cell tương ứng. Không trộn figure id vào `cell_id`.
+Cadence entry đã render `VILLA_CADENCE`; figure-entry khác vẫn future.
 
 ### W8 — Plan/tag/sentence
 
@@ -596,6 +597,8 @@ Hoặc tạo cadence cell tương ứng. Không trộn figure id vào `cell_id`.
   - `ready` → Play/Export;
   - `unavailable` → MusicXML + lỗi.
 - Bỏ warning “audio cap 45s” khỏi UI plan.
+- Render audio có gate `VSTOCK_STUDIO_RENDER_AUDIO` và optional `X-Studio-Render-Token`.
+- Play/Export hiện web-only; native cần expo-av/FileSystem.
 
 ---
 

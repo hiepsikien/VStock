@@ -400,3 +400,35 @@ def test_body_only_render_does_not_require_door_tags(client: TestClient) -> None
     payload = response.json()
     assert payload["ok"] is True
     assert payload["audio"]["status"] == "unavailable"
+
+
+def test_body_only_accepts_a_complete_five_tag_pool(client: TestClient) -> None:
+    body = _body()
+    body["options"] = {"includeDoors": False, "audio": False}
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["audio"]["status"] == "unavailable"
+
+
+def test_one_month_movement_three_renders(client: TestClient) -> None:
+    body = _body(series_bars=_bars(128))
+    body["form"] = {"span": "1M", "movementIndex": 2}
+    body["options"] = {"includeDoors": True, "audio": False}
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["bars"] > 64
+    assert payload["audio"]["status"] == "unavailable"
+
+
+def test_production_audio_can_be_gated(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("VSTOCK_STUDIO_RENDER_AUDIO", "off")
+    body = _body()
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["audio"]["status"] == "unavailable"
+    assert any("server gate" in item for item in payload["warnings"])

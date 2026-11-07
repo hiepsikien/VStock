@@ -16,7 +16,9 @@ from __future__ import annotations
 import math
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+import os
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -42,6 +44,18 @@ from app.studio.texture_spec import (
 router = APIRouter(prefix="/v1/studio/figure", tags=["studio-figure-render"])
 
 studio_owner = studio_session.owner_or_anonymous
+
+_RENDER_AUDIO_ENV = "VSTOCK_STUDIO_RENDER_AUDIO"
+_RENDER_AUDIO_TOKEN_ENV = "VSTOCK_STUDIO_RENDER_AUDIO_TOKEN"
+_TRUE = frozenset({"1", "true", "yes", "on"})
+
+
+def _audio_gate(token: str | None) -> bool:
+    """Production audio is gated; MusicXML always remains available."""
+    if os.environ.get(_RENDER_AUDIO_ENV, "on").strip().lower() not in _TRUE:
+        return False
+    expected = os.environ.get(_RENDER_AUDIO_TOKEN_ENV, "").strip()
+    return not expected or token == expected
 
 _MAX_FIGURES = 64
 _MAX_BARS = 2048
@@ -304,6 +318,9 @@ def _not_found(code: str, message: str) -> HTTPException:
 def render_piece_route(
     body: RenderRequestIn,
     owner_id: str = Depends(studio_owner),
+    render_token: str | None = Header(
+        default=None, alias="X-Studio-Render-Token"
+    ),
 ) -> RenderResponse:
     """Render one Studio Piece to MusicXML; never publishes or mutates registries."""
     pairs, errors = _parse_figures(body.figures)
@@ -362,14 +379,17 @@ def render_piece_route(
             errors=[_error("render", str(exc))],
         )
 
+    audio_enabled = body.options.audio and _audio_gate(render_token)
     audio_out = (
         _audio_out(result, owner_id)
-        if body.options.audio
+        if audio_enabled
         else RenderAudioOut(status="unavailable")
     )
     warnings = list(result.warnings[:_MAX_WARNINGS])
     if not body.options.audio:
         warnings.append("audio disabled by request")
+    elif not audio_enabled:
+        warnings.append("production audio is disabled by server gate")
     return RenderResponse(
         ok=True,
         renderHash=result.render_hash,
