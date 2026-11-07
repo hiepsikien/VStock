@@ -53,6 +53,8 @@ from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 if TYPE_CHECKING:
     from app.sonify.studio_piece import StudioPiece, StudioProductionOptions
 
+_STUDIO_VARIATION_NOTES = ContextVar("studio_variation_notes", default=0)
+
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
 _OPENS = (40, 45, 50, 55, 59, 64)
 _MAX_FRET = (12, 12, 12, 17, 19, 19)
@@ -4552,12 +4554,16 @@ def _apply_studio_variation(
     pattern_name: str = "",
     scale_eighths: set[int] | None = None,
 ) -> list[NoteEvent]:
-    """Pattern-layer neighbor/passing variation for a repeated lead run.
+    """Pattern-layer neighbor/passing variation for repeated lead runs.
 
-    This reads phrase metadata, but does not change phrasing itself. Strong
-    beats, chord changes, phrase edges, cadence/close, tied/slurred notes and
-    scale passages keep their pitch. ``auto`` also skips tremolo textures.
+    ``auto`` varies every second weak onset inside a non-tremolo repeated run.
+    ``force`` may vary every weak onset and also tremolo textures. Strong
+    beats, chord changes, phrase edges, cadence/close bars, price-impulse
+    targets, tied/slurred notes and scale passages keep their pitch.
+
+    This reads phrase metadata but does not change phrasing itself.
     """
+    _STUDIO_VARIATION_NOTES.set(0)
     if mode not in ("auto", "force") or not lead:
         return lead
     if mode == "auto" and "tremolo" in pattern_name.lower():
@@ -4567,19 +4573,44 @@ def _apply_studio_variation(
     for bar in range(ctx.bars):
         base = bar * ctx.epb
         protected.update(base + offset for offset in ctx.strong)
+        if bar and ctx.chord(bar) != ctx.chord(bar - 1):
+            protected.add(base)
     for phrase in ctx.phrases:
         protected.add(int(phrase.start))
         protected.add(int(phrase.end) - 1)
+        if getattr(phrase, "closes", False):
+            close_start = int((phrase.end - 1) // ctx.epb) * ctx.epb
+            protected.update(
+                range(
+                    close_start,
+                    min(ctx.bars * ctx.epb, close_start + ctx.epb),
+                )
+            )
+    for impulse in getattr(ctx, "impulses", ()) or ():
+        target = getattr(impulse, "target", None)
+        if isinstance(target, int):
+            protected.add(target)
 
     ordered = sorted(
         (event for event in lead if event.midi is not None),
         key=lambda event: (event.bar, event.beat),
     )
-    groups: list[list[NoteEvent]] = []
-    current: list[NoteEvent] = []
+    if len(ordered) < 3:
+        return lead
+    starts = [
+        event.bar * ctx.epb + int(round(event.beat * 2))
+        for event in ordered
+    ]
+    next_pitch: list[int | None] = [None] * len(ordered)
+    for index in range(len(ordered) - 2, -1, -1):
+        next_pitch[index] = ordered[index + 1].midi
+    index_by_event = {id(event): index for index, event in enumerate(lead)}
+
+    groups: list[list[tuple[int, NoteEvent]]] = []
+    current: list[tuple[int, NoteEvent]] = []
     current_phrase = None
-    for event in ordered:
-        start = event.bar * ctx.epb + int(round(event.beat * 2))
+    for index, event in enumerate(ordered):
+        start = starts[index]
         phrase = _phrase_at(ctx, start)
         same_phrase = phrase is current_phrase or (
             phrase is not None
@@ -4589,20 +4620,15 @@ def _apply_studio_variation(
         )
         if (
             current
-            and event.midi == current[-1].midi
-            and start
-            - (
-                current[-1].bar * ctx.epb
-                + int(round(current[-1].beat * 2))
-            )
-            <= 2
+            and event.midi == current[-1][1].midi
+            and start - starts[current[-1][0]] <= 2
             and same_phrase
         ):
-            current.append(event)
+            current.append((index, event))
         else:
             if current:
                 groups.append(current)
-            current = [event]
+            current = [(index, event)]
             current_phrase = phrase
     if current:
         groups.append(current)
@@ -4611,21 +4637,20 @@ def _apply_studio_variation(
     for group_index, group in enumerate(groups):
         if len(group) < 3:
             continue
-        # A fast same-pitch run is a tremolo texture, not a price plateau.
         if mode == "auto" and len(group) >= 4:
-            starts = [
-                event.bar * ctx.epb + int(round(event.beat * 2))
-                for event in group
+            gaps16 = [
+                _start16(right, ctx.epb) - _start16(left, ctx.epb)
+                for (_, left), (_, right) in zip(group, group[1:])
             ]
-            if all(right - left <= 1 for left, right in zip(starts, starts[1:])):
+            if all(gap <= 1 for gap in gaps16):
                 continue
 
-        principal = group[0].midi
+        principal = group[0][1].midi
         if principal is None:
             continue
-        candidates = []
-        for event in group[1:-1]:
-            start = event.bar * ctx.epb + int(round(event.beat * 2))
+        candidates: list[tuple[int, NoteEvent]] = []
+        for offset, (index, event) in enumerate(group[1:], start=1):
+            start = starts[index]
             if (
                 start in protected
                 or event.tie_start
@@ -4634,40 +4659,42 @@ def _apply_studio_variation(
                 or event.slur_stop
             ):
                 continue
-            candidates.append(event)
+            candidates.append((offset, event))
         if not candidates:
             continue
-        target = candidates[len(candidates) // 2]
-        start = target.bar * ctx.epb + int(round(target.beat * 2))
-        if start in protected:
-            continue
-
-        next_pitch = None
-        for event in ordered:
-            event_start = event.bar * ctx.epb + int(round(event.beat * 2))
-            if event_start > start and event.midi is not None:
-                next_pitch = event.midi
-                break
-        if next_pitch is not None and next_pitch != principal:
-            direction = 1 if next_pitch > principal else -1
-        else:
-            direction = 1 if group_index % 2 == 0 else -1
+        chosen = candidates if mode == "force" else candidates[0::2]
         low = ctx.treble_floor
         high = min(ctx.treble_top, ctx.ceiling)
-        neighbor = _walk(principal, direction, ctx.mode, low, high)
-        if neighbor == principal:
-            neighbor = _walk(principal, -direction, ctx.mode, low, high)
-        if neighbor == principal or not low <= neighbor <= high:
-            continue
-        replacements[id(target)] = neighbor
+        for ordinal, (offset, target) in enumerate(chosen):
+            target_start = target.bar * ctx.epb + int(round(target.beat * 2))
+            target_index = index_by_event.get(id(target))
+            if target_index is None or target_start in protected:
+                continue
+            following = next_pitch[target_index]
+            if following is not None and following != principal:
+                base_direction = 1 if following > principal else -1
+            else:
+                base_direction = 1 if group_index % 2 == 0 else -1
+            direction = base_direction if ordinal % 2 == 0 else -base_direction
+            neighbor = _walk(principal, direction, ctx.mode, low, high)
+            if neighbor == principal:
+                neighbor = _walk(principal, -direction, ctx.mode, low, high)
+            if (
+                neighbor == principal
+                or not low <= neighbor <= high
+                or abs(neighbor - principal) > 2
+            ):
+                continue
+            replacements[target_index] = neighbor
 
     if not replacements:
         return lead
+    _STUDIO_VARIATION_NOTES.set(len(replacements))
     return [
-        replace(event, midi=replacements[id(event)])
-        if id(event) in replacements
+        replace(event, midi=replacements[index])
+        if index in replacements
         else event
-        for event in lead
+        for index, event in enumerate(lead)
     ]
 
 

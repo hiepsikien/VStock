@@ -71,7 +71,7 @@ __all__ = [
 
 #: Bump when rendered notes or the hash payload change. W4 requires it in the
 #: content hash so old cache entries cannot survive a renderer change.
-STUDIO_RENDER_REVISION = 7
+STUDIO_RENDER_REVISION = 8
 
 SUPPORTED_RENDER_SPANS = ("1W", "1M")
 SUPPORTED_PLAN_IDS = ("auto_aaba", "trio")
@@ -925,11 +925,6 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         *validation_warnings,
         *arrangement.warnings,
     ]
-    if variation != "off":
-        warnings.append(
-            f"pattern variation is {variation}; repeated lead pitches may change"
-        )
-
     render_hash = _render_hash(
         normalized,
         form=form,
@@ -986,6 +981,14 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
             warnings.append(
                 f"{scale_mode} scales found no usable passage in this figure"
             )
+    from app.sonify.guitar_patterns import _STUDIO_VARIATION_NOTES
+
+    variation_notes = int(_STUDIO_VARIATION_NOTES.get() or 0)
+    if variation in ("auto", "force") and variation_notes:
+        warnings.append(
+            f"pattern variation is {variation}; changed {variation_notes} "
+            "repeated lead note(s)"
+        )
 
     musicxml = score_to_musicxml(score)
     notes = _score_notes(score)

@@ -920,30 +920,33 @@ Với một run:
 target: p p p p p
 ```
 
-1. Giữ `p` ở strong beat.
-2. Tìm weak eighth có thể đổi.
+1. Giữ `p` ở strong beat / protected position.
+2. Với các weak onset còn lại:
+   - `auto`: đổi **mỗi 2 weak onset** trong run;
+   - `force`: đổi **mọi weak onset** trong run (và được phép vào tremolo).
 3. Chọn neighbor/passing tone:
    - upper/lower neighbor trong scale/mode;
    - nếu target kế tiếp gần hơn theo một hướng, dùng passing tone;
    - nếu target kế tiếp bằng nhau, luân phiên upper/lower.
-4. Giới hạn:
-   - tối đa 1 variation trong một run ngắn;
+4. Guard:
    - run phải có >= 3 onset;
-   - không đổi nếu neighbor ra ngoài treble register;
-   - không tạo same-voice overlap.
+   - neighbor phải cách principal **<= 2 semitone**;
+   - nếu neighbor ra ngoài treble register, thử hướng ngược;
+   - không tạo same-voice overlap;
+   - không đổi nếu vị trí nằm trong `scale_eighths`, impulse target,
+     phrase edge, cadence/close bar, chord-change downbeat, hoặc note có tie/slur.
 
 Ví dụ:
 
 ```text
-target:   76 76 76 76
-auto:     76 77 76 74   (upper neighbor rồi passing xuống)
-```
+target:   76 76 76 76 76 76
+auto:     76 77 76 74 76 77   (đổi mỗi 2 weak onset)
 
-hoặc:
+target:   62 62 62 62
+auto:     62 64 62 60
 
-```text
-target:   76 76 76 74
-auto:     76 77 76 74   (passing tone đi xuống)
+target:   62 62 62 62
+force:    62 64 60 64          (đổi mọi weak onset)
 ```
 
 ### 18.6. Tremolo
@@ -995,7 +998,7 @@ Variation bỏ qua các eighth đã thuộc scale passage để tránh chồng p
 
 - `variation` mode;
 - nếu variation plan được resolve thành pitch override, hash theo output plan;
-- bump `STUDIO_RENDER_REVISION` khi note thực tế đổi.
+- bump `STUDIO_RENDER_REVISION` khi note thực tế đổi (hiện là **8**).
 
 ### 18.10. Test plan
 

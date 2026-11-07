@@ -707,6 +707,103 @@ def test_pattern_variation_changes_a_weak_repeat_not_the_strong_beat() -> None:
     assert _apply_studio_variation(ctx, lead, "off") == lead
 
 
+def test_pattern_variation_changes_more_than_one_note_in_a_long_plateau() -> None:
+    from app.sonify.guitar_patterns import _apply_studio_variation
+    from app.sonify.model import NoteEvent
+
+    ctx = _ctx(METER_44, 2)
+    lead = [
+        NoteEvent(
+            bar=bar,
+            beat=float(beat),
+            midi=76,
+            duration_beats=1.0,
+            voice=1,
+        )
+        for bar in range(2)
+        for beat in range(4)
+    ]
+
+    varied = _apply_studio_variation(
+        ctx, lead, "auto", pattern_name="studio_test"
+    )
+
+    changed = [
+        event
+        for event in varied
+        if event.midi != 76
+    ]
+    assert len(changed) >= 2
+    assert varied[0].midi == 76  # bar 0 strong beat
+    assert varied[4].midi == 76  # bar 1 strong beat
+
+
+def test_pattern_variation_rejects_a_neighbor_far_from_the_principal() -> None:
+    from app.sonify.guitar_patterns import _apply_studio_variation
+    from app.sonify.model import NoteEvent
+
+    ctx = _ctx(METER_44, 1)
+    lead = [
+        NoteEvent(
+            bar=0,
+            beat=float(beat),
+            midi=100,
+            duration_beats=0.5,
+            voice=1,
+        )
+        for beat in range(4)
+    ]
+
+    varied = _apply_studio_variation(
+        ctx, lead, "auto", pattern_name="studio_test"
+    )
+
+    assert all(event.midi == 100 for event in varied)
+
+
+def test_pattern_variation_keeps_scale_and_impulse_eighths() -> None:
+    from dataclasses import replace as dc_replace
+
+    from app.sonify.guitar_patterns import _apply_studio_variation
+    from app.sonify.model import NoteEvent, PriceImpulse
+
+    ctx = _ctx(METER_44, 1)
+    ctx = dc_replace(
+        ctx,
+        impulses=(
+            PriceImpulse(
+                start=2,
+                target=2,
+                direction="up",
+                net_span=6,
+                adjusted_efficiency=1.0,
+                score=1.0,
+            ),
+        ),
+    )
+    lead = [
+        NoteEvent(
+            bar=0,
+            beat=float(beat),
+            midi=76,
+            duration_beats=1.0,
+            voice=1,
+        )
+        for beat in range(4)
+    ]
+
+    varied = _apply_studio_variation(
+        ctx,
+        lead,
+        "force",
+        pattern_name="studio_test",
+        scale_eighths={2},
+    )
+
+    assert varied[1].midi == 76  # scale eighth
+    assert varied[2].midi == 76  # impulse target (also a strong beat here)
+
+
 def test_pattern_variation_auto_skips_tremolo_and_force_can_change_it() -> None:
     from app.sonify.guitar_patterns import _apply_studio_variation
     from app.sonify.model import NoteEvent

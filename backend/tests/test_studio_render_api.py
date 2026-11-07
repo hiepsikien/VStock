@@ -609,14 +609,100 @@ def test_pipeline_scale_mode_reports_what_it_selected() -> None:
     assert result.musicxml != base.musicxml
 
 
-def test_pattern_variation_mode_is_hashed_and_warned() -> None:
+def test_pattern_variation_mode_is_hashed_without_a_false_warning() -> None:
     off = render_piece(replace(_service_request(), title="Variation off"))
     auto = render_piece(
         replace(_service_request(), title="Variation auto", variation="auto")
     )
 
     assert auto.render_hash != off.render_hash
-    assert any("pattern variation is auto" in item for item in auto.warnings)
+    # This fixture has no repeated lead run, so there is nothing to warn about.
+    assert not any("pattern variation" in item for item in auto.warnings)
+
+
+def test_pattern_variation_changes_repeated_lead_pitches_in_the_score() -> None:
+    from app.sonify.form import METER_24
+    from app.studio.musicxml_import import parse_musicxml
+    from app.studio.texture_spec import (
+        AuthoredEvent,
+        MeterSpec,
+        MeterVariant,
+        PitchRef,
+        TextureSpec,
+    )
+
+    variant = MeterVariant(
+        meter=MeterSpec.from_form_meter(METER_24),
+        materializer="grid_2_4",
+    )
+    texture = TextureSpec(
+        id="cell_variation",
+        composer="villa",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        meter_variants=(variant,),
+        authored=tuple(
+            AuthoredEvent(
+                bar=bar,
+                beat=beat,
+                duration_beats=0.5,
+                voice=1,
+                pitch=PitchRef.scale_step(0),
+            )
+            for bar in range(4)
+            for beat in (0.0, 0.5, 1.0, 1.5)
+        ),
+    )
+    figures = tuple(
+        (
+            PatternFigure(
+                id=f"fig_{tag}",
+                cell_id="cell_variation",
+                bars=bars,
+                tags=(tag,),
+            ),
+            texture,
+        )
+        for tag, bars in (
+            ("key", 4),
+            ("intro.short", 2),
+            ("intro.long", 4),
+            ("outro.short", 2),
+            ("outro.long", 4),
+        )
+    )
+    base = RenderPieceRequest(
+        pattern="studio_variation",
+        meter="2/4",
+        figures=figures,
+        plan="auto_aaba",
+        bars=tuple(Bar(100 + (index % 7) * 3, 250) for index in range(40)),
+        span="1W",
+        title="Variation score",
+    )
+
+    off = render_piece(replace(base, title="Variation score off"))
+    auto = render_piece(
+        replace(base, title="Variation score auto", variation="auto")
+    )
+
+    assert any("changed" in item for item in auto.warnings)
+    off_xml = parse_musicxml(off.musicxml.encode(), filename="off.musicxml")
+    auto_xml = parse_musicxml(auto.musicxml.encode(), filename="auto.musicxml")
+    off_lead = [
+        note.midi
+        for note in off_xml.notes
+        if note.voice == 1 and note.midi is not None
+    ]
+    auto_lead = [
+        note.midi
+        for note in auto_xml.notes
+        if note.voice == 1 and note.midi is not None
+    ]
+    assert off_lead
+    assert auto_lead != off_lead
 
 
 def test_bpm_outside_the_supported_band_is_rejected(
