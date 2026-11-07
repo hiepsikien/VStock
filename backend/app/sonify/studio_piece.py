@@ -208,9 +208,23 @@ def _compressed_voices(
     """Mirror guitar_frame._compressed: first half of bar N, first half of N+1."""
     bar_beats = float(getattr(ctx, "bar_beats", ctx.epb / 2))
     cut = bar_beats / 2.0
-    first = render_texture_bar(texture, ctx, target_bar, cell_bar=first_bar)
+    # The second half is placed at ``cut`` but must read the melody at that
+    # same offset. Without this, both halves resolve the opening melody.
+    cut_eighths = int(round(cut * 2))
+    first = render_texture_bar(
+        texture,
+        ctx,
+        target_bar,
+        cell_bar=first_bar,
+        max_beat=cut,
+    )
     second = render_texture_bar(
-        texture, ctx, target_bar, cell_bar=first_bar + 1
+        texture,
+        ctx,
+        target_bar,
+        cell_bar=first_bar + 1,
+        pitch_eighth_offset=cut_eighths,
+        max_beat=cut,
     )
     lead: list = []
     support: list = []

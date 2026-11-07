@@ -691,7 +691,11 @@ Nguyên nhân:
 
 Khi price đi ngang hoặc chord giữ nguyên, các onset liên tiếp nhận cùng scale degree/chord tone. Đây là hệ quả của nguyên tắc **không giữ pitch gốc**, không phải rebind sai.
 
-Không sửa trong MVP. Nếu muốn giảm lặp, cần một variation policy riêng:
+Riêng compressed 1-bar frame **không** thuộc case này: nửa sau phải đọc melody
+sau `cut`, không lặp nửa đầu. Lỗi mapping đó đã được sửa bằng
+`pitch_eighth_offset` trong `bind_texture` / `render_texture_bar`.
+
+Không sửa variation policy trong MVP. Nếu muốn giảm lặp, cần một variation policy riêng:
 
 - lead: neighbor/passing tone ở weak eighth;
 - mid: cycle chord degree khi cùng chord;
@@ -701,7 +705,14 @@ Không sửa trong MVP. Nếu muốn giảm lặp, cần một variation policy 
 ### 16.2. Source pitch vs render pitch
 
 - `Preview sentence` / source passage: giữ literal MIDI để nghe đúng bản gốc.
-- `Render Piece`: rebind literal → `melody_eighth` / `chord_degree` / `chord_root`.
+- `Render Piece`: rebind **mọi** literal MIDI, kể cả door/intro/outro figures:
+  - voice 1 → `melody_eighth`;
+  - voice 2 → `chord_degree(2)`;
+  - voice 4 → `chord_degree(3)` (upper middle, tránh thấp hơn voice 2);
+  - voice 3 → `chord_root`.
+- Door authored material vì vậy cũng mất pitch gốc trong Render Piece; đây là
+  chủ ý để giữ nguyên tắc “production pitch đến từ price/chord”. Nếu sau này
+  muốn giữ riêng door authored, phải thêm option riêng và không đổi default.
 - Production `promote`: reject literal MIDI.
 
 Nếu file Render Piece trùng pitch source note-for-note, cần kiểm tra cache/bundle cũ trước khi kết luận rebind sai.
@@ -715,6 +726,9 @@ hơn nên tạo nhiều thay đổi cao độ hơn; chúng vẫn có thể lặp
 
 Symbol/date loader thật vẫn là follow-up; khi thêm, phải resolve thành
 `bars[]` trước khi hash/render, không silent truncate hoặc repeat.
+
+`dataRange` (`1D/1W/1M`) và form `span` (`1W/1M`) là **độc lập**. Người dùng có
+thể chọn `1M` data với form `1W`; UI phải nói rõ điều này để tránh hiểu nhầm.
 
 ---
 

@@ -109,12 +109,24 @@ def test_bind_texture_moves_only_melody_eighth_indexes() -> None:
     assert bind_texture(texture, bar_offset=0, epb=4) is texture
 
 
+def test_bind_texture_pitch_offset_moves_only_the_lookup() -> None:
+    texture = _texture((_event(bar=1, voice=1, pitch=PitchRef.melody_eighth(3)),))
+
+    bound = bind_texture(texture, bar_offset=2, epb=4, pitch_eighth_offset=2)
+
+    # 3 + 2*4 + 2 = 13, while the authored bar stays untouched.
+    assert bound.authored[0].pitch.eighth == 13
+    assert bound.authored[0].bar == 1
+
+
 def test_bind_texture_rejects_a_bad_offset() -> None:
     texture = _texture((_event(bar=0, voice=1),))
     with pytest.raises(ValueError):
         bind_texture(texture, bar_offset=-1, epb=4)
     with pytest.raises(ValueError):
         bind_texture(texture, bar_offset=1, epb=0)
+    with pytest.raises(ValueError):
+        bind_texture(texture, bar_offset=0, epb=4, pitch_eighth_offset=-1)
 
 
 # ---------------------------------------------------------------------------

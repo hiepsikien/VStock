@@ -1433,7 +1433,8 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
         <Text style={styles.fieldMeta}>
           {DEMO_SERIES_OPTIONS.find((option) => option.id === dataRange)?.hint ??
             'Select demo data.'}{' '}
-          · {series.length} bars, no truncation.
+          · {series.length} bars, no truncation. Data range and form are
+          independent.
         </Text>
       </View>
 

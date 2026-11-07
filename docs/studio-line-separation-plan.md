@@ -174,6 +174,9 @@ line_eighth
 - `eighth` là absolute eighth index trong piece, giống `melody_eighth`.
 - `bind_texture` phải shift cả `line_eighth` khi figure được tile sang bar khác,
   không chỉ shift `melody_eighth`.
+- Compressed 1-bar frame cũng phải cộng `pitch_eighth_offset` cho nửa sau, giống
+  fix đã làm cho `melody_eighth`; nếu không, mid/bass nửa sau sẽ đọc line của
+  nửa đầu.
 - `line_eighth` là **runtime-only**: không xuất hiện trong source `TextureSpec`
   do user tạo, không được promote, không thay đổi schema publish hiện tại.
 
@@ -344,14 +347,17 @@ Phải đưa vào `renderHash`:
 - line arrays đã resolve (nếu hash theo texture);
 - `STUDIO_RENDER_REVISION`.
 
-Đề xuất bump:
+Khi implement line separation, bump thêm một lần:
 
 ```python
-STUDIO_RENDER_REVISION = 3
+STUDIO_RENDER_REVISION = 4
 ```
 
 Lý do: cùng một request cũ có thể trả MusicXML/WAV khác sau khi thay đổi
 line policy. Không bump sẽ khiến cache cũ che mất thay đổi.
+
+Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4, nên line
+separation phải bump lên 4 khi bắt đầu có hiệu lực.
 
 ---
 

@@ -574,8 +574,22 @@ def test_render_piece_rebinds_literal_pitches_to_relative_refs() -> None:
                 bar=0,
                 beat=0.0,
                 duration_beats=1.0,
+                voice=2,
+                pitch=PitchRef.literal_midi(64),
+            ),
+            AuthoredEvent(
+                bar=0,
+                beat=0.0,
+                duration_beats=1.0,
                 voice=3,
                 pitch=PitchRef.literal_midi(40),
+            ),
+            AuthoredEvent(
+                bar=0,
+                beat=0.0,
+                duration_beats=1.0,
+                voice=4,
+                pitch=PitchRef.literal_midi(67),
             ),
         ),
     )
@@ -585,8 +599,33 @@ def test_render_piece_rebinds_literal_pitches_to_relative_refs() -> None:
     bound, warnings = _bind_production_pitches(((figure, texture),), 4)
     events = bound[0][1].authored
     assert events[0].pitch.kind == "melody_eighth"
-    assert events[1].pitch.kind == "chord_root"
+    assert events[1].pitch.kind == "chord_degree"
+    assert events[1].pitch.degree == 2
+    assert events[2].pitch.kind == "chord_root"
+    assert events[3].pitch.kind == "chord_degree"
+    assert events[3].pitch.degree == 3
     assert warnings and "rebound" in warnings[0]
+
+
+def test_render_piece_output_does_not_emit_the_source_literal_pitch(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/v1/studio/figure/render",
+        json=_body(key_pitch={"kind": "literal_midi", "value": 88}),
+    )
+    body = response.json()
+    assert body["ok"] is True
+    xml = client.get(body["musicxmlUrl"])
+    assert xml.status_code == 200
+
+    from app.studio.musicxml_import import parse_musicxml
+
+    score = parse_musicxml(xml.text.encode(), filename="render.musicxml")
+    sounding = [note.midi for note in score.notes if note.midi is not None]
+    assert sounding
+    assert 88 not in sounding
+    assert max(sounding) <= 83
 
 
 def test_literal_pitch_uses_cell_local_beat_not_source_bar() -> None:

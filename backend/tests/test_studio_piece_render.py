@@ -9,6 +9,7 @@ durations must not move.
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -285,6 +286,56 @@ def test_compressed_frame_uses_both_cell_bars() -> None:
     midis = {event.midi for event in lead}
     assert 60 in midis and 61 in midis
     assert {round(event.beat, 3) for event in lead} == {0.0, 1.0, 2.0, 3.0}
+
+
+def test_compressed_frame_reads_second_half_melody() -> None:
+    """The second half must read melody eighths after ``cut``, not repeat bar 0."""
+
+    epb = METER_44.eighths_per_bar
+    melody = (60, 60, 60, 60, 72, 72, 72, 72)
+    ctx = SimpleNamespace(
+        melody=melody,
+        raw=melody,
+        chord_at={},
+        mode="major",
+        treble_floor=59,
+        treble_top=81,
+        bass_low=40,
+        ceiling=83,
+        epb=epb,
+        bar_beats=METER_44.quarter_beats,
+    )
+    events: list[AuthoredEvent] = []
+    for cell_bar in (0, 1):
+        for beat in range(4):
+            events.append(
+                AuthoredEvent(
+                    bar=cell_bar,
+                    beat=float(beat),
+                    duration_beats=1.0,
+                    voice=1,
+                    pitch=PitchRef.melody_eighth(beat * 2, 0),
+                )
+            )
+    texture = TextureSpec(
+        id="cell_melody",
+        composer="Test",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=tuple(events),
+    )
+    piece = StudioPiece(
+        pattern="studio_frame",
+        meter="4/4",
+        cells={"cell_melody": texture},
+        arrangement=(("compressed", "cell_melody", 0),),
+    )
+
+    lead, _support, _low = render_studio_arrangement(ctx, piece)
+
+    assert [event.midi for event in lead] == [60, 60, 72, 72]
 
 
 def test_cadence_entry_renders_villa_cadence() -> None:

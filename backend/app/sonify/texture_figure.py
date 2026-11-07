@@ -23,6 +23,7 @@ fall back to the historical path.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -104,12 +105,18 @@ def bind_texture(
     *,
     bar_offset: int,
     epb: int,
+    pitch_eighth_offset: int = 0,
 ) -> TextureSpec:
     """Rebind ``melody_eighth`` indexes for a figure tiled at ``bar_offset``.
 
     ``melody_eighth`` is absolute inside ``ctx.melody``. Moving the figure to a
     later bar means its earlier eighth indexes must move with it. Authored
     ``bar`` is deliberately left alone: ``authored_to_events`` shifts that.
+
+    ``pitch_eighth_offset`` moves only the pitch lookup, not the authored
+    placement. The compressed one-bar frame uses it for its second half: that
+    half is placed at beat ``cut`` but must read the melody after ``cut``, not
+    the opening melody again.
     """
     if not isinstance(texture, TextureSpec):
         raise TypeError("texture must be a TextureSpec")
@@ -117,8 +124,14 @@ def bind_texture(
         raise ValueError("bar_offset must be an integer >= 0")
     if not isinstance(epb, int) or isinstance(epb, bool) or epb < 1:
         raise ValueError("epb must be an integer >= 1")
+    if (
+        not isinstance(pitch_eighth_offset, int)
+        or isinstance(pitch_eighth_offset, bool)
+        or pitch_eighth_offset < 0
+    ):
+        raise ValueError("pitch_eighth_offset must be an integer >= 0")
 
-    shift = bar_offset * epb
+    shift = bar_offset * epb + pitch_eighth_offset
     if shift == 0:
         return texture
     events: list[AuthoredEvent] = []
@@ -202,6 +215,8 @@ def render_texture_bar(
     target_bar: int,
     *,
     cell_bar: int = 0,
+    pitch_eighth_offset: int = 0,
+    max_beat: float | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
     """One authored bar of ``texture`` as (lead, support, low).
 
@@ -209,6 +224,12 @@ def render_texture_bar(
     selected events are reindexed to bar 0, rebound with ``bar_offset`` so
     ``melody_eighth`` follows the target bar, then placed at ``target_bar`` by
     ``authored_to_events``.
+
+    ``pitch_eighth_offset`` shifts only the melody lookup. A compressed frame
+    moves its second half by ``cut`` beats but still reads the melody from the
+    second half of the target bar. ``max_beat`` drops source events the caller
+    will discard before resolving them, so a shifted lookup cannot run past the
+    melody just because the unused tail of the cell bar is still authored.
     """
     if not isinstance(texture, TextureSpec):
         raise TypeError("texture must be a TextureSpec")
@@ -216,6 +237,19 @@ def render_texture_bar(
         raise ValueError("target_bar must be an integer >= 0")
     if not isinstance(cell_bar, int) or isinstance(cell_bar, bool) or cell_bar < 0:
         raise ValueError("cell_bar must be an integer >= 0")
+    if (
+        not isinstance(pitch_eighth_offset, int)
+        or isinstance(pitch_eighth_offset, bool)
+        or pitch_eighth_offset < 0
+    ):
+        raise ValueError("pitch_eighth_offset must be an integer >= 0")
+    if max_beat is not None and (
+        isinstance(max_beat, bool)
+        or not isinstance(max_beat, (int, float))
+        or not math.isfinite(float(max_beat))
+        or float(max_beat) <= 0
+    ):
+        raise ValueError("max_beat must be a positive finite number or None")
 
     authored_bars = [event.bar for event in texture.authored]
     if cell_bar not in authored_bars:
@@ -226,9 +260,15 @@ def render_texture_bar(
         replace(event, bar=0)
         for event in texture.authored
         if event.bar == cell_bar
+        and (max_beat is None or event.beat < float(max_beat))
     ]
     cropped = replace(texture, authored=tuple(selected))
-    bound = bind_texture(cropped, bar_offset=target_bar, epb=int(ctx.epb))
+    bound = bind_texture(
+        cropped,
+        bar_offset=target_bar,
+        epb=int(ctx.epb),
+        pitch_eighth_offset=pitch_eighth_offset,
+    )
     meter = _meter_view(ctx)
     events = _clip_and_close(
         authored_to_events(bound, ctx, meter, bar_offset=target_bar),

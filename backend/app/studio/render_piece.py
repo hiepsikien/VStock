@@ -68,7 +68,7 @@ __all__ = [
 
 #: Bump when rendered notes or the hash payload change. W4 requires it in the
 #: content hash so old cache entries cannot survive a renderer change.
-STUDIO_RENDER_REVISION = 2
+STUDIO_RENDER_REVISION = 3
 
 SUPPORTED_RENDER_SPANS = ("1W", "1M")
 SUPPORTED_PLAN_IDS = ("auto_aaba", "trio")
@@ -382,6 +382,10 @@ def _bind_production_pitches(
                 pitch = PitchRef.melody_eighth(eighth, 0)
             elif event.voice == 2:
                 pitch = PitchRef.chord_degree(2)
+            elif event.voice == 4:
+                # Voice 4 is the upper middle line. The old chord_root mapping
+                # could place it below voice 2 and trip the voice-order check.
+                pitch = PitchRef.chord_degree(3)
             else:
                 pitch = PitchRef.chord_root()
             events.append(replace(event, pitch=pitch))
@@ -405,8 +409,11 @@ def _fold_literal_pitches(
 ) -> tuple[tuple[tuple[PatternFigure, TextureSpec], ...], tuple[str, ...]]:
     """Fold absolute MIDI outside the neutral guitar range by octaves.
 
-    Preview/export must accept the passages Studio itself imports. Production
-    promotion keeps the strict 40..83 check; this is the preview counterpart.
+    Render Piece normally rebinds every literal before this runs, so this is a
+    defensive fallback for a literal that was not rebound (for example a future
+    pitch kind that deliberately preserves authored MIDI). Preview/export must
+    accept the passages Studio itself imports; production promotion keeps the
+    strict 40..83 check.
     """
     folded: list[tuple[PatternFigure, TextureSpec]] = []
     changed_cells: list[str] = []
