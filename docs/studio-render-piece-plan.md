@@ -658,3 +658,41 @@ Cadence entry đã render `VILLA_CADENCE`; figure-entry khác vẫn future.
 6. Phase D UI
 7. W5–W10
 ```
+
+---
+
+## 16. Consideration points
+
+Các điểm sau **không phải bug** trong luồng hiện tại; ghi lại để quyết định sau.
+
+### 16.1. Nốt cùng cao độ lặp liên tiếp
+
+Hiện tượng: nhiều móc đơn/móc kép liên tiếp cùng pitch.
+
+Nguyên nhân:
+
+- rhythm copy từ MusicXML;
+- lead dùng `melody_eighth` → pitch lấy từ price melody đã quantize;
+- mid dùng `chord_degree(2)`;
+- bass dùng `chord_root`.
+
+Khi price đi ngang hoặc chord giữ nguyên, các onset liên tiếp nhận cùng scale degree/chord tone. Đây là hệ quả của nguyên tắc **không giữ pitch gốc**, không phải rebind sai.
+
+Không sửa trong MVP. Nếu muốn giảm lặp, cần một variation policy riêng:
+
+- lead: neighbor/passing tone ở weak eighth;
+- mid: cycle chord degree khi cùng chord;
+- bass: root/fifth alternation;
+- giữ nguyên cadence/close.
+
+### 16.2. Source pitch vs render pitch
+
+- `Preview sentence` / source passage: giữ literal MIDI để nghe đúng bản gốc.
+- `Render Piece`: rebind literal → `melody_eighth` / `chord_degree` / `chord_root`.
+- Production `promote`: reject literal MIDI.
+
+Nếu file Render Piece trùng pitch source note-for-note, cần kiểm tra cache/bundle cũ trước khi kết luận rebind sai.
+
+### 16.3. Demo 1D series
+
+Demo series chỉ để test luồng. Nó có thể tạo price melody lặp; không đại diện cho một bản nhạc “hay”. Symbol/date series picker vẫn là follow-up.
