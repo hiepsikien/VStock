@@ -20,6 +20,10 @@ import {
 } from './api';
 import { nextJobPollDelayMs } from './protocol';
 import {
+  loadPatternDraft,
+  savePatternDraft,
+} from './patternDraftStorage';
+import {
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   DEMO_SERIES_LABEL,
   FIGURE_RENDER_FORM_SPANS,
@@ -142,6 +146,7 @@ export function SentenceDraftPanel({
   const [newComposer, setNewComposer] = useState(VILLA_COMPOSER);
   const [composerMode, setComposerMode] = useState<'existing' | 'new'>('existing');
   const [draft, setDraft] = useState<PatternDraft | null>(null);
+  const [draftHydrated, setDraftHydrated] = useState(false);
   const [result, setResult] = useState<SentenceDraftResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ErrorLine>(null);
@@ -181,6 +186,27 @@ export function SentenceDraftPanel({
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadPatternDraft().then((saved) => {
+      if (cancelled) return;
+      if (saved) {
+        setDraft(saved);
+        setMode((saved.figures?.length ?? 0) > 0 ? 'new' : 'existing');
+        setNote('Restored the saved pattern draft.');
+      }
+      setDraftHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftHydrated) return;
+    void savePatternDraft(draft);
+  }, [draft, draftHydrated]);
 
   useEffect(
     () => () => {

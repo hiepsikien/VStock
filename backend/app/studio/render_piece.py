@@ -434,6 +434,18 @@ def _validate_figures(
                 RenderError(f"{prefix}.{problem.path}" if problem.path else prefix, problem.message)
             )
         for problem in check_authored_playable(texture, playability_ctx, meter):
+            if (
+                problem.path.endswith(".voice")
+                and "is not below voice" in problem.message
+            ):
+                # MusicXML imports may assign overlapping voice labels by
+                # splitting chords rather than by pitch order. Preview/export
+                # can still render literal-authored material; production
+                # promote keeps the strict validation.
+                note = "voice order was relaxed for Studio preview"
+                if note not in warnings:
+                    warnings.append(note)
+                continue
             errors.append(
                 RenderError(f"{prefix}.{problem.path}" if problem.path else prefix, problem.message)
             )

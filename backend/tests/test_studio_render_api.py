@@ -466,3 +466,29 @@ def test_audio_submit_route_checks_the_token(
         headers={"X-Studio-Render-Token": "secret"},
     )
     assert allowed.status_code == 202
+
+
+def test_voice_order_issue_is_relaxed_for_preview(client: TestClient) -> None:
+    body = _body()
+    key = body["figures"][0]
+    key["spec"]["authored"]["events"] = [
+        {
+            "bar": 0,
+            "beat": 0.0,
+            "duration_beats": 1.0,
+            "voice": 2,
+            "pitch": {"kind": "literal_midi", "value": 40},
+        },
+        {
+            "bar": 0,
+            "beat": 0.0,
+            "duration_beats": 1.0,
+            "voice": 3,
+            "pitch": {"kind": "literal_midi", "value": 56},
+        },
+    ]
+    body["options"] = {"includeDoors": True, "audio": False}
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is True
+    assert any("voice order was relaxed" in item for item in payload["warnings"])
