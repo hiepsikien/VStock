@@ -714,13 +714,15 @@ Không sửa variation policy trong MVP. Nếu muốn giảm lặp, cần một 
 
 - `Preview sentence` / source passage: giữ literal MIDI để nghe đúng bản gốc.
 - `Render Piece`: rebind **mọi** literal MIDI, kể cả door/intro/outro figures.
-  Trước khi bind, Phase 0 phân vai theo pitch order tại mỗi onset:
+  Trước khi bind, Phase 0 phân vai theo **từng source voice line** dùng
+  median pitch:
   - voice 1 → lead;
-  - non-lead thấp nhất → bass;
-  - non-lead còn lại → mid.
+  - non-lead median thấp nhất → bass;
+  - non-lead median còn lại → mid.
 
-  Không rewrite `voice` trong spec; `render_texture_bar(role_by_pitch=True)`
-  phân vai lúc render, nên từng voice nguồn vẫn monophonic. Bass dùng register
+  Rewrite `voice` một lần cho cả line về role voice 1/2/3/4. Cách này giữ
+  duration của bass đang ngân, tránh lỗi “role assignment” cắt nốt, và tránh
+  hai source voice cùng collapse về voice 2. Bass dùng register
   `Chord.bass_midi` fold vào 40..53; mid fold chord tone vào 50..65.
 - Door authored material vì vậy cũng mất pitch gốc trong Render Piece; đây là
   chủ ý để giữ nguyên tắc “production pitch đến từ price/chord”. Nếu sau này
@@ -752,7 +754,7 @@ ensemble `villa`, chia làm hai phase.
 ### Phase 0 — sửa register/role (đã implement)
 
 ```text
-Role = pitch order, không phải source voice number
+Role = median pitch của từng source line, không phải source voice number
 Bass = Chord.bass_midi fold vào 40..53
 Mid  = chord tone fold vào 50..65
 Lead = price melody, 59..81

@@ -23,21 +23,22 @@ theo pitch order.
 
 Phạm vi Phase 0:
 
-1. Phân vai theo **pitch tại cùng onset**, không theo voice number gốc:
+1. Phân vai theo **từng source voice line**, dùng median pitch của cả line:
    ```text
-   voice 1 (lead)                   -> lead
-   non-lead thấp nhất tại mỗi onset -> bass
-   non-lead còn lại                 -> mid
+   voice 1 (lead)              -> lead
+   non-lead median thấp nhất   -> bass
+   non-lead median còn lại     -> mid, thấp → cao
    ```
-2. Giữ nguyên `voice` gốc của event để validator monophonic vẫn đúng; renderer
-   phân vai theo pitch bằng `render_texture_bar(role_by_pitch=True)`:
+   Không phân vai lại tại từng onset, vì một nốt mới thấp hơn có thể “cướp”
+   bass đang ngân và làm `_resolve` cắt nốt bass.
+2. Rewrite `voice` **một lần cho cả source line** về role voice duy nhất:
    ```text
-   voice 1                          -> lead
-   non-lead thấp nhất tại mỗi onset -> bass
-   non-lead còn lại                 -> mid
+   lead = 1, mid = 2/4, bass = 3
    ```
-   Không rewrite `voice` trong `TextureSpec`, vì hai voice nguồn khác nhau có
-   thể chồng nhau và tạo lỗi “voice 3 note overlaps”.
+   Vì mỗi source voice là một line monophonic, mapping 1-1 này vẫn giữ
+   validator monophonic và không tạo overlap.
+3. Bass-only figure (chỉ có một non-lead voice) vẫn là bass; không tự nâng
+   thành lead.
 3. Bass dùng register thật:
    - bắt đầu từ `Chord.bass_midi` (C2–B2);
    - fold lên octave cho đến khi `>= guitar_floor` (40), giữ nguyên pitch class.
@@ -254,19 +255,28 @@ khác nhau, window sẽ được chọn theo `1D / 1W / 1M` hoặc theo số bar
 
 ### 4.0. Role assignment (Phase 0, bắt buộc)
 
-Trước khi bind pitch, gom event theo `(bar, beat)` rồi phân vai:
+Trước khi bind pitch, phân vai theo **từng source voice line**:
 
 ```text
-voice 1                          -> lead
-non-lead thấp nhất tại mỗi onset -> bass
-non-lead còn lại, thấp → cao     -> mid
+voice 1                    -> lead
+non-lead median thấp nhất  -> bass
+non-lead median còn lại    -> mid, thấp → cao
 ```
 
-Điều này mirror `buildRoleLanes` của frontend và bỏ phụ thuộc vào voice number
-gốc của MusicXML. Không rewrite `event.voice` trong spec; role được quyết định
-lúc render qua `role_by_pitch=True` để giữ từng voice nguồn monophonic.
+Điều này bỏ phụ thuộc vào voice number gốc của MusicXML nhưng vẫn giữ được
+duration: một line bass đang ngân không bị line khác lấy mất role khi có nốt
+mới thấp hơn.
 
-Với figure chỉ có một voice: giữ nguyên làm lead.
+Sau đó rewrite `voice` một lần cho cả source line:
+
+```text
+lead = 1, mid = 2/4, bass = 3
+```
+
+Vì mapping là 1-1 giữa source line và role voice, spec vẫn monophonic.
+Support được gán rõ voice 2/4 để `guitar.py` không collapse hai line về voice 2.
+
+Với figure chỉ có một non-lead voice: giữ làm bass, không nâng thành lead.
 
 ### 4.1. Series và MA
 
@@ -504,7 +514,7 @@ STUDIO_RENDER_REVISION = 5
 Lý do: cùng một request cũ có thể trả MusicXML/WAV khác sau khi thay đổi
 role/register hoặc line policy. Không bump sẽ khiến cache cũ che mất thay đổi.
 
-Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4.
+Ghi chú: Phase 0 đã bump revision lên **4**.
 
 ---
 
@@ -512,10 +522,16 @@ Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4.
 
 ### 8.0. Phase 0
 
-- Role by pitch:
+- Role by source-line median:
   - voice 1 luôn lead;
-  - non-lead thấp nhất thành bass dù voice gốc là 2;
-  - non-lead còn lại thành mid 2/4.
+  - non-lead median thấp nhất thành bass dù voice gốc là 2;
+  - non-lead median còn lại thành mid 2/4;
+  - bass-only figure vẫn là bass, không bị nâng thành lead.
+- Duration safety:
+  - bass đang ngân không bị nốt mới thấp hơn cắt;
+  - support source voice không collapse hết về voice 2.
+- Compressed seam:
+  - tie/slur không treo ở `cut`.
 - Bass register:
   - `Chord.bass_midi` C2 36 → C3 48;
   - A2 45 giữ nguyên;
@@ -566,7 +582,7 @@ Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4.
 
 ### 9.1. Phase 0 — đã implement
 
-1. Phân vai theo pitch; giữ source voice, render bằng `role_by_pitch=True`.
+1. Phân vai theo median pitch của từng source line; rewrite role voice 1/2/3/4.
 2. Bass dùng `Chord.bass_midi` fold vào 40..53.
 3. Mid fold chord tone vào 50..65.
 4. Bump revision lên 4.
@@ -594,19 +610,23 @@ Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4.
 ## 10. Rủi ro / câu hỏi mở
 
 0. **Voice number gốc không phải role** — file hiện tại có bass ở voice 2.
-   → Phase 0 phân vai theo pitch order; giữ source voice và render bằng
-   `role_by_pitch=True`, không rewrite `voice` trong spec.
-1. **MA5/MA20 tương quan** trong thị trường đi ngang; mid/bass có thể chụm.
+   → Phase 0 phân vai theo median pitch của từng source line rồi rewrite role
+   voice 1-1, nên giữ duration và tránh overlap.
+1. **Sustained bass bị cắt** nếu phân vai lại ở từng onset.
+   → Phân vai theo source line, không theo onset; có test bass giữ duration.
+2. **Support collapse về voice 2** khi hai source voice cùng vào support.
+   → Rewrite support role voice thành 2/4 ngay khi bind.
+3. **MA5/MA20 tương quan** trong thị trường đi ngang; mid/bass có thể chụm.
    → band + chord quantize + soft warning.
-2. **MA20 trên 1M thật quá dài** (~21 daily closes).
+4. **MA20 trên 1M thật quá dài** (~21 daily closes).
    → window config; sau này adaptive theo range.
-3. **Bass theo MA20 nhưng harmony đổi nhanh**.
+5. **Bass theo MA20 nhưng harmony đổi nhanh**.
    → bass vẫn ưu tiên root/fifth của chord; MA20 chỉ quyết định contour/register.
-4. **Voice order mềm có thể nghe lạ** ở vài bar.
+6. **Voice order mềm có thể nghe lạ** ở vài bar.
    → chấp nhận warning; không hard reject.
-5. **Guitar hand span** có thể buộc bỏ note mid.
+7. **Guitar hand span** có thể buộc bỏ note mid.
    → `_repair` chạy sau cùng; warning nếu drop.
-6. **Line arrays làm tăng kích thước cache**.
+8. **Line arrays làm tăng kích thước cache**.
    → hash theo config + series; line arrays chỉ runtime, không lưu vào source spec.
 
 ---

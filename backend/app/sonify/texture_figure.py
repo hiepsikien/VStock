@@ -163,6 +163,7 @@ def _clip_and_close(
     *,
     starts_cell: bool,
     ends_cell: bool,
+    clip_beats: float | None = None,
 ) -> list[NoteEvent]:
     """Clip to the target bar and clear endpoints at the cell edges.
 
@@ -171,6 +172,7 @@ def _clip_and_close(
     its first or last bar has no partner in this cell; keeping it would export
     as a dangling endpoint.
     """
+    end_limit = quarter if clip_beats is None else min(quarter, clip_beats)
     result: list[NoteEvent] = []
     for event in events:
         end = event.beat + event.duration_beats
@@ -179,15 +181,15 @@ def _clip_and_close(
         slur_start = event.slur_start
         slur_stop = event.slur_stop
         duration = event.duration_beats
-        if end > quarter + _EPSILON:
-            duration = max(quarter - event.beat, _EPSILON)
+        if end > end_limit + _EPSILON:
+            duration = max(end_limit - event.beat, _EPSILON)
             end = event.beat + duration
             tie_start = False
             slur_start = False
         if starts_cell and event.beat <= _EPSILON:
             tie_stop = False
             slur_stop = False
-        if ends_cell and end >= quarter - _EPSILON:
+        if ends_cell and end >= end_limit - _EPSILON:
             tie_start = False
             slur_start = False
         if (
@@ -209,42 +211,6 @@ def _clip_and_close(
     return result
 
 
-def _split_roles_by_pitch(
-    events: list[NoteEvent],
-) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Mirror the UI role lanes: lead voice 1, then lowest bass, rest mid."""
-    groups: dict[tuple[int, float], list[NoteEvent]] = {}
-    order: list[tuple[int, float]] = []
-    for event in events:
-        key = (event.bar, round(float(event.beat), 9))
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(event)
-
-    lead: list[NoteEvent] = []
-    support: list[NoteEvent] = []
-    low: list[NoteEvent] = []
-    for key in order:
-        group = groups[key]
-        lead_events = [event for event in group if event.voice == 1]
-        rest = [event for event in group if event.voice != 1]
-        if not lead_events and rest:
-            highest = max(rest, key=lambda event: (event.midi or 0, -event.voice))
-            lead_events = [highest]
-            rest = [event for event in rest if event is not highest]
-        lead.extend(lead_events)
-        if not rest:
-            continue
-        ordered = sorted(
-            rest,
-            key=lambda event: (event.midi or 0, event.voice),
-        )
-        low.append(ordered[0])
-        support.extend(ordered[1:])
-    return lead, support, low
-
-
 def render_texture_bar(
     texture: TextureSpec,
     ctx: Any,
@@ -253,7 +219,8 @@ def render_texture_bar(
     cell_bar: int = 0,
     pitch_eighth_offset: int = 0,
     max_beat: float | None = None,
-    role_by_pitch: bool = False,
+    clip_beats: float | None = None,
+    starts_cell: bool | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
     """One authored bar of ``texture`` as (lead, support, low).
 
@@ -267,11 +234,9 @@ def render_texture_bar(
     second half of the target bar. ``max_beat`` drops source events the caller
     will discard before resolving them, so a shifted lookup cannot run past the
     melody just because the unused tail of the cell bar is still authored.
-
-    ``role_by_pitch`` assigns lead/bass/mid at each onset by pitch order. The
-    source voice number is not a role id: a MusicXML passage can put its bass
-    in voice 2 and its middle line in voice 3. StudioPiece uses this mode so the
-    authored spec keeps its original, monophonic voices.
+    ``clip_beats`` treats a mid-bar cut as the end of the bar, clearing a
+    tie/slur that would otherwise dangle at the compressed seam.
+    ``starts_cell`` overrides the cell-start endpoint rule for the second half.
     """
     if not isinstance(texture, TextureSpec):
         raise TypeError("texture must be a TextureSpec")
@@ -292,6 +257,15 @@ def render_texture_bar(
         or float(max_beat) <= 0
     ):
         raise ValueError("max_beat must be a positive finite number or None")
+    if clip_beats is not None and (
+        isinstance(clip_beats, bool)
+        or not isinstance(clip_beats, (int, float))
+        or not math.isfinite(float(clip_beats))
+        or float(clip_beats) <= 0
+    ):
+        raise ValueError("clip_beats must be a positive finite number or None")
+    if starts_cell is not None and not isinstance(starts_cell, bool):
+        raise ValueError("starts_cell must be a bool or None")
 
     authored_bars = [event.bar for event in texture.authored]
     if cell_bar not in authored_bars:
@@ -315,12 +289,10 @@ def render_texture_bar(
     events = _clip_and_close(
         authored_to_events(bound, ctx, meter, bar_offset=target_bar),
         meter.quarter_beats,
-        starts_cell=cell_bar == 0,
-        ends_cell=cell_bar == last_bar,
+        starts_cell=cell_bar == 0 if starts_cell is None else starts_cell,
+        ends_cell=cell_bar == last_bar or clip_beats is not None,
+        clip_beats=clip_beats,
     )
-
-    if role_by_pitch:
-        return _split_roles_by_pitch(events)
 
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []

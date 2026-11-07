@@ -156,27 +156,6 @@ def test_render_texture_bar_selects_one_cell_bar_and_reindexes() -> None:
     assert low[0].voice == 3
 
 
-def test_render_texture_bar_can_assign_roles_by_pitch() -> None:
-    ctx = _case(bars=2)
-    texture = _texture(
-        (
-            _event(bar=0, voice=1, pitch=PitchRef.literal_midi(76)),
-            _event(bar=0, voice=2, pitch=PitchRef.literal_midi(52)),
-            _event(bar=0, voice=3, pitch=PitchRef.literal_midi(60)),
-            _event(bar=0, voice=4, pitch=PitchRef.literal_midi(64)),
-        )
-    )
-
-    lead, support, low = render_texture_bar(
-        texture, ctx, 0, cell_bar=0, role_by_pitch=True
-    )
-
-    # Source voice 2 is the lowest note, so it becomes the low voice.
-    assert [note.midi for note in low] == [52]
-    assert sorted(note.midi for note in support) == [60, 64]
-    assert [note.midi for note in lead] == [76]
-
-
 def test_render_texture_bar_uses_bar_beats_for_the_target_meter() -> None:
     ctx = _case(meter=METER_24, bars=6)
     texture = _texture(

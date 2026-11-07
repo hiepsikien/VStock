@@ -338,6 +338,144 @@ def test_compressed_frame_reads_second_half_melody() -> None:
     assert [event.midi for event in lead] == [60, 60, 72, 72]
 
 
+def test_sustained_bass_is_not_stolen_by_a_later_mid_note() -> None:
+    from app.sonify.guitar_patterns import _resolve
+    from app.sonify.pattern_figures import PatternFigure
+    from app.studio.render_piece import _bind_production_pitches
+
+    texture = TextureSpec(
+        id="cell_sustain",
+        composer="Test",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=0.5, voice=1,
+                pitch=PitchRef.literal_midi(76),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=2,
+                pitch=PitchRef.literal_midi(52),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.5, duration_beats=1.0, voice=3,
+                pitch=PitchRef.literal_midi(55),
+            ),
+        ),
+    )
+    figure = PatternFigure(
+        id="fig_sustain", cell_id="cell_sustain", bars=1, tags=("key",)
+    )
+    bound, _warnings = _bind_production_pitches(((figure, texture),), 4)
+    bound_texture = bound[0][1]
+    piece = StudioPiece(
+        pattern="studio_sustain",
+        meter="4/4",
+        cells={"cell_sustain": bound_texture},
+        arrangement=(("cell", "cell_sustain", 0),),
+    )
+    ctx = _ctx(METER_44, 1)
+
+    _lead, support, low = render_studio_arrangement(ctx, piece)
+    resolved_low = _resolve(low, ctx.epb, 3)
+
+    assert len(low) == 1
+    assert low[0].voice == 3
+    assert low[0].duration_beats == 1.0
+    assert sum(event.duration_beats for event in resolved_low) == 1.0
+    assert support
+    assert all(event.voice in (2, 4) for event in support)
+
+
+def test_support_role_voices_do_not_collapse_back_to_2() -> None:
+    from app.sonify.pattern_figures import PatternFigure
+    from app.studio.render_piece import _bind_production_pitches
+
+    texture = TextureSpec(
+        id="cell_support",
+        composer="Test",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=1,
+                pitch=PitchRef.literal_midi(76),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=2,
+                pitch=PitchRef.literal_midi(52),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=3,
+                pitch=PitchRef.literal_midi(60),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=4,
+                pitch=PitchRef.literal_midi(64),
+            ),
+        ),
+    )
+    figure = PatternFigure(
+        id="fig_support", cell_id="cell_support", bars=1, tags=("key",)
+    )
+    bound, _warnings = _bind_production_pitches(((figure, texture),), 4)
+    piece = StudioPiece(
+        pattern="studio_support",
+        meter="4/4",
+        cells={"cell_support": bound[0][1]},
+        arrangement=(("cell", "cell_support", 0),),
+    )
+
+    _lead, support, low = render_studio_arrangement(_ctx(METER_44, 1), piece)
+
+    assert {event.voice for event in support} == {2, 4}
+    assert {event.voice for event in low} == {3}
+
+
+def test_compressed_frame_clears_tie_and_slur_at_the_seam() -> None:
+    texture = TextureSpec(
+        id="cell_seam",
+        composer="Test",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0, beat=1.5, duration_beats=1.0, voice=1,
+                pitch=PitchRef.literal_midi(76),
+                tie="start", slur="start",
+            ),
+            AuthoredEvent(
+                bar=1, beat=0.0, duration_beats=0.5, voice=1,
+                pitch=PitchRef.literal_midi(77),
+                tie="stop", slur="stop",
+            ),
+        ),
+    )
+    piece = StudioPiece(
+        pattern="studio_seam",
+        meter="4/4",
+        cells={"cell_seam": texture},
+        arrangement=(("compressed", "cell_seam", 0),),
+    )
+
+    lead, _support, _low = render_studio_arrangement(_ctx(METER_44, 1), piece)
+
+    first, second = lead
+    assert first.beat == 1.5
+    assert first.duration_beats == 0.5
+    assert first.tie_start is False
+    assert first.slur_start is False
+    assert second.beat == 2.0
+    assert second.tie_stop is False
+    assert second.slur_stop is False
+
+
 def test_cadence_entry_renders_villa_cadence() -> None:
     piece = StudioPiece(
         pattern="studio_close",
