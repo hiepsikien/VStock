@@ -1174,7 +1174,7 @@ def _audio_notes(
 
 def _assign_playable_voices(
     notes: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], bool]:
+) -> tuple[list[dict[str, Any]], bool, int]:
     """Keep each authored voice monophonic.
 
     ``validate_authored`` rejects overlapping notes in one voice. MusicXML
@@ -1184,6 +1184,7 @@ def _assign_playable_voices(
     """
     ends: dict[tuple[int, int], float] = {}
     changed = False
+    dropped = 0
     ordered = sorted(
         notes,
         key=lambda note: (
@@ -1209,8 +1210,14 @@ def _assign_playable_voices(
                     for candidate in range(1, _MAX_AUTHORED_VOICES + 1)
                     if not _voice_busy(ends, candidate, bar, start)
                 ),
-                desired,
+                None,
             )
+        if voice is None:
+            # More than four notes try to sound at the same time. The authored
+            # layer is monophonic per voice (1..4), so an inner/extra tone must
+            # be omitted instead of failing the whole passage validation.
+            dropped += 1
+            continue
         if voice != desired:
             changed = True
         copy["voice"] = voice
@@ -1218,7 +1225,7 @@ def _assign_playable_voices(
             ends.get((voice, bar), 0.0), start + max(0.0, duration)
         )
         result.append(copy)
-    return result, changed
+    return result, changed, dropped
 
 
 def _voice_busy(
@@ -1402,12 +1409,17 @@ def _passage_payload(
             if not any(int(note.get("voice") or 1) == int(voice) for note in notes)
         }
     )
-    notes, voices_changed = _assign_playable_voices(notes)
+    notes, voices_changed, voices_dropped = _assign_playable_voices(notes)
     _sanitize_endpoints(notes)
     if voices_changed:
         warnings.append(
             "simultaneous notes were split across authored voices 1..4 to keep "
             "each voice monophonic"
+        )
+    if voices_dropped:
+        warnings.append(
+            f"{voices_dropped} overlapping note(s) were omitted to keep authored "
+            "voices 1..4 monophonic"
         )
     if missing_voices:
         warnings.append(

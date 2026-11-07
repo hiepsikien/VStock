@@ -1156,3 +1156,22 @@ def test_musicxml_routes_require_a_session_header() -> None:
     response = client.get("/v1/studio/import/musicxml/mxi_missing")
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "studio_session_required"
+
+
+def test_more_than_four_simultaneous_notes_drop_an_extra_not_a_validation_error() -> None:
+    from app.routers.studio_musicxml import _assign_playable_voices
+
+    notes = [
+        {"bar": 0, "beat": 0.0, "duration": 1.0, "midi": midi, "voice": 1}
+        for midi in (72, 71, 70, 69, 68)
+    ]
+    assigned, changed, dropped = _assign_playable_voices(notes)
+
+    assert dropped == 1
+    assert changed is True
+    assert len(assigned) == 4
+    by_voice_bar: dict[tuple[int, int], float] = {}
+    for note in assigned:
+        key = (int(note["voice"]), int(note["bar"]))
+        assert float(note["beat"]) >= by_voice_bar.get(key, -1.0)
+        by_voice_bar[key] = float(note["beat"]) + float(note["duration"])
