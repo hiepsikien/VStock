@@ -401,8 +401,10 @@ Production extras:
   không phải scale host của production.
 - `scales: "pipeline"`: thử scale engine gốc với host alias `etude1` →
   `etude11` → `thumb_cantabile`; dùng lại contour/realization/velocity của
-  production. Có thể overwrite lead và có thể không chọn được passage nào vì
-  host gate/impulse gate. Đây là mode thử nghiệm.
+  production. Có thể overwrite lead. Nếu host line bị giữ nguyên một pitch
+  (price đi ngang), fallback ghi một diatonic run thật: mỗi run tối đa 2
+  bars, tổng tối đa 30% body eighths, cách nhau ít nhất một bar. Đây là mode
+  thử nghiệm.
 
 Các pass này **có thể ghi đè authored note**. Mặc định off. Bật/tắt phải
 invalidate render và nằm trong `renderHash`.
@@ -763,7 +765,7 @@ Riêng compressed 1-bar frame **không** thuộc case này: nửa sau phải đ�
 sau `cut`, không lặp nửa đầu. Lỗi mapping đó đã được sửa bằng
 `pitch_eighth_offset` trong `bind_texture` / `render_texture_bar`.
 
-Không sửa variation policy trong MVP. Nếu muốn giảm lặp, cần một variation policy riêng:
+Variation policy **chưa implement**. Thiết kế chi tiết ở §18. Tóm tắt:
 
 - lead: neighbor/passing tone ở weak eighth;
 - mid: cycle chord degree khi cùng chord;
@@ -840,3 +842,180 @@ Chi tiết thiết kế, register band, schema `line_eighth`, cache/hash và tes
 xem `docs/studio-line-separation-plan.md`.
 
 Trạng thái: **Phase 0 đã implement; Phase 1 chờ nghe thử Phase 0**.
+
+---
+
+## 18. Pattern variation — neighbor / passing tone
+
+Trạng thái: **thiết kế, chưa implement**.
+Phạm vi: Render Piece / pattern layer, `StudioPiece` + ensemble `villa`.
+Không áp dụng cho source passage preview hay legacy render.
+
+### 18.1. Vấn đề
+
+Lead lấy pitch từ price melody đã quantize:
+
+```text
+rhythm = copy từ MusicXML
+lead   = melody_eighth
+```
+
+Khi price đi ngang hoặc cùng scale degree, nhiều onset liên tiếp nhận cùng
+pitch:
+
+```text
+76 76 76 76
+```
+
+Đây không phải bug rebind; nhưng nghe như gõ lặp một nốt. Variation policy chỉ
+giải quyết **tính âm nhạc**, không thay đổi nguyên tắc pitch-from-price.
+
+### 18.2. Ranh giới layer
+
+Variation thuộc **pattern layer**, không phải phrasing layer.
+
+```text
+phrasing = chia câu / Phrase / Run / phrase edge / held_over
+pattern  = texture, variation, neighbor, tremolo, ornament
+```
+
+Pattern layer được **đọc** `ctx.phrases` và `Run` như metadata, nhưng không
+sửa phrasing, không gọi lại `plan_phrases`, và không thay đổi phrase boundary.
+
+### 18.3. Option
+
+```json
+"options": {
+  "variation": "off" | "auto" | "force"
+}
+```
+
+| Mode | Hành vi |
+|---|---|
+| `off` | Giữ nguyên lead price melody |
+| `auto` | Variation ở chỗ hợp lý; **skip tremolo** và các chỗ protected |
+| `force` | Áp dụng cả tremolo/những chỗ bị auto bỏ; có warning |
+
+Mặc định: `off`.
+
+### 18.4. Protected positions
+
+Không đổi pitch ở:
+
+- strong beat;
+- chord change;
+- phrase start/end;
+- cadence / close / bar cuối;
+- note đang là target chính của price impulse;
+- scale passage vừa được chèn (để tránh hai policy tranh cùng eighth).
+
+Chỉ xét các **weak eighth** bên trong một run lặp cùng pitch.
+
+### 18.5. Rule cho lead
+
+Với một run:
+
+```text
+target: p p p p p
+```
+
+1. Giữ `p` ở strong beat.
+2. Tìm weak eighth có thể đổi.
+3. Chọn neighbor/passing tone:
+   - upper/lower neighbor trong scale/mode;
+   - nếu target kế tiếp gần hơn theo một hướng, dùng passing tone;
+   - nếu target kế tiếp bằng nhau, luân phiên upper/lower.
+4. Giới hạn:
+   - tối đa 1 variation trong một run ngắn;
+   - run phải có >= 3 onset;
+   - không đổi nếu neighbor ra ngoài treble register;
+   - không tạo same-voice overlap.
+
+Ví dụ:
+
+```text
+target:   76 76 76 76
+auto:     76 77 76 74   (upper neighbor rồi passing xuống)
+```
+
+hoặc:
+
+```text
+target:   76 76 76 74
+auto:     76 77 76 74   (passing tone đi xuống)
+```
+
+### 18.6. Tremolo
+
+Tremolo là lặp cùng pitch có chủ ý. `auto` phải **skip**.
+
+Detection theo thứ tự:
+
+1. pattern metadata:
+   - pattern id/name chứa `tremolo`;
+   - hoặc flag/tag `tremolo` trên figure.
+2. rhythm density:
+   - cùng pitch lặp ở 16th/32nd;
+   - run đủ dài trong một beat/bar.
+3. fallback: `Run` lặp + duration ngắn liên tục.
+
+`force` được phép áp dụng cho tremolo nhưng phải warning:
+
+```text
+variation forced on N tremolo bar(s); tremolo texture changed
+```
+
+### 18.7. Mid / bass (deferred)
+
+Variation cho lead là MVP. Sau đó có thể thêm:
+
+- **mid**: cycle chord degree khi cùng chord giữ nguyên;
+- **bass**: root → fifth → root khi chord giữ;
+- giữ nguyên cadence/close;
+- mỗi voice có option riêng, không gộp vào lead.
+
+### 18.8. Quan hệ với scales
+
+Thứ tự pattern-layer:
+
+```text
+resolve pattern lead
+  -> scales (safe / pipeline)
+  -> variation (auto / force)
+  -> repair / voice order
+  -> dynamics
+```
+
+Variation bỏ qua các eighth đã thuộc scale passage để tránh chồng policy.
+
+### 18.9. Cache / hash
+
+Đưa vào `renderHash`:
+
+- `variation` mode;
+- nếu variation plan được resolve thành pitch override, hash theo output plan;
+- bump `STUDIO_RENDER_REVISION` khi note thực tế đổi.
+
+### 18.10. Test plan
+
+- Run lặp `p p p p`:
+  - strong beat giữ `p`;
+  - weak eighth có neighbor/passing;
+  - không đổi cadence/close.
+- Tremolo:
+  - `auto` không đổi tremolo;
+  - `force` đổi + warning.
+- `off`: output giống baseline.
+- Không same-voice overlap.
+- Scale + variation: variation không ghi vào eighth của scale passage.
+- Legacy render không đổi.
+
+### 18.11. Rollout
+
+1. Implement `variation: off | auto` cho lead.
+2. Test trên figure lặp pitch nhiều.
+3. Nghe thử; nếu ổn mới thêm `force` và mid/bass variation.
+4. UI hint rõ:
+   ```text
+   Auto skips tremolo. Force may change tremolo texture.
+   ```
