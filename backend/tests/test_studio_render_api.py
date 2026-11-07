@@ -505,6 +505,7 @@ def test_production_extras_are_optional_and_change_the_hash(
 
 def test_scales_fill_lead_gaps_without_overwriting_authored_notes() -> None:
     from app.sonify.studio_piece import StudioProductionOptions
+    from app.studio.musicxml_import import parse_musicxml
 
     base = render_piece(replace(_service_request(), title="Scale baseline"))
     scaled = render_piece(
@@ -519,10 +520,36 @@ def test_scales_fill_lead_gaps_without_overwriting_authored_notes() -> None:
     assert scaled.notes > base.notes
     assert base.musicxml != scaled.musicxml
 
+    def note_set(xml: str) -> set[tuple[int, float, int, int]]:
+        score = parse_musicxml(xml.encode(), filename="scale.musicxml")
+        return {
+            (note.bar, round(note.beat, 6), note.voice, note.midi)
+            for note in score.notes
+            if note.midi is not None
+        }
+
+    assert note_set(base.musicxml) <= note_set(scaled.musicxml)
+
+    # Safe must not create a same-voice overlap either.
+    score = parse_musicxml(scaled.musicxml.encode(), filename="scale.musicxml")
+    by_voice: dict[int, list] = {}
+    for note in score.notes:
+        if note.midi is not None:
+            by_voice.setdefault(note.voice, []).append(note)
+    for notes in by_voice.values():
+        ordered = sorted(notes, key=lambda item: (item.bar, item.beat))
+        for left, right in zip(ordered, ordered[1:]):
+            assert (left.bar, left.beat + left.duration) <= (right.bar, right.beat)
+
 
 def test_pipeline_scale_mode_reports_what_it_selected() -> None:
+    import re
+
     from app.sonify.studio_piece import StudioProductionOptions
 
+    base = render_piece(
+        replace(_service_request(), title="Pipeline scale baseline")
+    )
     result = render_piece(
         replace(
             _service_request(),
@@ -531,7 +558,13 @@ def test_pipeline_scale_mode_reports_what_it_selected() -> None:
         )
     )
 
-    assert any("pipeline scales selected" in item for item in result.warnings)
+    selected = [
+        int(match.group(1))
+        for item in result.warnings
+        if (match := re.search(r"pipeline scales selected (\d+)", item))
+    ]
+    assert selected and selected[0] > 0
+    assert result.musicxml != base.musicxml
 
 
 def test_bpm_outside_the_supported_band_is_rejected(

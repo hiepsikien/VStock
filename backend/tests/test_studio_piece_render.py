@@ -476,6 +476,27 @@ def test_compressed_frame_clears_tie_and_slur_at_the_seam() -> None:
     assert second.slur_stop is False
 
 
+def test_safe_scales_do_not_fill_a_gap_after_a_tie_or_slur() -> None:
+    from app.sonify.guitar_patterns import _studio_scale_passages
+    from app.sonify.model import NoteEvent
+
+    ctx = _ctx(METER_44, 1)
+    held = NoteEvent(
+        bar=0,
+        beat=0.0,
+        midi=60,
+        duration_beats=0.5,
+        voice=1,
+        tie_start=True,
+        slur_start=True,
+    )
+
+    lead, passages = _studio_scale_passages(ctx, [held])
+
+    assert passages == []
+    assert lead == [held]
+
+
 def test_cadence_entry_renders_villa_cadence() -> None:
     piece = StudioPiece(
         pattern="studio_close",

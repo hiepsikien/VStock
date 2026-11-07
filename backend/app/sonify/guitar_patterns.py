@@ -4156,12 +4156,17 @@ def _studio_scale_passages(
     from app.sonify.guitar_scale_passages import ScalePassage
 
     covered: set[int] = set()
+    blocked_gap_starts: set[int] = set()
     for event in lead:
         if event.midi is None:
             continue
         start = event.bar * ctx.epb + int(round(event.beat * 2))
         span = max(1, int(round(event.duration_beats * 2)))
         covered.update(range(start, start + span))
+        if event.tie_start or event.slur_start:
+            # A tie/slur that points into the following gap must not be
+            # attached to a generated scale note.
+            blocked_gap_starts.add(start + span)
 
     added: list[NoteEvent] = []
     passages: list[ScalePassage] = []
@@ -4178,7 +4183,7 @@ def _studio_scale_passages(
             end = index
             while end < ctx.epb and base + end not in covered:
                 end += 1
-            if end - index >= 4:
+            if end - index >= 4 and base + index not in blocked_gap_starts:
                 gaps.append((index, end))
             index = end
         if not gaps:

@@ -71,7 +71,7 @@ __all__ = [
 
 #: Bump when rendered notes or the hash payload change. W4 requires it in the
 #: content hash so old cache entries cannot survive a renderer change.
-STUDIO_RENDER_REVISION = 4
+STUDIO_RENDER_REVISION = 5
 
 SUPPORTED_RENDER_SPANS = ("1W", "1M")
 SUPPORTED_PLAN_IDS = ("auto_aaba", "trio")
