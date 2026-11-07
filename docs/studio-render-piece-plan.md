@@ -904,7 +904,7 @@ Mặc định: `off`.
 Không đổi pitch ở:
 
 - strong beat;
-- chord change;
+- chord-change downbeat;
 - phrase start/end;
 - cadence / close / bar cuối;
 - note đang là target chính của price impulse;
@@ -934,7 +934,8 @@ target: p p p p p
    - nếu neighbor ra ngoài treble register, thử hướng ngược;
    - không tạo same-voice overlap;
    - không đổi nếu vị trí nằm trong `scale_eighths`, impulse target,
-     phrase edge, cadence/close bar, chord-change downbeat, hoặc note có tie/slur.
+     phrase edge, cadence/close bar, chord-change downbeat, hoặc note có tie/slur;
+   - reject nếu neighbor trùng pitch kế tiếp ở biên run.
 
 Ví dụ:
 

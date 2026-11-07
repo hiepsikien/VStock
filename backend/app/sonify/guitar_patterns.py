@@ -4703,6 +4703,7 @@ def _apply_studio_variation(
                 neighbor == principal
                 or not low <= neighbor <= high
                 or abs(neighbor - principal) > 2
+                or (following is not None and neighbor == following)
             ):
                 continue
             replacements[target_index] = neighbor
