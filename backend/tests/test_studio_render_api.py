@@ -8,6 +8,7 @@ through the ``studio_piece`` seam, stores it by content hash, and never writes
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -483,6 +484,7 @@ def test_production_extras_are_optional_and_change_the_hash(
         "production": {
             "campanella": True,
             "restFill": True,
+            "scales": True,
         },
     }
     extra = client.post("/v1/studio/figure/render", json=body)
@@ -491,6 +493,7 @@ def test_production_extras_are_optional_and_change_the_hash(
     payload = extra.json()
     assert payload["ok"] is True, payload
     assert payload["renderHash"] != default.json()["renderHash"]
+    assert any("production extras" in item for item in payload["warnings"])
 
     off = _body()
     off["options"] = {"includeDoors": True, "audio": False}
@@ -498,6 +501,23 @@ def test_production_extras_are_optional_and_change_the_hash(
         client.post("/v1/studio/figure/render", json=off).json()["renderHash"]
         == default.json()["renderHash"]
     )
+
+
+def test_scales_fill_lead_gaps_without_overwriting_authored_notes() -> None:
+    from app.sonify.studio_piece import StudioProductionOptions
+
+    base = render_piece(replace(_service_request(), title="Scale baseline"))
+    scaled = render_piece(
+        replace(
+            _service_request(),
+            title="Scale enabled",
+            production=StudioProductionOptions(scales=True),
+        )
+    )
+
+    assert base.notes > 0
+    assert scaled.notes > base.notes
+    assert base.musicxml != scaled.musicxml
 
 
 def test_bpm_outside_the_supported_band_is_rejected(

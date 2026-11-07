@@ -1043,6 +1043,7 @@ export type FigureRenderProduction = {
   transitions: boolean;
   caesuras: boolean;
   restFill: boolean;
+  scales: boolean;
 };
 
 export const DEFAULT_FIGURE_RENDER_PRODUCTION: FigureRenderProduction = {
@@ -1053,6 +1054,7 @@ export const DEFAULT_FIGURE_RENDER_PRODUCTION: FigureRenderProduction = {
   transitions: false,
   caesuras: false,
   restFill: false,
+  scales: false,
 };
 
 export type FigureRenderProductionKey = keyof FigureRenderProduction;
@@ -1069,6 +1071,7 @@ export const FIGURE_RENDER_PRODUCTION_OPTIONS: readonly {
   { key: 'transitions', label: 'Transitions', hint: 'Pickups at section boundaries' },
   { key: 'caesuras', label: 'Caesuras', hint: 'Breath silence before peaks' },
   { key: 'restFill', label: 'Rest fill', hint: 'Complete each voice with rests' },
+  { key: 'scales', label: 'Scales', hint: 'Fill empty lead eighths with scalar runs' },
 ];
 
 export type FigureRenderRequest = {

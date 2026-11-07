@@ -649,6 +649,34 @@ def _canonical_figures(
     ]
 
 
+_PRODUCTION_WARNING_NAMES: tuple[tuple[str, str], ...] = (
+    ("preludio_bass", "preludio bass"),
+    ("campanella", "campanella"),
+    ("bells", "bells"),
+    ("fanfares", "fanfares"),
+    ("transitions", "transitions"),
+    ("caesuras", "caesuras"),
+    ("rest_fill", "rest fill"),
+    ("scales", "scales"),
+)
+
+
+def _production_warnings(
+    production: StudioProductionOptions,
+) -> tuple[str, ...]:
+    enabled = [
+        label
+        for field, label in _PRODUCTION_WARNING_NAMES
+        if getattr(production, field, False)
+    ]
+    if not enabled:
+        return ()
+    return (
+        "production extras are enabled and may rewrite authored notes: "
+        + ", ".join(enabled),
+    )
+
+
 def _render_hash(
     request: RenderPieceRequest,
     *,
@@ -683,6 +711,7 @@ def _render_hash(
                 "transitions": request.production.transitions,
                 "caesuras": request.production.caesuras,
                 "restFill": request.production.rest_fill,
+                "scales": request.production.scales,
             },
         },
         "title": title,
@@ -879,7 +908,12 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
     )
 
     arrangement = _build_piece(normalized, form, plan.cells)
-    warnings = [*pitch_warnings, *validation_warnings, *arrangement.warnings]
+    warnings = [
+        *_production_warnings(production),
+        *pitch_warnings,
+        *validation_warnings,
+        *arrangement.warnings,
+    ]
 
     render_hash = _render_hash(
         normalized,

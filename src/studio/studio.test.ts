@@ -4033,6 +4033,7 @@ deepEqual(DEFAULT_FIGURE_RENDER_PRODUCTION, {
   transitions: false,
   caesuras: false,
   restFill: false,
+  scales: false,
 });
 deepEqual(
   FIGURE_RENDER_PRODUCTION_OPTIONS.map((option) => option.key),
@@ -4044,6 +4045,7 @@ deepEqual(
     'transitions',
     'caesuras',
     'restFill',
+    'scales',
   ],
 );
 
@@ -4058,13 +4060,14 @@ const badBpm = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
 equal(badBpm.ok, false);
 
 const withExtras = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
-  production: { campanella: true, restFill: true },
+  production: { campanella: true, restFill: true, scales: true },
 });
 if (!withExtras.ok) throw new Error(withExtras.error);
 deepEqual(withExtras.request.production, {
   ...DEFAULT_FIGURE_RENDER_PRODUCTION,
   campanella: true,
   restFill: true,
+  scales: true,
 });
 
 const builtRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo);

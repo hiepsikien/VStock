@@ -126,7 +126,8 @@ Request:
       "fanfares": false,
       "transitions": false,
       "caesuras": false,
-      "restFill": false
+      "restFill": false,
+      "scales": false
     }
   }
 }
@@ -359,7 +360,7 @@ BPM:
 
 Production extras:
 [ Preludio bass ] [ Campanella ] [ Bells ] [ Fanfares ]
-[ Transitions ] [ Caesuras ] [ Rest fill ]
+[ Transitions ] [ Caesuras ] [ Rest fill ] [ Scales ]
 
 [ Render piece ]  [ Play ]  [ Export WAV ]  [ Export MusicXML ]
 ```
@@ -373,6 +374,9 @@ Production extras:
 - `transitions`: pickup/relax ở boundary section.
 - `caesuras`: khoảng lặng trước peak.
 - `restFill`: điền rest cho đủ voice.
+- `scales`: điền scalar run vào các gap lead (một gap/bar), không ghi đè
+  authored note. Đây là Studio-specific fallback vì pattern id của Studio
+  không phải scale host của production.
 
 Các pass này **có thể ghi đè authored note**. Mặc định off. Bật/tắt phải
 invalidate render và nằm trong `renderHash`.

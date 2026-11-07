@@ -4142,6 +4142,81 @@ def _studio_pedal_bass(ctx: _Ctx, low: list[NoteEvent]) -> list[NoteEvent]:
     return [*low, *events]
 
 
+def _studio_scale_passages(
+    ctx: _Ctx,
+    lead: list[NoteEvent],
+) -> tuple[list[NoteEvent], list]:
+    """Fill one lead gap per body bar with a price-driven scalar run.
+
+    Studio's pattern id is not a production scale host, so the shared
+    ``apply_scale_passages`` selection finds no host bar. This helper keeps the
+    same musical idea but only writes into empty lead eighths: an authored
+    note is never overwritten.
+    """
+    from app.sonify.guitar_scale_passages import ScalePassage
+
+    covered: set[int] = set()
+    for event in lead:
+        if event.midi is None:
+            continue
+        start = event.bar * ctx.epb + int(round(event.beat * 2))
+        span = max(1, int(round(event.duration_beats * 2)))
+        covered.update(range(start, start + span))
+
+    added: list[NoteEvent] = []
+    passages: list[ScalePassage] = []
+    for bar in range(ctx.bars):
+        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+            continue
+        base = bar * ctx.epb
+        gaps: list[tuple[int, int]] = []
+        index = 0
+        while index < ctx.epb:
+            if base + index in covered:
+                index += 1
+                continue
+            end = index
+            while end < ctx.epb and base + end not in covered:
+                end += 1
+            if end - index >= 4:
+                gaps.append((index, end))
+            index = end
+        if not gaps:
+            continue
+        start_offset, end_offset = max(gaps, key=lambda gap: gap[1] - gap[0])
+        start = base + start_offset
+        target = base + end_offset - 1
+        first = _melody_at(ctx, start)
+        last = _melody_at(ctx, target)
+        direction = 1 if last >= first else -1
+        for step in range(end_offset - start_offset):
+            pitch = _walk(
+                first,
+                direction * step,
+                ctx.mode,
+                ctx.treble_floor,
+                min(ctx.treble_top, ctx.ceiling),
+            )
+            added.extend(
+                _eighth_event(start + step, 1, pitch, ctx.epb, 1, _MELODY)
+            )
+            covered.add(start + step)
+        passages.append(
+            ScalePassage(
+                start=start,
+                target=target,
+                direction="up" if direction > 0 else "down",
+                net_span=end_offset - start_offset,
+                score=1.0,
+                retreat_spans=(),
+                sub_bar=(end_offset - start_offset) < ctx.epb,
+                passage_eighths=end_offset - start_offset,
+                replaced_base_intrinsic_eighths=0,
+            )
+        )
+    return [*lead, *added], passages
+
+
 def _finish_voices(
     ctx: _Ctx,
     patterns: list[str],
@@ -4217,9 +4292,28 @@ def _finish_voices(
 
     # Passages are chosen from the price line, then they overwrite only their eighths.
     if studio_mode:
-        # Authored cells never receive a price-line passage. An empty plan keeps
-        # the later hairpin/restamp seams working without touching a note.
-        scale_plan = ScalePlan(0, 0, 0, 0, (), (), (), 0)
+        if _studio_extra(studio_production, "scales"):
+            lead, passages = _studio_scale_passages(ctx, lead)
+            body_eighths = ctx.bars * ctx.epb
+            scale_plan = ScalePlan(
+                body_eighths=body_eighths,
+                base_intrinsic_eighths=0,
+                max_scale_eighths=body_eighths,
+                room=body_eighths,
+                passages=tuple(passages),
+                perpetual_bars=(),
+                tier1=(),
+                room_after=max(
+                    0,
+                    body_eighths
+                    - sum(passage.passage_eighths for passage in passages),
+                ),
+            )
+        else:
+            # Authored cells never receive a price-line passage. An empty plan
+            # keeps the later hairpin/restamp seams working without touching a
+            # note.
+            scale_plan = ScalePlan(0, 0, 0, 0, (), (), (), 0)
     else:
         if ctx.ensemble == "torroba":
             lowered_melody = list(ctx.melody)

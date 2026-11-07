@@ -116,6 +116,7 @@ class RenderProductionIn(BaseModel):
     transitions: bool = False
     caesuras: bool = False
     restFill: bool = False
+    scales: bool = False
 
 
 class RenderOptionsIn(BaseModel):
@@ -387,6 +388,7 @@ def render_piece_route(
             transitions=body.options.production.transitions,
             caesuras=body.options.production.caesuras,
             rest_fill=body.options.production.restFill,
+            scales=body.options.production.scales,
         ),
         session=owner_id,
     )
