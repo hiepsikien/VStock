@@ -4281,11 +4281,16 @@ def _studio_forced_scale_passages(
         if ctx.kind_at.get(bar, "phrase") in _PEDAL:
             continue
         base = bar * ctx.epb
-        lengths = sorted({ctx.epb, max(4, ctx.epb // 2)}, reverse=True)
+        lengths = sorted(set(range(3, ctx.epb + 1)), reverse=True)
+        offsets = tuple(
+            dict.fromkeys(
+                (0, ctx.epb // 2, 1, ctx.epb // 2 + 1)
+            )
+        )
         placed = False
         for length in lengths:
-            for offset in (0, ctx.epb // 2):
-                if offset + length > ctx.epb:
+            for offset in offsets:
+                if offset < 0 or offset + length > ctx.epb:
                     continue
                 start = base + offset
                 target = start + length - 1
