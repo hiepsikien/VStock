@@ -152,6 +152,8 @@ class StudioPiece:
     production: StudioProductionOptions = field(
         default_factory=StudioProductionOptions
     )
+    # "off", "auto", "force": pattern-layer neighbor variation for the lead.
+    variation: str = "off"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cells", dict(self.cells))
@@ -165,6 +167,8 @@ class StudioPiece:
         )
         if not isinstance(self.production, StudioProductionOptions):
             object.__setattr__(self, "production", StudioProductionOptions())
+        if self.variation not in ("off", "auto", "force"):
+            object.__setattr__(self, "variation", "off")
 
     def validate(self) -> tuple[str, ...]:
         """Return every structural problem. An empty tuple means the piece is renderable."""

@@ -123,6 +123,7 @@ class RenderOptionsIn(BaseModel):
     includeDoors: bool = True
     audio: bool = True
     production: RenderProductionIn = Field(default_factory=RenderProductionIn)
+    variation: str = Field(default="off", pattern="^(off|auto|force)$")
 
 
 class RenderRequestIn(BaseModel):
@@ -402,6 +403,7 @@ def render_piece_route(
             rest_fill=production_in.restFill,
             scales=production_in.scales,
         ),
+        variation=body.options.variation,
         session=owner_id,
     )
     try:

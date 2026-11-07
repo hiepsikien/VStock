@@ -3538,6 +3538,7 @@ def render_patterned_voices(
             preludio_bass=False,
             studio_mode=True,
             studio_production=studio_piece.production,
+            studio_variation=studio_piece.variation,
         )
     # Feature-gated Villa sentence, Suite movements, and Brouwer A-B-A. Off by
     # default, so the existing bar loop below is byte-identical. Each gate
@@ -4513,6 +4514,133 @@ def _studio_pipeline_scales(
     return lead, support, low, ScalePlan(0, 0, 0, 0, (), (), (), 0)
 
 
+def _apply_studio_variation(
+    ctx: _Ctx,
+    lead: list[NoteEvent],
+    mode: str,
+    *,
+    pattern_name: str = "",
+    scale_eighths: set[int] | None = None,
+) -> list[NoteEvent]:
+    """Pattern-layer neighbor/passing variation for a repeated lead run.
+
+    This reads phrase metadata, but does not change phrasing itself. Strong
+    beats, chord changes, phrase edges, cadence/close, tied/slurred notes and
+    scale passages keep their pitch. ``auto`` also skips tremolo textures.
+    """
+    if mode not in ("auto", "force") or not lead:
+        return lead
+    if mode == "auto" and "tremolo" in pattern_name.lower():
+        return lead
+
+    protected = set(scale_eighths or ())
+    for bar in range(ctx.bars):
+        base = bar * ctx.epb
+        protected.update(base + offset for offset in ctx.strong)
+    for phrase in ctx.phrases:
+        protected.add(int(phrase.start))
+        protected.add(int(phrase.end) - 1)
+
+    ordered = sorted(
+        (event for event in lead if event.midi is not None),
+        key=lambda event: (event.bar, event.beat),
+    )
+    groups: list[list[NoteEvent]] = []
+    current: list[NoteEvent] = []
+    current_phrase = None
+    for event in ordered:
+        start = event.bar * ctx.epb + int(round(event.beat * 2))
+        phrase = _phrase_at(ctx, start)
+        same_phrase = phrase is current_phrase or (
+            phrase is not None
+            and current_phrase is not None
+            and phrase.start == current_phrase.start
+            and phrase.end == current_phrase.end
+        )
+        if (
+            current
+            and event.midi == current[-1].midi
+            and start
+            - (
+                current[-1].bar * ctx.epb
+                + int(round(current[-1].beat * 2))
+            )
+            <= 2
+            and same_phrase
+        ):
+            current.append(event)
+        else:
+            if current:
+                groups.append(current)
+            current = [event]
+            current_phrase = phrase
+    if current:
+        groups.append(current)
+
+    replacements: dict[int, int] = {}
+    for group_index, group in enumerate(groups):
+        if len(group) < 3:
+            continue
+        # A fast same-pitch run is a tremolo texture, not a price plateau.
+        if mode == "auto" and len(group) >= 4:
+            starts = [
+                event.bar * ctx.epb + int(round(event.beat * 2))
+                for event in group
+            ]
+            if all(right - left <= 1 for left, right in zip(starts, starts[1:])):
+                continue
+
+        principal = group[0].midi
+        if principal is None:
+            continue
+        candidates = []
+        for event in group[1:-1]:
+            start = event.bar * ctx.epb + int(round(event.beat * 2))
+            if (
+                start in protected
+                or event.tie_start
+                or event.tie_stop
+                or event.slur_start
+                or event.slur_stop
+            ):
+                continue
+            candidates.append(event)
+        if not candidates:
+            continue
+        target = candidates[len(candidates) // 2]
+        start = target.bar * ctx.epb + int(round(target.beat * 2))
+        if start in protected:
+            continue
+
+        next_pitch = None
+        for event in ordered:
+            event_start = event.bar * ctx.epb + int(round(event.beat * 2))
+            if event_start > start and event.midi is not None:
+                next_pitch = event.midi
+                break
+        if next_pitch is not None and next_pitch != principal:
+            direction = 1 if next_pitch > principal else -1
+        else:
+            direction = 1 if group_index % 2 == 0 else -1
+        low = ctx.treble_floor
+        high = min(ctx.treble_top, ctx.ceiling)
+        neighbor = _walk(principal, direction, ctx.mode, low, high)
+        if neighbor == principal:
+            neighbor = _walk(principal, -direction, ctx.mode, low, high)
+        if neighbor == principal or not low <= neighbor <= high:
+            continue
+        replacements[id(target)] = neighbor
+
+    if not replacements:
+        return lead
+    return [
+        replace(event, midi=replacements[id(event)])
+        if id(event) in replacements
+        else event
+        for event in lead
+    ]
+
+
 def _finish_voices(
     ctx: _Ctx,
     patterns: list[str],
@@ -4529,6 +4657,7 @@ def _finish_voices(
     preludio_bass: bool = True,
     studio_mode: bool = False,
     studio_production: "StudioProductionOptions | None" = None,
+    studio_variation: str = "off",
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     """The shared post-wave tail: bells, transitions, scale, wave, pinned, fill.
 
@@ -4742,6 +4871,14 @@ def _finish_voices(
             lead = _silence(lead, eighth, epb)
             support = _silence(support, eighth, epb)
             low = _silence(low, eighth, epb)
+    if studio_mode:
+        lead = _apply_studio_variation(
+            ctx,
+            lead,
+            studio_variation,
+            pattern_name=patterns[0] if patterns else "",
+            scale_eighths=scale_eighths,
+        )
     lead, support, low = _repair(ctx, lead, support, low)
     if not studio_mode:
         from app.sonify.guitar_torroba import apply_torroba_fan_ring

@@ -264,6 +264,7 @@ def build_arrangement(
     textures: Mapping[str, TextureSpec] | None = None,
     require_doors: bool = True,
     production: StudioProductionOptions | None = None,
+    variation: str = "off",
 ) -> ArrangementResult:
     """Build a :class:`StudioPiece` for ``form`` from a tagged figure pool.
 
@@ -368,6 +369,7 @@ def build_arrangement(
         cells=used_cells,
         arrangement=tuple(arrangement),
         production=production or StudioProductionOptions(),
+        variation=variation,
     )
     errors = piece.validate()
     if errors:

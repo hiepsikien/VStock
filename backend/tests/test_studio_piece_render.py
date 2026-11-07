@@ -646,6 +646,71 @@ def test_safe_scales_do_not_fill_a_gap_after_a_tie_or_slur() -> None:
     assert lead == [held]
 
 
+def test_pattern_variation_changes_a_weak_repeat_not_the_strong_beat() -> None:
+    from app.sonify.guitar_patterns import _apply_studio_variation
+    from app.sonify.model import NoteEvent
+
+    ctx = _ctx(METER_44, 1)
+    lead = [
+        NoteEvent(
+            bar=0,
+            beat=float(beat),
+            midi=76,
+            duration_beats=1.0,
+            voice=1,
+        )
+        for beat in range(4)
+    ]
+
+    varied = _apply_studio_variation(
+        ctx,
+        lead,
+        "auto",
+        pattern_name="studio_test",
+    )
+
+    assert varied[0].midi == 76  # strong beat
+    assert varied[2].midi == 76  # strong beat
+    assert any(event.midi != 76 for event in varied)
+    assert _apply_studio_variation(ctx, lead, "off") == lead
+
+
+def test_pattern_variation_auto_skips_tremolo_and_force_can_change_it() -> None:
+    from app.sonify.guitar_patterns import _apply_studio_variation
+    from app.sonify.model import NoteEvent
+
+    ctx = _ctx(METER_44, 1)
+    lead = [
+        NoteEvent(
+            bar=0,
+            beat=float(beat),
+            midi=76,
+            duration_beats=0.25,
+            voice=1,
+        )
+        for beat in (0.0, 0.25, 0.5, 0.75)
+    ]
+
+    assert (
+        _apply_studio_variation(
+            ctx,
+            lead,
+            "auto",
+            pattern_name="studio_tremolo",
+        )
+        == lead
+    )
+    assert any(
+        event.midi != 76
+        for event in _apply_studio_variation(
+            ctx,
+            lead,
+            "force",
+            pattern_name="studio_tremolo",
+        )
+    )
+
+
 def test_cadence_entry_renders_villa_cadence() -> None:
     piece = StudioPiece(
         pattern="studio_close",

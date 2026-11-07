@@ -1051,6 +1051,27 @@ export const FIGURE_RENDER_SCALE_MODES: readonly {
   },
 ];
 
+export type FigureRenderVariation = 'off' | 'auto' | 'force';
+export const DEFAULT_FIGURE_RENDER_VARIATION: FigureRenderVariation = 'off';
+
+export const FIGURE_RENDER_VARIATION_MODES: readonly {
+  id: FigureRenderVariation;
+  label: string;
+  hint: string;
+}[] = [
+  { id: 'off', label: 'Off', hint: 'Keep the price pitch line' },
+  {
+    id: 'auto',
+    label: 'Auto',
+    hint: 'Neighbor/passing on weak repeats; skips tremolo',
+  },
+  {
+    id: 'force',
+    label: 'Force',
+    hint: 'Also vary tremolo; may change the technique',
+  },
+];
+
 export type FigureRenderProduction = {
   preludioBass: boolean;
   campanella: boolean;
@@ -1102,6 +1123,7 @@ export type FigureRenderRequest = {
   options: {
     includeDoors: boolean;
     production: FigureRenderProduction;
+    variation: FigureRenderVariation;
   };
 };
 
@@ -1117,6 +1139,8 @@ export type FigureRenderOptions = {
   form?: FigureRenderFormSpan | FigureRenderForm;
   /** Defaults to all false. */
   production?: Partial<FigureRenderProduction>;
+  /** Defaults to "off". */
+  variation?: FigureRenderVariation;
 };
 
 export type FigureRenderBuildResult =
@@ -1247,6 +1271,7 @@ export function buildFigureRenderRequest(
     options: {
       includeDoors: options.includeDoors ?? true,
       production,
+      variation: options.variation ?? DEFAULT_FIGURE_RENDER_VARIATION,
     },
     ...(title ? { title } : {}),
   };

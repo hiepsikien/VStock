@@ -765,7 +765,7 @@ Riêng compressed 1-bar frame **không** thuộc case này: nửa sau phải đ�
 sau `cut`, không lặp nửa đầu. Lỗi mapping đó đã được sửa bằng
 `pitch_eighth_offset` trong `bind_texture` / `render_texture_bar`.
 
-Variation policy **chưa implement**. Thiết kế chi tiết ở §18. Tóm tắt:
+Variation policy đã implement cho lead (`off/auto/force`); mid/bass deferred. Chi tiết ở §18. Tóm tắt:
 
 - lead: neighbor/passing tone ở weak eighth;
 - mid: cycle chord degree khi cùng chord;
@@ -847,7 +847,7 @@ Trạng thái: **Phase 0 đã implement; Phase 1 chờ nghe thử Phase 0**.
 
 ## 18. Pattern variation — neighbor / passing tone
 
-Trạng thái: **thiết kế, chưa implement**.
+Trạng thái: **đã implement cho lead** (`off/auto/force`); mid/bass variation deferred.
 Phạm vi: Render Piece / pattern layer, `StudioPiece` + ensemble `villa`.
 Không áp dụng cho source passage preview hay legacy render.
 

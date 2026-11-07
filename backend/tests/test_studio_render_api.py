@@ -609,6 +609,16 @@ def test_pipeline_scale_mode_reports_what_it_selected() -> None:
     assert result.musicxml != base.musicxml
 
 
+def test_pattern_variation_mode_is_hashed_and_warned() -> None:
+    off = render_piece(replace(_service_request(), title="Variation off"))
+    auto = render_piece(
+        replace(_service_request(), title="Variation auto", variation="auto")
+    )
+
+    assert auto.render_hash != off.render_hash
+    assert any("pattern variation is auto" in item for item in auto.warnings)
+
+
 def test_bpm_outside_the_supported_band_is_rejected(
     client: TestClient,
 ) -> None:

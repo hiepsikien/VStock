@@ -27,6 +27,7 @@ import {
   DEFAULT_FIGURE_RENDER_BPM,
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   DEFAULT_FIGURE_RENDER_PRODUCTION,
+  DEFAULT_FIGURE_RENDER_VARIATION,
   DEMO_SERIES_OPTIONS,
   FIGURE_RENDER_BPM_MAX,
   FIGURE_RENDER_BPM_MIN,
@@ -34,6 +35,7 @@ import {
   FIGURE_RENDER_FORM_SPANS,
   FIGURE_RENDER_PRODUCTION_OPTIONS,
   FIGURE_RENDER_SCALE_MODES,
+  FIGURE_RENDER_VARIATION_MODES,
   FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
   VILLA_COMPOSER,
@@ -69,6 +71,7 @@ import {
   type FigureRenderAudio,
   type FigureRenderProduction,
   type FigureRenderToggleKey,
+  type FigureRenderVariation,
   type FigureRenderFormSpan,
   type FigureRenderPlanId,
   type FigureRenderResponse,
@@ -1144,6 +1147,9 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
   const [production, setProduction] = useState<FigureRenderProduction>(
     DEFAULT_FIGURE_RENDER_PRODUCTION,
   );
+  const [variation, setVariation] = useState<FigureRenderVariation>(
+    DEFAULT_FIGURE_RENDER_VARIATION,
+  );
   const [movementIndex, setMovementIndex] = useState(
     DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   );
@@ -1197,7 +1203,17 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
     setError(null);
     setNote(null);
     stopAudio();
-  }, [bpm, dataRange, draftKey, movementIndex, plan, production, span, stopAudio]);
+  }, [
+    bpm,
+    dataRange,
+    draftKey,
+    movementIndex,
+    plan,
+    production,
+    span,
+    stopAudio,
+    variation,
+  ]);
 
   useEffect(
     () => () => {
@@ -1256,6 +1272,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
           ? { span, movementIndex, bpm }
           : { span, bpm },
       production,
+      variation,
     });
     if (!built.ok) {
       setError({ text: built.error });
@@ -1301,7 +1318,17 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
         setRenderBusy(false);
       }
     }
-  }, [bpm, draft, movementIndex, plan, production, series, span, stopAudio]);
+  }, [
+    bpm,
+    draft,
+    movementIndex,
+    plan,
+    production,
+    series,
+    span,
+    stopAudio,
+    variation,
+  ]);
 
   const play = useCallback(async () => {
     const renderHash = render?.renderHash;
@@ -1602,6 +1629,35 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
           <Text style={styles.fieldMeta}>
             Pipeline is experimental: it uses the original Lobos scale engine
             and may overwrite authored lead notes.
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.inputLabel}>Variation</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {FIGURE_RENDER_VARIATION_MODES.map((option) => (
+            <Chip
+              key={`render-variation:${option.id}`}
+              label={option.label}
+              active={variation === option.id}
+              onPress={() => setVariation(option.id)}
+              accessibilityLabel={`Variation ${option.label}: ${option.hint}`}
+            />
+          ))}
+        </ScrollView>
+        <Text style={styles.fieldMeta}>
+          {FIGURE_RENDER_VARIATION_MODES.find(
+            (option) => option.id === variation,
+          )?.hint ?? 'Keep the price pitch line.'}
+        </Text>
+        {variation === 'force' ? (
+          <Text style={styles.fieldMeta}>
+            Force also varies tremolo textures and can change the technique.
           </Text>
         ) : null}
       </View>

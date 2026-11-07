@@ -140,6 +140,8 @@ class RenderPieceRequest:
     production: StudioProductionOptions = field(
         default_factory=StudioProductionOptions
     )
+    # Pattern-layer lead variation: "off", "auto", "force".
+    variation: str = "off"
     # Optional namespace metadata only; it never changes the content hash.
     session: str = "anonymous"
 
@@ -718,6 +720,7 @@ def _render_hash(
                 "restFill": request.production.rest_fill,
                 "scales": request.production.scales,
             },
+            "variation": request.variation,
         },
         "title": title,
         "paramsHash": params_hash(active_params()),
@@ -835,6 +838,7 @@ def _build_piece(
             textures=cells,
             require_doors=request.include_doors,
             production=request.production,
+            variation=request.variation,
         )
     except ValueError as exc:
         message = str(exc)
@@ -884,6 +888,7 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         if isinstance(request.production, StudioProductionOptions)
         else StudioProductionOptions()
     )
+    variation = request.variation if request.variation in ("off", "auto", "force") else "off"
     normalized = RenderPieceRequest(
         pattern=pattern,
         meter=meter_name,
@@ -896,6 +901,7 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         title=request.title,
         include_doors=request.include_doors,
         production=production,
+        variation=variation,
         session=request.session,
     )
 
@@ -919,6 +925,10 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         *validation_warnings,
         *arrangement.warnings,
     ]
+    if variation != "off":
+        warnings.append(
+            f"pattern variation is {variation}; repeated lead pitches may change"
+        )
 
     render_hash = _render_hash(
         normalized,

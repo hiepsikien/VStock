@@ -182,6 +182,7 @@ import {
   DEFAULT_FIGURE_RENDER_BPM,
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   DEFAULT_FIGURE_RENDER_PRODUCTION,
+  DEFAULT_FIGURE_RENDER_VARIATION,
   DEMO_SERIES_LABEL,
   DEMO_SERIES_OPTIONS,
   FIGURE_RENDER_BPM_MAX,
@@ -190,6 +191,7 @@ import {
   FIGURE_RENDER_PLANS,
   FIGURE_RENDER_PRODUCTION_OPTIONS,
   FIGURE_RENDER_SCALE_MODES,
+  FIGURE_RENDER_VARIATION_MODES,
   FIGURE_TAGS,
   GENERIC_PATTERN_IDS,
   KEY_BODY_MISSING,
@@ -4052,6 +4054,11 @@ deepEqual(
   FIGURE_RENDER_SCALE_MODES.map((option) => option.id),
   ['off', 'safe', 'pipeline'],
 );
+equal(DEFAULT_FIGURE_RENDER_VARIATION, 'off');
+deepEqual(
+  FIGURE_RENDER_VARIATION_MODES.map((option) => option.id),
+  ['off', 'auto', 'force'],
+);
 
 const slowRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
   form: { span: '1W', bpm: 72 },
@@ -4075,7 +4082,14 @@ deepEqual(withExtras.request.options, {
     restFill: true,
     scales: 'pipeline',
   },
+  variation: 'off',
 });
+
+const varied = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
+  variation: 'auto',
+});
+if (!varied.ok) throw new Error(varied.error);
+equal(varied.request.options.variation, 'auto');
 
 const builtRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo);
 if (!builtRender.ok) throw new Error(builtRender.error);
