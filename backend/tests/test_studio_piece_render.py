@@ -512,6 +512,38 @@ def test_pipeline_forced_scales_move_on_a_flat_price_window() -> None:
         )
 
 
+def test_direct_scale_rhythm_follows_bpm_and_leap_rule() -> None:
+    from app.sonify.guitar_patterns import _studio_direct_scale_notes
+    from app.sonify.guitar_scale_passages import ScalePassage
+
+    ctx = _ctx(METER_44, 1)
+    epb = ctx.epb
+    passage = ScalePassage(0, epb - 1, "up", 8, 1.0, (), False, epb - 1, 0)
+    floor = ctx.treble_floor
+    ceiling = min(ctx.treble_top, ctx.ceiling)
+
+    def durations() -> set[float]:
+        built = _studio_direct_scale_notes(
+            ctx, passage, 60, 1, floor, ceiling
+        )
+        assert built is not None
+        return {
+            round(event.duration_beats, 3)
+            for event in built[0]
+            if event.midi is not None
+        }
+
+    ctx.melody[:] = [60] * len(ctx.melody)
+    # BPM 96 is over the sixteenth threshold.
+    assert 0.25 in durations()
+
+    # BPM 64 keeps the body in eighths unless a melody leap promotes one.
+    ctx.bpm = 64
+    assert durations() == {0.5}
+    ctx.melody[:] = [60, 64] * (len(ctx.melody) // 2)
+    assert 0.25 in durations()
+
+
 def test_forced_scales_never_cross_a_pedal_bar_or_the_end() -> None:
     from app.sonify.form import _PEDAL
     from app.sonify.guitar_patterns import (

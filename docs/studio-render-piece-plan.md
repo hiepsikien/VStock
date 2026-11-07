@@ -404,7 +404,8 @@ Production extras:
   production. Có thể overwrite lead. Nếu host line bị giữ nguyên một pitch
   (price đi ngang), fallback ghi một diatonic run thật: mỗi run tối đa 2
   bars, tổng ngân sách 30% body eighths (tối thiểu một bar), cách nhau ít
-  nhất một bar. Đây là mode thử nghiệm.
+  nhất một bar. Fallback dùng cùng `_regions`/`_use_sixteenths`, nên cũng
+  theo ngưỡng 88 BPM và leap-promotion. Đây là mode thử nghiệm.
 
 Các pass này **có thể ghi đè authored note**. Mặc định off. Bật/tắt phải
 invalidate render và nằm trong `renderHash`.

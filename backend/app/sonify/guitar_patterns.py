@@ -4280,6 +4280,66 @@ def _studio_lead_moves(
     return len(found) >= 3
 
 
+def _studio_direct_scale_notes(
+    ctx: _Ctx,
+    passage: "ScalePassage",
+    first: int,
+    direction: int,
+    floor: int,
+    ceiling: int,
+) -> tuple[list[NoteEvent], int, int] | None:
+    """Build a direct diatonic run with the engine's eighth/sixteenth regions.
+
+    ``_regions`` owns the BPM threshold, the 6/8 exception, the long-run
+    exception, and the leap-promotion rule. The direct fallback uses the same
+    rhythm map so a forced run does not always collapse to móc đơn.
+    """
+    from app.sonify.guitar_scale_passages import _regions
+
+    region = _regions(ctx, passage)
+    attacks: list[tuple[int, int]] = []
+    for eighth in range(passage.start, passage.target):
+        if region.get(eighth) == "sixteenth":
+            attacks.append((eighth * 2, 1))
+            attacks.append((eighth * 2 + 1, 1))
+        else:
+            attacks.append((eighth * 2, 2))
+    # The arrival eighth is outside the region map, matching ``_slots``.
+    attacks.append((passage.target * 2, 2))
+
+    best: list[int] = []
+    best_sign = direction
+    best_distinct = -1
+    for sign in (direction, -direction):
+        pitches = [
+            _walk(first, sign * step, ctx.mode, floor, ceiling)
+            for step in range(len(attacks))
+        ]
+        distinct = len(set(pitches))
+        if distinct > best_distinct:
+            best = pitches
+            best_sign = sign
+            best_distinct = distinct
+        if distinct == len(pitches):
+            break
+    if best_distinct < 3:
+        return None
+
+    fresh: list[NoteEvent] = []
+    for (start16, dur16), pitch in zip(attacks, best):
+        fresh.extend(
+            _spell16(
+                start16,
+                dur16,
+                pitch,
+                ctx.epb,
+                1,
+                _MELODY,
+            )
+        )
+    return fresh, best_sign, abs(best[-1] - best[0])
+
+
 def _studio_forced_scale_passages(
     ctx: _Ctx,
     lead: list[NoteEvent],
@@ -4395,42 +4455,12 @@ def _studio_forced_scale_passages(
                 sign = 1 if last >= first else -1
                 floor = ctx.treble_floor
                 ceiling = min(ctx.treble_top, ctx.ceiling)
-                pitches: list[int] = []
-                best_sign = sign
-                best_distinct = -1
-                for candidate_sign in (sign, -sign):
-                    candidate = [
-                        _walk(
-                            first,
-                            candidate_sign * step,
-                            ctx.mode,
-                            floor,
-                            ceiling,
-                        )
-                        for step in range(length)
-                    ]
-                    distinct = len(set(candidate))
-                    if distinct > best_distinct:
-                        pitches = candidate
-                        best_sign = candidate_sign
-                        best_distinct = distinct
-                    if distinct == len(candidate):
-                        break
-                if best_distinct < 3:
+                built = _studio_direct_scale_notes(
+                    ctx, passage, first, sign, floor, ceiling
+                )
+                if built is None:
                     continue
-                sign = best_sign
-                fresh: list[NoteEvent] = []
-                for step, pitch in enumerate(pitches):
-                    fresh.extend(
-                        _eighth_event(
-                            start + step,
-                            1,
-                            pitch,
-                            ctx.epb,
-                            1,
-                            _MELODY,
-                        )
-                    )
+                fresh, sign, net_span = built
                 lead_out = _splice(
                     lead_out, start * 2, (target + 1) * 2, fresh, ctx.epb
                 )
@@ -4438,7 +4468,7 @@ def _studio_forced_scale_passages(
                     replace(
                         passage,
                         direction="up" if sign > 0 else "down",
-                        net_span=max(6, abs(pitches[-1] - pitches[0])),
+                        net_span=max(6, net_span),
                         forced=True,
                     )
                 )
