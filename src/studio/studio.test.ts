@@ -181,6 +181,7 @@ import {
 import {
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   DEMO_SERIES_LABEL,
+  DEMO_SERIES_OPTIONS,
   FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
   GENERIC_PATTERN_IDS,
@@ -196,6 +197,7 @@ import {
   createPatternDraft,
   createPatternFigure,
   demoSeries,
+  demoSeriesForRange,
   existingTemplateOptions,
   figureAudioStatusLabel,
   figureBarsFromTextureSpec,
@@ -3982,6 +3984,32 @@ equal(
   true,
 );
 equal(DEMO_SERIES_LABEL, 'Demo 1D series');
+deepEqual(
+  DEMO_SERIES_OPTIONS.map((option) => option.id),
+  ['1D', '1W', '1M'],
+);
+deepEqual(demoSeriesForRange('1D', 64), demo);
+equal(demoSeriesForRange('1W', 64).length, 64);
+equal(demoSeriesForRange('1M', 64).length, 64);
+
+function directionChanges(series: readonly { close: number }[]): number {
+  let changes = 0;
+  let previous = 0;
+  for (let index = 1; index < series.length; index += 1) {
+    const delta = series[index].close - series[index - 1].close;
+    if (delta === 0) continue;
+    const sign = Math.sign(delta);
+    if (previous !== 0 && sign !== previous) changes += 1;
+    previous = sign;
+  }
+  return changes;
+}
+
+const demo1D = demoSeriesForRange('1D', 128);
+const demo1W = demoSeriesForRange('1W', 128);
+const demo1M = demoSeriesForRange('1M', 128);
+equal(directionChanges(demo1W) > directionChanges(demo1D), true);
+equal(directionChanges(demo1M) > directionChanges(demo1W), true);
 deepEqual(
   FIGURE_RENDER_PLANS.map((option) => option.id),
   ['auto_aaba', 'trio'],

@@ -25,7 +25,7 @@ import {
 } from './patternDraftStorage';
 import {
   DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
-  DEMO_SERIES_LABEL,
+  DEMO_SERIES_OPTIONS,
   FIGURE_RENDER_FORM_SPANS,
   FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
@@ -37,7 +37,7 @@ import {
   buildFigureRenderRequest,
   composerOptions,
   createPatternDraft,
-  demoSeries,
+  demoSeriesForRange,
   existingTemplateOptions,
   figureAudioStatusLabel,
   figureRenderDraftKey,
@@ -58,6 +58,7 @@ import {
   setFigureTag,
   villaMeterSupported,
   villaTemplateOptions,
+  type DemoSeriesRange,
   type FigureRenderAudio,
   type FigureRenderFormSpan,
   type FigureRenderPlanId,
@@ -1129,6 +1130,7 @@ function downloadUrl(url: string, filename: string): boolean {
 function RenderPieceSection({ draft }: { draft: PatternDraft }) {
   const [plan, setPlan] = useState<FigureRenderPlanId>('auto_aaba');
   const [span, setSpan] = useState<FigureRenderFormSpan>('1W');
+  const [dataRange, setDataRange] = useState<DemoSeriesRange>('1D');
   const [movementIndex, setMovementIndex] = useState(
     DEFAULT_FIGURE_RENDER_MOVEMENT_INDEX,
   );
@@ -1147,7 +1149,10 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
 
   const draftKey = useMemo(() => figureRenderDraftKey(draft), [draft]);
   // 1M movements need 104–108 source bars; the demo series pads to 128.
-  const series = useMemo(() => demoSeries(span === '1M' ? 128 : 64), [span]);
+  const series = useMemo(
+    () => demoSeriesForRange(dataRange, span === '1M' ? 128 : 64),
+    [dataRange, span],
+  );
 
   const stopAudio = useCallback(() => {
     const current = audioPlayer.current;
@@ -1170,7 +1175,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
     setError(null);
     setNote(null);
     stopAudio();
-  }, [draftKey, plan, span, movementIndex, stopAudio]);
+  }, [dataRange, draftKey, movementIndex, plan, span, stopAudio]);
 
   useEffect(
     () => () => {
@@ -1380,8 +1385,8 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
         <Text style={styles.stepMeta}>FIGURES → PIECE → WAV</Text>
       </View>
       <Text style={styles.hint}>
-        Render the tagged pool with a plan and a 1D series. Nothing is published;
-        the SentenceSpec editor is not changed.
+        Render the tagged pool with a plan and a data series. Nothing is
+        published; the SentenceSpec editor is not changed.
       </Text>
 
       <View style={styles.fieldGroup}>
@@ -1405,6 +1410,30 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
           {FIGURE_RENDER_PLANS.find((option) => option.id === plan)?.hint ??
             'Select a plan.'}{' '}
           ABAB and Through are not implemented yet.
+        </Text>
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.inputLabel}>Data</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {DEMO_SERIES_OPTIONS.map((option) => (
+            <Chip
+              key={`render-data:${option.id}`}
+              label={option.label}
+              active={dataRange === option.id}
+              onPress={() => setDataRange(option.id)}
+              accessibilityLabel={`Use demo data ${option.id}`}
+            />
+          ))}
+        </ScrollView>
+        <Text style={styles.fieldMeta}>
+          {DEMO_SERIES_OPTIONS.find((option) => option.id === dataRange)?.hint ??
+            'Select demo data.'}{' '}
+          · {series.length} bars, no truncation.
         </Text>
       </View>
 
@@ -1447,16 +1476,17 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
             ? `Monthly form · movement index ${movementIndex}`
             : 'Weekly form · 32 bars'}
           {' · '}
-          {series.length} demo bars, no truncation.
+          {series.length} series bars, no truncation.
         </Text>
       </View>
 
       <View style={styles.seriesRow}>
         <Text style={[styles.seriesChip, styles.seriesChipActive]}>
-          {DEMO_SERIES_LABEL}
+          {DEMO_SERIES_OPTIONS.find((option) => option.id === dataRange)?.label ??
+            'Demo series'}
         </Text>
         <Text style={styles.fieldMeta}>
-          {series.length} bars · synthetic closes + volume · symbol picker later
+          synthetic closes + volume · symbol/date loader later
         </Text>
       </View>
 

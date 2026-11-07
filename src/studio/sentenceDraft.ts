@@ -1178,30 +1178,98 @@ export function figureRenderDraftKey(draft: PatternDraft): string {
   });
 }
 
-export const DEMO_SERIES_LABEL = 'Demo 1D series';
+export type DemoSeriesRange = '1D' | '1W' | '1M';
+
+export type DemoSeriesOption = {
+  id: DemoSeriesRange;
+  label: string;
+  hint: string;
+};
 
 /**
- * Deterministic synthetic 1D series for the MVP UI. A symbol/date picker will
- * replace it later; today it is clearly labeled demo data and never touches
- * the network or the repo.
+ * Synthetic data ranges exposed by the MVP Render Piece UI. They are demo
+ * data with progressively shorter waves, so `1W`/`1M` exercise more pitch
+ * movement than `1D`. A symbol/date loader replaces them later.
+ */
+export const DEMO_SERIES_OPTIONS: readonly DemoSeriesOption[] = [
+  {
+    id: '1D',
+    label: 'Demo 1D',
+    hint: 'One session · 3 slow price cycles',
+  },
+  {
+    id: '1W',
+    label: 'Demo 1W',
+    hint: 'One week · more intraday swings',
+  },
+  {
+    id: '1M',
+    label: 'Demo 1M',
+    hint: 'One month · most movement',
+  },
+];
+
+export const DEMO_SERIES_IDS: readonly DemoSeriesRange[] =
+  DEMO_SERIES_OPTIONS.map((option) => option.id);
+
+export function isDemoSeriesRange(value: unknown): value is DemoSeriesRange {
+  return typeof value === 'string' && (DEMO_SERIES_IDS as readonly string[]).includes(value);
+}
+
+export const DEMO_SERIES_LABEL = 'Demo 1D series';
+
+function demoClose(range: DemoSeriesRange, t: number): number {
+  if (range === '1W') {
+    return 100 + 14 * t + 20 * Math.sin(t * Math.PI * 10) + 7 * Math.sin(t * Math.PI * 30);
+  }
+  if (range === '1M') {
+    return 100 + 10 * t + 16 * Math.sin(t * Math.PI * 18) + 6 * Math.sin(t * Math.PI * 54);
+  }
+  return 100 + 18 * t + 24 * Math.sin(t * Math.PI * 6);
+}
+
+function demoVolume(range: DemoSeriesRange, t: number): number {
+  if (range === '1W') {
+    return 220 + 80 * (0.5 + 0.5 * Math.sin(t * Math.PI * 4)) + 30 * Math.sin(t * Math.PI * 12);
+  }
+  if (range === '1M') {
+    return 260 + 70 * (0.5 + 0.5 * Math.sin(t * Math.PI * 8)) + 25 * Math.sin(t * Math.PI * 24);
+  }
+  return 180 + 90 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
+}
+
+/**
+ * Deterministic synthetic series for a demo data range. A symbol/date picker
+ * will replace it later; today it is clearly labeled demo data and never
+ * touches the network or the repo.
+ *
+ * `1W` and `1M` deliberately use shorter waves plus a small harmonic so the
+ * rendered melody changes pitch more often than the `1D` series.
  *
  * 64 bars is enough for `1W`; the UI requests more for `1M`.
  */
-export function demoSeries(bars = 64): FigureRenderBar[] {
+export function demoSeriesForRange(
+  range: DemoSeriesRange = '1D',
+  bars = 64,
+): FigureRenderBar[] {
   const count =
     typeof bars === 'number' && Number.isFinite(bars) ? Math.max(1, Math.trunc(bars)) : 64;
   const series: FigureRenderBar[] = [];
   for (let index = 0; index < count; index += 1) {
     const t = count === 1 ? 0 : index / (count - 1);
-    // Smooth ramp plus two full sine cycles: deterministic and bounded.
-    const close = 100 + 18 * t + 24 * Math.sin(t * Math.PI * 6);
-    const volume = 180 + 90 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
+    const close = demoClose(range, t);
+    const volume = demoVolume(range, t);
     series.push({
       close: Math.round(close * 1000) / 1000,
-      volume: Math.round(volume),
+      volume: Math.round(Math.max(0, volume)),
     });
   }
   return series;
+}
+
+/** Backwards-compatible alias for the default demo `1D` series. */
+export function demoSeries(bars = 64): FigureRenderBar[] {
+  return demoSeriesForRange('1D', bars);
 }
 
 /* ------------------------------------------------------------------------- *

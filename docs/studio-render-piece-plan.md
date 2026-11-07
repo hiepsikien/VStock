@@ -285,13 +285,26 @@ outro bars   → outro.short / outro.long
 
 ---
 
-## 7. 1D series
+## 7. Series
 
 Nguồn:
 
 1. `symbol` + `date` → load bars hiện có.
 2. `bars[]` do client gửi (giới hạn số lượng).
-3. Demo mặc định: `VIC 2026-10-14` hoặc synthetic.
+3. Demo hiện tại: synthetic, chọn được `1D` / `1W` / `1M`.
+
+Ba demo range dùng cùng một số bar (64 cho form `1W`, 128 cho form `1M`)
+nhưng waveform khác nhau:
+
+| Range | Đặc điểm | Mục đích |
+|---|---|---|
+| `1D` | 3 chu kỳ chậm | baseline hiện tại |
+| `1W` | 5 chu kỳ + harmonic nhỏ | nhiều đổi hướng hơn |
+| `1M` | 9 chu kỳ + harmonic nhỏ | nhiều biến thiên nhất |
+
+Range chỉ đổi dữ liệu price/volume, không đổi form. `1W`/`1M` cố ý có nhiều
+dao động hơn `1D` để test ảnh hưởng của price contour lên melody; đây vẫn là
+demo data, chưa phải symbol/date thật.
 
 Yêu cầu:
 
@@ -302,8 +315,8 @@ Yêu cầu:
 
 UI có thể:
 
-- dropdown symbol/date;
-- hoặc “Use demo 1D series”;
+- dropdown symbol/date (follow-up);
+- hoặc chọn “Demo 1D / 1W / 1M”;
 - hoặc paste JSON bars.
 
 ---
@@ -693,6 +706,12 @@ Không sửa trong MVP. Nếu muốn giảm lặp, cần một variation policy 
 
 Nếu file Render Piece trùng pitch source note-for-note, cần kiểm tra cache/bundle cũ trước khi kết luận rebind sai.
 
-### 16.3. Demo 1D series
+### 16.3. Demo series 1D / 1W / 1M
 
-Demo series chỉ để test luồng. Nó có thể tạo price melody lặp; không đại diện cho một bản nhạc “hay”. Symbol/date series picker vẫn là follow-up.
+Demo series chỉ để test luồng. `1D`, `1W`, `1M` là ba waveform synthetic
+khác nhau, không phải dữ liệu thị trường thật. `1W`/`1M` có nhiều chu kỳ ngắn
+hơn nên tạo nhiều thay đổi cao độ hơn; chúng vẫn có thể lặp pitch khi price
+đi ngang và không đại diện cho một bản nhạc “hay”.
+
+Symbol/date loader thật vẫn là follow-up; khi thêm, phải resolve thành
+`bars[]` trước khi hash/render, không silent truncate hoặc repeat.
