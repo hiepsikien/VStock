@@ -587,3 +587,37 @@ def test_render_piece_rebinds_literal_pitches_to_relative_refs() -> None:
     assert events[0].pitch.kind == "melody_eighth"
     assert events[1].pitch.kind == "chord_root"
     assert warnings and "rebound" in warnings[0]
+
+
+def test_literal_pitch_uses_cell_local_beat_not_source_bar() -> None:
+    from app.studio.render_piece import _bind_production_pitches
+    from app.studio.texture_spec import (
+        AuthoredEvent,
+        PitchRef,
+        TextureSpec,
+    )
+
+    texture = TextureSpec(
+        id="cell_local",
+        composer="villa",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=3,
+                beat=1.5,
+                duration_beats=1.0,
+                voice=1,
+                pitch=PitchRef.literal_midi(72),
+            ),
+        ),
+    )
+    figure = PatternFigure(
+        id="fig_local", cell_id="cell_local", bars=4, tags=("key",)
+    )
+    bound, _warnings = _bind_production_pitches(((figure, texture),), 4)
+    pitch = bound[0][1].authored[0].pitch
+    assert pitch.kind == "melody_eighth"
+    assert pitch.eighth == 3

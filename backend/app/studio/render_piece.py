@@ -374,7 +374,11 @@ def _bind_production_pitches(
                 events.append(event)
                 continue
             if event.voice == 1:
-                eighth = event.bar * epb + int(round(event.beat * 2))
+                # render_texture_bar reindexes the selected cell bar to 0 and
+                # adds target_bar * epb in bind_texture. Include only the
+                # beat offset here; adding event.bar would double-count the
+                # cell bar and overflow the target melody.
+                eighth = int(round(event.beat * 2))
                 pitch = PitchRef.melody_eighth(eighth, 0)
             elif event.voice == 2:
                 pitch = PitchRef.chord_degree(2)
