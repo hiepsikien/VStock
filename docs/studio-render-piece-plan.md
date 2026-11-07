@@ -711,7 +711,8 @@ Không sửa variation policy trong MVP. Nếu muốn giảm lặp, cần một 
   - non-lead thấp nhất → bass;
   - non-lead còn lại → mid.
 
-  Sau đó role voice chuẩn là `1 / 2/4 / 3`. Bass dùng register
+  Không rewrite `voice` trong spec; `render_texture_bar(role_by_pitch=True)`
+  phân vai lúc render, nên từng voice nguồn vẫn monophonic. Bass dùng register
   `Chord.bass_midi` fold vào 40..53; mid fold chord tone vào 50..65.
 - Door authored material vì vậy cũng mất pitch gốc trong Render Piece; đây là
   chủ ý để giữ nguyên tắc “production pitch đến từ price/chord”. Nếu sau này

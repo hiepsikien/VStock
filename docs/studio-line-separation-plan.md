@@ -29,10 +29,15 @@ Phạm vi Phase 0:
    non-lead thấp nhất tại mỗi onset -> bass
    non-lead còn lại                 -> mid
    ```
-2. Rewrite `voice` của event đã bind về role voice chuẩn:
+2. Giữ nguyên `voice` gốc của event để validator monophonic vẫn đúng; renderer
+   phân vai theo pitch bằng `render_texture_bar(role_by_pitch=True)`:
    ```text
-   lead = 1, mid = 2/4, bass = 3
+   voice 1                          -> lead
+   non-lead thấp nhất tại mỗi onset -> bass
+   non-lead còn lại                 -> mid
    ```
+   Không rewrite `voice` trong `TextureSpec`, vì hai voice nguồn khác nhau có
+   thể chồng nhau và tạo lỗi “voice 3 note overlaps”.
 3. Bass dùng register thật:
    - bắt đầu từ `Chord.bass_midi` (C2–B2);
    - fold lên octave cho đến khi `>= guitar_floor` (40), giữ nguyên pitch class.
@@ -252,13 +257,14 @@ khác nhau, window sẽ được chọn theo `1D / 1W / 1M` hoặc theo số bar
 Trước khi bind pitch, gom event theo `(bar, beat)` rồi phân vai:
 
 ```text
-voice 1                          -> lead, role voice 1
-non-lead thấp nhất tại mỗi onset -> bass, role voice 3
-non-lead còn lại, thấp → cao     -> mid, role voice 2 rồi 4
+voice 1                          -> lead
+non-lead thấp nhất tại mỗi onset -> bass
+non-lead còn lại, thấp → cao     -> mid
 ```
 
 Điều này mirror `buildRoleLanes` của frontend và bỏ phụ thuộc vào voice number
-gốc của MusicXML. Sau đó rewrite `event.voice` về role voice trước khi render.
+gốc của MusicXML. Không rewrite `event.voice` trong spec; role được quyết định
+lúc render qua `role_by_pitch=True` để giữ từng voice nguồn monophonic.
 
 Với figure chỉ có một voice: giữ nguyên làm lead.
 
@@ -560,7 +566,7 @@ Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4.
 
 ### 9.1. Phase 0 — đã implement
 
-1. Phân vai theo pitch + rewrite role voices.
+1. Phân vai theo pitch; giữ source voice, render bằng `role_by_pitch=True`.
 2. Bass dùng `Chord.bass_midi` fold vào 40..53.
 3. Mid fold chord tone vào 50..65.
 4. Bump revision lên 4.
@@ -588,7 +594,8 @@ Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4.
 ## 10. Rủi ro / câu hỏi mở
 
 0. **Voice number gốc không phải role** — file hiện tại có bass ở voice 2.
-   → Phase 0 phân vai theo pitch order, rewrite role voice trước khi render.
+   → Phase 0 phân vai theo pitch order; giữ source voice và render bằng
+   `role_by_pitch=True`, không rewrite `voice` trong spec.
 1. **MA5/MA20 tương quan** trong thị trường đi ngang; mid/bass có thể chụm.
    → band + chord quantize + soft warning.
 2. **MA20 trên 1M thật quá dài** (~21 daily closes).

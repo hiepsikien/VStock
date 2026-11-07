@@ -217,6 +217,7 @@ def _compressed_voices(
         target_bar,
         cell_bar=first_bar,
         max_beat=cut,
+        role_by_pitch=True,
     )
     second = render_texture_bar(
         texture,
@@ -225,6 +226,7 @@ def _compressed_voices(
         cell_bar=first_bar + 1,
         pitch_eighth_offset=cut_eighths,
         max_beat=cut,
+        role_by_pitch=True,
     )
     lead: list = []
     support: list = []
@@ -279,6 +281,7 @@ def render_studio_arrangement(
                 ctx,
                 target_bar,
                 cell_bar=entry.source_bar,
+                role_by_pitch=True,
             )
         elif entry.kind == "compressed":
             texture = piece.cells[entry.source_id]

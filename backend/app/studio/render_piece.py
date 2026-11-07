@@ -417,7 +417,7 @@ def _bind_production_pitches(
     bass root, and the remaining non-lead notes become middle chord tones.
     Role is decided by pitch order at each onset, because the source voice
     number is not a role id. The rhythm/duration/notation metadata is kept;
-    only pitch and role voice are rewritten.
+    only pitch is rewritten, and the renderer assigns the final role by pitch.
     """
     bound: list[tuple[PatternFigure, TextureSpec]] = []
     changed = False
@@ -437,14 +437,15 @@ def _bind_production_pitches(
                 # beat offset here; adding event.bar would double-count the
                 # cell bar and overflow the target melody.
                 pitch = PitchRef.melody_eighth(int(round(event.beat * 2)), 0)
-                voice = 1
             elif kind == "bass":
                 pitch = PitchRef.chord_bass()
-                voice = 3
             else:
                 pitch = PitchRef.chord_mid(2 + rank)
-                voice = 2 if rank == 0 else 4
-            events.append(replace(event, pitch=pitch, voice=voice))
+            # Keep the source voice number. Rewriting it can make two
+            # different source voices collide in one role voice and trip the
+            # monophonic authored validator. ``render_texture_bar`` assigns
+            # the final role by pitch at render time.
+            events.append(replace(event, pitch=pitch))
             texture_changed = True
         if texture_changed:
             changed = True

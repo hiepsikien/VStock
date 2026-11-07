@@ -736,15 +736,62 @@ def test_production_roles_follow_pitch_not_source_voice() -> None:
     bound, _warnings = _bind_production_pitches(((figure, texture),), 4)
     events = bound[0][1].authored
 
-    # Source voice 2 is the lowest note, so it must become bass, not mid.
-    assert events[1].voice == 3
+    # Source voice 2 is the lowest note, so its pitch must become bass even
+    # though the authored voice stays 2 for monophonic validation.
+    assert events[1].voice == 2
     assert events[1].pitch.kind == "chord_bass"
-    assert events[2].voice == 2
+    assert events[2].voice == 3
     assert events[2].pitch.kind == "chord_mid"
     assert events[2].pitch.degree == 2
     assert events[3].voice == 4
     assert events[3].pitch.kind == "chord_mid"
     assert events[3].pitch.degree == 3
+
+
+def test_pitch_role_binding_keeps_source_voices_monophonic() -> None:
+    from app.sonify.form import METER_44
+    from app.studio.render_piece import _bind_production_pitches
+    from app.studio.texture_spec import (
+        AuthoredEvent,
+        PitchRef,
+        TextureSpec,
+        validate_authored,
+    )
+
+    texture = TextureSpec(
+        id="cell_overlap",
+        composer="villa",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=0.5, voice=1,
+                pitch=PitchRef.literal_midi(76),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.5, duration_beats=0.5, voice=1,
+                pitch=PitchRef.literal_midi(77),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=2,
+                pitch=PitchRef.literal_midi(52),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.5, duration_beats=1.0, voice=3,
+                pitch=PitchRef.literal_midi(55),
+            ),
+        ),
+    )
+    figure = PatternFigure(
+        id="fig_overlap", cell_id="cell_overlap", bars=1, tags=("key",)
+    )
+
+    bound, _warnings = _bind_production_pitches(((figure, texture),), 4)
+    errors = validate_authored(bound[0][1].authored, METER_44)
+
+    assert not any("overlaps" in error.message for error in errors)
 
 
 def test_render_piece_output_does_not_emit_the_source_literal_pitch(
