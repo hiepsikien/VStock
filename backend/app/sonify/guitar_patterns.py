@@ -4309,24 +4309,44 @@ def _studio_direct_scale_notes(
     # The arrival eighth is outside the region map, matching ``_slots``.
     attacks.append((passage.target * 2, 2))
 
-    best: list[int] = []
-    best_sign = direction
-    best_distinct = -1
-    for sign in (direction, -direction):
-        pitches = [
-            _walk(first, sign * step, ctx.mode, floor, ceiling)
-            for step in range(len(attacks))
-        ]
-        distinct = len(set(pitches))
-        if distinct > best_distinct:
-            best = pitches
-            best_sign = sign
-            best_distinct = distinct
-        if distinct == len(pitches):
-            break
-    if best_distinct < 3:
-        return None
+    def fold(sign: int) -> list[int]:
+        pitches: list[int] = []
+        pitch = first
+        step = sign
+        for _ in attacks:
+            pitches.append(pitch)
+            nxt = _walk(pitch, step, ctx.mode, floor, ceiling)
+            if nxt == pitch:
+                step = -step
+                nxt = _walk(pitch, step, ctx.mode, floor, ceiling)
+            pitch = nxt
+        return pitches
 
+    def longest_hold(pitches: list[int]) -> int:
+        best = 0
+        current = 0
+        previous = None
+        for pitch in pitches:
+            if pitch == previous:
+                current += 1
+            else:
+                previous = pitch
+                current = 1
+            best = max(best, current)
+        return best
+
+    candidates = [fold(direction), fold(-direction)]
+    best = min(
+        candidates,
+        key=lambda pitches: (
+            -len(set(pitches)),
+            longest_hold(pitches),
+            abs(pitches[-1] - pitches[0]),
+        ),
+    )
+    if len(set(best)) < 3 or longest_hold(best) > 2:
+        return None
+    best_sign = 1 if best[-1] >= best[0] else -1
     fresh: list[NoteEvent] = []
     for (start16, dur16), pitch in zip(attacks, best):
         fresh.extend(
@@ -4339,7 +4359,7 @@ def _studio_direct_scale_notes(
                 _MELODY,
             )
         )
-    return fresh, best_sign, abs(best[-1] - best[0])
+    return fresh, best_sign, max(best) - min(best)
 
 
 def _studio_forced_scale_passages(
@@ -4648,7 +4668,7 @@ def _apply_studio_variation(
         principal = group[0][1].midi
         if principal is None:
             continue
-        candidates: list[tuple[int, NoteEvent]] = []
+        candidates: list[tuple[int, int, NoteEvent]] = []
         for offset, (index, event) in enumerate(group[1:], start=1):
             start = starts[index]
             if (
@@ -4659,18 +4679,18 @@ def _apply_studio_variation(
                 or event.slur_stop
             ):
                 continue
-            candidates.append((offset, event))
+            candidates.append((offset, index, event))
         if not candidates:
             continue
         chosen = candidates if mode == "force" else candidates[0::2]
         low = ctx.treble_floor
         high = min(ctx.treble_top, ctx.ceiling)
-        for ordinal, (offset, target) in enumerate(chosen):
+        for ordinal, (offset, ordered_index, target) in enumerate(chosen):
             target_start = target.bar * ctx.epb + int(round(target.beat * 2))
             target_index = index_by_event.get(id(target))
             if target_index is None or target_start in protected:
                 continue
-            following = next_pitch[target_index]
+            following = next_pitch[ordered_index]
             if following is not None and following != principal:
                 base_direction = 1 if following > principal else -1
             else:

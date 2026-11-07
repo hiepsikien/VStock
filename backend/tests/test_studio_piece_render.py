@@ -738,6 +738,78 @@ def test_pattern_variation_changes_more_than_one_note_in_a_long_plateau() -> Non
     assert varied[4].midi == 76  # bar 1 strong beat
 
 
+def test_forced_scale_folds_instead_of_sticking_to_the_ceiling() -> None:
+    from app.sonify.guitar_patterns import _studio_direct_scale_notes
+    from app.sonify.guitar_scale_passages import ScalePassage
+
+    ctx = _ctx(METER_44, 2)
+    passage = ScalePassage(
+        start=0,
+        target=15,
+        direction="up",
+        net_span=6,
+        score=1.0,
+        retreat_spans=(),
+        sub_bar=False,
+        passage_eighths=16,
+        replaced_base_intrinsic_eighths=0,
+    )
+
+    built = _studio_direct_scale_notes(
+        ctx, passage, 60, 1, ctx.treble_floor, min(ctx.treble_top, ctx.ceiling)
+    )
+
+    assert built is not None
+    notes, _sign, _span = built
+    pitches = [note.midi for note in notes if note.midi is not None]
+    assert len(set(pitches)) >= 3
+    longest = 0
+    current = 0
+    previous = None
+    for pitch in pitches:
+        if pitch == previous:
+            current += 1
+        else:
+            previous = pitch
+            current = 1
+        longest = max(longest, current)
+    assert longest <= 2
+    assert max(pitches) < min(ctx.treble_top, ctx.ceiling)
+
+
+def test_pattern_variation_handles_rests_and_input_order() -> None:
+    from app.sonify.guitar_patterns import _apply_studio_variation
+    from app.sonify.model import NoteEvent
+
+    ctx = _ctx(METER_44, 1)
+    rest = NoteEvent(
+        bar=0, beat=0.0, midi=None, duration_beats=0.5, voice=1
+    )
+    notes = [
+        NoteEvent(bar=0, beat=float(beat), midi=76, duration_beats=0.5, voice=1)
+        for beat in (0.5, 1.0, 1.5)
+    ]
+    lead = [rest, *notes]
+
+    varied = _apply_studio_variation(
+        ctx, lead, "auto", pattern_name="studio_test"
+    )
+    reordered = [notes[2], rest, notes[0], notes[1]]
+    varied_reordered = _apply_studio_variation(
+        ctx, reordered, "auto", pattern_name="studio_test"
+    )
+
+    def by_time(events):
+        return [
+            event.midi
+            for event in sorted(events, key=lambda item: item.beat)
+            if event.midi is not None
+        ]
+
+    assert by_time(varied) == by_time(varied_reordered)
+    assert by_time(varied) != [76, 76, 76]
+
+
 def test_pattern_variation_rejects_a_neighbor_far_from_the_principal() -> None:
     from app.sonify.guitar_patterns import _apply_studio_variation
     from app.sonify.model import NoteEvent
@@ -767,13 +839,13 @@ def test_pattern_variation_keeps_scale_and_impulse_eighths() -> None:
     from app.sonify.guitar_patterns import _apply_studio_variation
     from app.sonify.model import NoteEvent, PriceImpulse
 
-    ctx = _ctx(METER_44, 1)
+    ctx = _ctx(METER_44, 2)
     ctx = dc_replace(
         ctx,
         impulses=(
             PriceImpulse(
-                start=2,
-                target=2,
+                start=6,
+                target=6,
                 direction="up",
                 net_span=6,
                 adjusted_efficiency=1.0,
@@ -783,12 +855,13 @@ def test_pattern_variation_keeps_scale_and_impulse_eighths() -> None:
     )
     lead = [
         NoteEvent(
-            bar=0,
+            bar=bar,
             beat=float(beat),
             midi=76,
             duration_beats=1.0,
             voice=1,
         )
+        for bar in range(2)
         for beat in range(4)
     ]
 
@@ -800,8 +873,10 @@ def test_pattern_variation_keeps_scale_and_impulse_eighths() -> None:
         scale_eighths={2},
     )
 
-    assert varied[1].midi == 76  # scale eighth
-    assert varied[2].midi == 76  # impulse target (also a strong beat here)
+    # eighth 2 is a scale passage; eighth 6 is the impulse target.
+    assert varied[1].midi == 76
+    assert varied[6].midi == 76
+    assert any(event.midi != 76 for index, event in enumerate(varied) if index not in (1, 6))
 
 
 def test_pattern_variation_auto_skips_tremolo_and_force_can_change_it() -> None:
