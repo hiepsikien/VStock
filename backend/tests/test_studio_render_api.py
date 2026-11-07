@@ -503,3 +503,36 @@ def test_out_of_range_literal_midi_is_folded_for_preview(
     payload = response.json()
     assert payload["ok"] is True
     assert any("folded into guitar range" in item for item in payload["warnings"])
+
+
+def test_fold_literal_pitch_moves_88_to_76() -> None:
+    from app.studio.render_piece import _fold_literal_pitches
+    from app.studio.texture_spec import (
+        AuthoredEvent,
+        PitchRef,
+        TextureSpec,
+    )
+
+    texture = TextureSpec(
+        id="cell_high",
+        composer="villa",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0,
+                beat=0.0,
+                duration_beats=1.0,
+                voice=1,
+                pitch=PitchRef.literal_midi(88),
+            ),
+        ),
+    )
+    figure = PatternFigure(
+        id="fig_high", cell_id="cell_high", bars=1, tags=("key",)
+    )
+    folded, warnings = _fold_literal_pitches(((figure, texture),))
+    assert folded[0][1].authored[0].pitch.value == 76
+    assert warnings and "folded into guitar range" in warnings[0]

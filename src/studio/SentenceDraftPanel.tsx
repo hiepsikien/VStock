@@ -147,6 +147,7 @@ export function SentenceDraftPanel({
   const [composerMode, setComposerMode] = useState<'existing' | 'new'>('existing');
   const [draft, setDraft] = useState<PatternDraft | null>(null);
   const [draftHydrated, setDraftHydrated] = useState(false);
+  const importIdRef = useRef(importId);
   const [result, setResult] = useState<SentenceDraftResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ErrorLine>(null);
@@ -188,10 +189,15 @@ export function SentenceDraftPanel({
   }, []);
 
   useEffect(() => {
+    importIdRef.current = importId;
+  }, [importId]);
+
+  useEffect(() => {
     let cancelled = false;
+    const importedAtLoad = importIdRef.current;
     void loadPatternDraft().then((saved) => {
       if (cancelled) return;
-      if (saved) {
+      if (saved && importIdRef.current === importedAtLoad) {
         setDraft(saved);
         setMode((saved.figures?.length ?? 0) > 0 ? 'new' : 'existing');
         setNote('Restored the saved pattern draft.');
