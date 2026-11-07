@@ -432,3 +432,37 @@ def test_production_audio_can_be_gated(
     assert payload["ok"] is True
     assert payload["audio"]["status"] == "unavailable"
     assert any("server gate" in item for item in payload["warnings"])
+
+
+def test_audio_submit_route_respects_the_gate(
+    client: TestClient, monkeypatch
+) -> None:
+    body = _body()
+    body["options"] = {"includeDoors": True, "audio": False}
+    rendered = client.post("/v1/studio/figure/render", json=body).json()
+    render_hash = rendered["renderHash"]
+
+    monkeypatch.setenv("VSTOCK_STUDIO_RENDER_AUDIO", "off")
+    blocked = client.post(f"/v1/studio/figure/render/{render_hash}/audio")
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"]["code"] == "figure_audio_disabled"
+
+
+def test_audio_submit_route_checks_the_token(
+    client: TestClient, monkeypatch
+) -> None:
+    body = _body()
+    body["options"] = {"includeDoors": True, "audio": False}
+    render_hash = client.post("/v1/studio/figure/render", json=body).json()[
+        "renderHash"
+    ]
+
+    monkeypatch.setenv("VSTOCK_STUDIO_RENDER_AUDIO", "on")
+    monkeypatch.setenv("VSTOCK_STUDIO_RENDER_AUDIO_TOKEN", "secret")
+    blocked = client.post(f"/v1/studio/figure/render/{render_hash}/audio")
+    assert blocked.status_code == 403
+    allowed = client.post(
+        f"/v1/studio/figure/render/{render_hash}/audio",
+        headers={"X-Studio-Render-Token": "secret"},
+    )
+    assert allowed.status_code == 202

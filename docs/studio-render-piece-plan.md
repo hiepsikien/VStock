@@ -597,7 +597,7 @@ Cadence entry đã render `VILLA_CADENCE`; figure-entry khác vẫn future.
   - `ready` → Play/Export;
   - `unavailable` → MusicXML + lỗi.
 - Bỏ warning “audio cap 45s” khỏi UI plan.
-- Render audio có gate `VSTOCK_STUDIO_RENDER_AUDIO` và optional `X-Studio-Render-Token`.
+- Render audio có gate `VSTOCK_STUDIO_RENDER_AUDIO` (default on như kill switch) và optional `X-Studio-Render-Token`; áp dụng cho cả `/render` và `/render/{hash}/audio`.
 - Play/Export hiện web-only; native cần expo-av/FileSystem.
 
 ---

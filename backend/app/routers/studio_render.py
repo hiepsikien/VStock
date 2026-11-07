@@ -373,7 +373,7 @@ def render_piece_route(
                 for item in exc.errors
             ],
         )
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, OSError) as exc:
         return RenderResponse(
             ok=False,
             errors=[_error("render", str(exc))],
@@ -437,8 +437,19 @@ def _normalized_or_404(value: str, code: str) -> str:
 def post_render_audio(
     hash_value: str,
     owner_id: str = Depends(studio_owner),
+    render_token: str | None = Header(
+        default=None, alias="X-Studio-Render-Token"
+    ),
 ) -> RenderAudioSubmitResponse:
     """Queue one production WAV export; a cached/queued hash is deduplicated."""
+    if not _audio_gate(render_token):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "figure_audio_disabled",
+                "message": "production audio is disabled by server gate",
+            },
+        )
     digest = _normalized_or_404(hash_value, "render_not_found")
     render = render_store.load_render(digest)
     if render is None:
