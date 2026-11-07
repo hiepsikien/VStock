@@ -344,6 +344,10 @@ export function SentenceDraftPanel({
   ]);
 
   const addSentence = useCallback(() => {
+    if (mode === 'new') {
+      setNote('New patterns use Add to figures; the sentence builder is for existing patterns.');
+      return;
+    }
     if (!result?.ok || !result.spec) return;
     const sentence: PatternDraftSentence = {
       spec: result.spec,
@@ -355,22 +359,13 @@ export function SentenceDraftPanel({
     };
 
     if (!draft) {
-      const meta: PatternDraftMeta =
-        mode === 'new'
-          ? {
-              id: nextId,
-              label: nextLabel,
-              composer,
-              renderer: VILLA_RENDERER,
-              meter,
-            }
-          : {
-              id: pattern,
-              label: selectedPattern?.label ?? pattern,
-              composer: selectedPattern?.composer ?? '',
-              renderer: EXISTING_PATTERN_RENDERER,
-              meter,
-            };
+      const meta: PatternDraftMeta = {
+        id: pattern,
+        label: selectedPattern?.label ?? pattern,
+        composer: selectedPattern?.composer ?? '',
+        renderer: EXISTING_PATTERN_RENDERER,
+        meter,
+      };
       setDraft(createPatternDraft(meta, sentence));
       setResult(null);
       setError(null);
@@ -378,7 +373,7 @@ export function SentenceDraftPanel({
       return;
     }
 
-    if (draft.id !== (mode === 'new' ? nextId : pattern)) {
+    if (draft.id !== pattern) {
       setError({
         text: `Draft already holds ${draft.id}; export or clear it before starting another pattern.`,
       });
@@ -842,7 +837,9 @@ export function SentenceDraftPanel({
             {canAddFigure ? (
               <ActionButton label="Add to figures" onPress={addFigure} />
             ) : null}
-            <ActionButton label="Add sentence" primary onPress={addSentence} />
+            {mode === 'existing' ? (
+              <ActionButton label="Add sentence" primary onPress={addSentence} />
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -1010,8 +1007,9 @@ export function SentenceDraftPanel({
           </>
         ) : (
           <Text style={styles.hint}>
-            Preview a sentence, then Add sentence. Add another from a new
-            passage to build a multi-sentence pattern.
+            {mode === 'new'
+              ? 'Preview a passage, then Add to figures. Sentence builder is for existing patterns.'
+              : 'Preview a sentence, then Add sentence. Add another from a new passage to build a multi-sentence pattern.'}
           </Text>
         )}
       </View>
