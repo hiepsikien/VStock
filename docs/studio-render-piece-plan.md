@@ -715,3 +715,26 @@ hơn nên tạo nhiều thay đổi cao độ hơn; chúng vẫn có thể lặp
 
 Symbol/date loader thật vẫn là follow-up; khi thêm, phải resolve thành
 `bars[]` trước khi hash/render, không silent truncate hoặc repeat.
+
+---
+
+## 17. Tách bè Lead / Mid / Bass
+
+Đây là điều chỉnh lớn cho Render Piece và các piece tạo từ `StudioPiece` +
+ensemble `villa`:
+
+```text
+Lead = price
+Mid  = MA5
+Bass = MA20
+```
+
+- Tất cả note được quantize về harmony của bar.
+- Ordering chỉ ràng buộc **trung bình** `bass < mid < lead`; không hard reject.
+- MA tính trên series gốc trước khi vào form.
+- Legacy render, source passage preview và production promote không đổi.
+
+Chi tiết thiết kế, register band, schema `line_eighth`, cache/hash và test plan:
+xem `docs/studio-line-separation-plan.md`.
+
+Trạng thái: **thiết kế, chưa implement**.
