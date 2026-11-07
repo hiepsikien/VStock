@@ -352,6 +352,47 @@ def _playability_context(meter: Meter) -> Any:
     )
 
 
+def _fold_literal_pitches(
+    pairs: Sequence[tuple[PatternFigure, TextureSpec]],
+) -> tuple[tuple[tuple[PatternFigure, TextureSpec], ...], tuple[str, ...]]:
+    """Fold absolute MIDI outside the neutral guitar range by octaves.
+
+    Preview/export must accept the passages Studio itself imports. Production
+    promotion keeps the strict 40..83 check; this is the preview counterpart.
+    """
+    folded: list[tuple[PatternFigure, TextureSpec]] = []
+    changed_cells: list[str] = []
+    for figure, texture in pairs:
+        events = []
+        changed = False
+        for event in texture.authored:
+            value = event.pitch.value
+            if event.pitch.kind == "literal_midi" and isinstance(value, int):
+                target = value
+                while target > 83:
+                    target -= 12
+                while target < 40:
+                    target += 12
+                if target != value:
+                    event = replace(
+                        event,
+                        pitch=replace(event.pitch, value=target),
+                    )
+                    changed = True
+            events.append(event)
+        if changed:
+            changed_cells.append(figure.cell_id)
+            texture = replace(texture, authored=tuple(events))
+        folded.append((figure, texture))
+    warnings = ()
+    if changed_cells:
+        warnings = (
+            "out-of-range literal MIDI was folded into guitar range 40..83 "
+            f"for preview ({', '.join(sorted(set(changed_cells)))})",
+        )
+    return tuple(folded), warnings
+
+
 def _validate_figures(
     request: RenderPieceRequest,
     meter: Meter,
@@ -399,6 +440,7 @@ def _validate_figures(
     if errors:
         raise RenderPieceError(errors)
 
+    pairs, folded_warnings = _fold_literal_pitches(pairs)
     plan: PromotionPlan | None = None
     try:
         plan = promote_figures(
@@ -414,7 +456,7 @@ def _validate_figures(
     # request, not from a texture's declared variant list.
     seen_cells: set[str] = set()
     playability_ctx = _playability_context(meter)
-    warnings: list[str] = []
+    warnings: list[str] = list(folded_warnings)
     if any(
         event.pitch.kind == "literal_midi"
         for _figure, texture in pairs

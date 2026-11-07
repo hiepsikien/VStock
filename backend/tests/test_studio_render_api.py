@@ -492,3 +492,14 @@ def test_voice_order_issue_is_relaxed_for_preview(client: TestClient) -> None:
     payload = response.json()
     assert payload["ok"] is True
     assert any("voice order was relaxed" in item for item in payload["warnings"])
+
+
+def test_out_of_range_literal_midi_is_folded_for_preview(
+    client: TestClient,
+) -> None:
+    body = _body(key_pitch={"kind": "literal_midi", "value": 88})
+    body["options"] = {"includeDoors": True, "audio": False}
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is True
+    assert any("folded into guitar range" in item for item in payload["warnings"])
