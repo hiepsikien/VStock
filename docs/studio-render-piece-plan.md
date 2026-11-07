@@ -895,7 +895,7 @@ sửa phrasing, không gọi lại `plan_phrases`, và không thay đổi phrase
 |---|---|
 | `off` | Giữ nguyên lead price melody |
 | `auto` | Variation ở chỗ hợp lý; **skip tremolo** và các chỗ protected |
-| `force` | Áp dụng cả tremolo/những chỗ bị auto bỏ; có warning |
+| `force` | Áp dụng cả tremolo; vẫn giữ protected positions; có warning khi note đổi |
 
 Mặc định: `off`.
 
@@ -953,20 +953,17 @@ force:    62 64 60 64          (đổi mọi weak onset)
 
 Tremolo là lặp cùng pitch có chủ ý. `auto` phải **skip**.
 
-Detection theo thứ tự:
+Detection hiện tại:
 
-1. pattern metadata:
-   - pattern id/name chứa `tremolo`;
-   - hoặc flag/tag `tremolo` trên figure.
-2. rhythm density:
-   - cùng pitch lặp ở 16th/32nd;
-   - run đủ dài trong một beat/bar.
-3. fallback: `Run` lặp + duration ngắn liên tục.
+1. pattern id/name chứa `tremolo`;
+2. rhythm density: run same-pitch ở 16th/32nd (dùng sixteenth grid).
 
-`force` được phép áp dụng cho tremolo nhưng phải warning:
+`auto` skip khi một trong hai điều kiện trên đúng. `force` bỏ qua skip tremolo
+nhưng vẫn giữ strong beat, cadence/close, scale passage, impulse target và
+tie/slur. Warning chung chỉ xuất hiện khi thực sự có note bị đổi:
 
 ```text
-variation forced on N tremolo bar(s); tremolo texture changed
+pattern variation is force; changed N repeated lead note(s)
 ```
 
 ### 18.7. Mid / bass (deferred)
@@ -997,8 +994,9 @@ Variation bỏ qua các eighth đã thuộc scale passage để tránh chồng p
 Đưa vào `renderHash`:
 
 - `variation` mode;
-- nếu variation plan được resolve thành pitch override, hash theo output plan;
 - bump `STUDIO_RENDER_REVISION` khi note thực tế đổi (hiện là **8**).
+
+Output plan hiện không được hash riêng; mode đã đủ để tách cache `off/auto/force`.
 
 ### 18.10. Test plan
 
@@ -1006,20 +1004,31 @@ Variation bỏ qua các eighth đã thuộc scale passage để tránh chồng p
   - strong beat giữ `p`;
   - weak eighth có neighbor/passing;
   - không đổi cadence/close.
+- Run dài 8 nốt: auto đổi >= 2 nốt, không chỉ 1/run.
+- Neighbor cách principal > 2 semitone bị reject.
+- Impulse target + scale eighth được giữ nguyên.
 - Tremolo:
   - `auto` không đổi tremolo;
-  - `force` đổi + warning.
+  - `force` đổi, giữ protected positions và warning khi note đổi.
 - `off`: output giống baseline.
 - Không same-voice overlap.
 - Scale + variation: variation không ghi vào eighth của scale passage.
+- E2E: MusicXML lead khác baseline khi có repeated run.
 - Legacy render không đổi.
 
 ### 18.11. Rollout
 
-1. Implement `variation: off | auto` cho lead.
-2. Test trên figure lặp pitch nhiều.
-3. Nghe thử; nếu ổn mới thêm `force` và mid/bass variation.
-4. UI hint rõ:
+Đã implement:
+
+1. `variation: off | auto | force` cho lead.
+2. Auto đổi mỗi 2 weak onset; force đổi mọi weak onset + tremolo.
+3. UI hint:
    ```text
    Auto skips tremolo. Force may change tremolo texture.
    ```
+
+Follow-up:
+
+- mid/bass variation;
+- tremolo-specific applied/ignored warning;
+- nếu cần, thêm density knob thay vì cố định auto/force.
