@@ -77,6 +77,8 @@ PITCH_KINDS = (
     "melody_eighth",
     "chord_degree",
     "chord_root",
+    "chord_bass",
+    "chord_mid",
     "scale_step",
     "literal_midi",
 )
@@ -87,6 +89,8 @@ PITCH_FIELDS: dict[str, tuple[str, ...]] = {
     "melody_eighth": ("eighth", "offset"),
     "chord_degree": ("degree",),
     "chord_root": (),
+    "chord_bass": (),
+    "chord_mid": ("degree",),
     "scale_step": ("steps",),
     "literal_midi": ("value",),
 }
@@ -95,6 +99,8 @@ PITCH_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "melody_eighth": ("eighth",),
     "chord_degree": ("degree",),
     "chord_root": (),
+    "chord_bass": (),
+    "chord_mid": ("degree",),
     "scale_step": ("steps",),
     "literal_midi": ("value",),
 }
@@ -406,6 +412,14 @@ class PitchRef:
         return cls(kind="chord_root")
 
     @classmethod
+    def chord_bass(cls) -> "PitchRef":
+        return cls(kind="chord_bass")
+
+    @classmethod
+    def chord_mid(cls, degree: int) -> "PitchRef":
+        return cls(kind="chord_mid", degree=degree)
+
+    @classmethod
     def scale_step(cls, steps: int) -> "PitchRef":
         return cls(kind="scale_step", steps=steps)
 
@@ -498,7 +512,7 @@ def validate_pitch_ref(
                             f"melody length {melody_length}",
                         )
                     )
-    elif ref.kind == "chord_degree":
+    elif ref.kind in ("chord_degree", "chord_mid"):
         if ref.degree is not None:
             if not _is_int(ref.degree):
                 errors.append(TextureError(f"{path}.degree", "must be an integer"))

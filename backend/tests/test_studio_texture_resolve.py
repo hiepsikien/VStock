@@ -126,6 +126,23 @@ def test_chord_degree_and_root_read_the_actual_chord_object() -> None:
     assert resolve_pitch(PitchRef.chord_root(), ctx, bar=1) == 67
 
 
+def test_chord_bass_and_mid_fold_into_the_runtime_registers() -> None:
+    ctx = replace(
+        _case(),
+        chord_at={0: G7, 1: G7},
+        bass_low=40,
+        bass_high=53,
+        mid_low=50,
+        mid_high=65,
+    )
+    # G7 = G B D F. Bass root is G2 (43), not G4 (67).
+    assert resolve_pitch(PitchRef.chord_bass(), ctx, bar=0) == 43
+    # Mid degrees fold by octaves into D3..F4.
+    assert resolve_pitch(PitchRef.chord_mid(2), ctx, bar=0) == 59
+    assert resolve_pitch(PitchRef.chord_mid(3), ctx, bar=0) == 62
+    assert resolve_pitch(PitchRef.chord_mid(4), ctx, bar=0) == 65
+
+
 def test_scale_step_walks_the_mode_scale_in_the_lead_register() -> None:
     major = _case()
     # C major inside 59..81, anchored at the scale tone nearest 70 (A, 69).

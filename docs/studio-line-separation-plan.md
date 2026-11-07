@@ -1,6 +1,6 @@
-# Kế hoạch: tách bè Lead / Mid / Bass theo Price / MA5 / MA20
+# Kế hoạch: sửa register/role rồi tách bè Price / MA5 / MA20
 
-Trạng thái: **thiết kế, chưa implement**.  
+Trạng thái: **Phase 0 đã implement; Phase 1 chờ nghe thử Phase 0**.
 Phạm vi: `release/studio-v2.1`, chỉ Render Piece / luồng Studio pattern mới.  
 Đối tượng áp dụng: ensemble `villa` (Villa-Lobos) và các piece tạo từ `StudioPiece`; **không** áp dụng cho legacy render.
 
@@ -11,6 +11,53 @@ Tài liệu liên quan:
 - `backend/app/studio/render_piece.py` — rebind pitch hiện tại.
 - `backend/app/studio/texture_resolve.py` — resolve `PitchRef`.
 - `backend/app/sonify/studio_piece.py` — arrangement / authored cell.
+
+---
+
+## 0. Phasing
+
+### Phase 0 — sửa lỗi register/role (đã implement, chờ nghe thử)
+
+Mục tiêu duy nhất: bass không còn bị đẩy cao, và role bass/mid/lead đúng
+theo pitch order.
+
+Phạm vi Phase 0:
+
+1. Phân vai theo **pitch tại cùng onset**, không theo voice number gốc:
+   ```text
+   voice 1 (lead)                   -> lead
+   non-lead thấp nhất tại mỗi onset -> bass
+   non-lead còn lại                 -> mid
+   ```
+2. Rewrite `voice` của event đã bind về role voice chuẩn:
+   ```text
+   lead = 1, mid = 2/4, bass = 3
+   ```
+3. Bass dùng register thật:
+   - bắt đầu từ `Chord.bass_midi` (C2–B2);
+   - fold lên octave cho đến khi `>= guitar_floor` (40), giữ nguyên pitch class.
+4. Mid dùng chord tone được fold vào band mid runtime:
+   ```text
+   mid_low=50 .. mid_high=65
+   ```
+5. Lead vẫn là `melody_eighth` / price melody; không đổi.
+6. Chỉ áp dụng cho `StudioPiece` + `villa`; legacy render giữ nguyên.
+7. Bump `STUDIO_RENDER_REVISION` khi note thực tế đổi.
+
+Phase 0 **không** đổi sang MA5/MA20. Nếu Phase 0 nghe ổn, mới làm Phase 1.
+
+### Phase 1 — tách line Price / MA5 / MA20 (deferred)
+
+Sau khi nghe Phase 0:
+
+- lead = price;
+- mid = MA5;
+- bass = MA20;
+- cùng role-by-pitch và register như Phase 0;
+- soft ordering + warning.
+
+Toàn bộ mục 1–11 dưới đây mô tả Phase 1; các mục có ghi “Phase 0” là bắt
+buộc trước khi Phase 1.
 
 ---
 
@@ -34,12 +81,67 @@ Hệ quả:
 4. Không có cơ chế giữ trung bình `bass < mid < lead`; voice-order hiện tại
    chỉ được kiểm tra ở mức từng note và còn bị relax cho preview.
 
+### 1.1. Bằng chứng từ file render thực tế
+
+File `6461171b...musicxml` (32 bar, 2/4):
+
+| Voice | Sounding MIDI | Written MIDI | Mean | Vai trò hiện tại |
+|---|---:|---:|---:|---|
+| voice 1 | 59–79 | 71–91 | 67.9 | Lead |
+| voice 2 | 52–74 | 64–86 | 62.5 | Đang bị coi là Mid |
+| voice 3 | 57–69 | 69–81 | 61.3 | Đang bị coi là Bass |
+| voice 4 | 59–76 | 71–88 | 66.2 | Mid |
+
+- Nốt thấp nhất: **sounding E3 = 52**, written E4.
+- Guitar low E: **sounding E2 = 40**, written E3.
+- Bass hiện tại cao hơn khả năng thấp nhất của guitar đúng **1 octave**.
+- Voice 2 mới là bè thấp nhất thật sự, nhưng bị map vào mid; voice 3 bị map
+  vào bass. Hai bè bị đảo vai trò.
+
+### 1.2. Nguyên nhân kỹ thuật
+
+1. `_resolve_chord` dùng `chord.pitches[d-1]`, mà các chord constant nằm quanh
+   C4. Vì vậy `chord_root` trả về khoảng 57–67 (A3–G4), không phải bass.
+   `Chord.bass_midi` (36–47) đã có nhưng chưa được dùng trong Render Piece.
+2. `render_texture_bar` phân loại theo **voice number**:
+   ```text
+   voice 1 -> lead
+   voice 2/4 -> support
+   voice 3 -> low
+   ```
+   Trong khi UI `buildRoleLanes` phân loại non-lead theo **pitch order**.
+   Hai bên không khớp.
+3. `_bind_production_pitches` cũng dùng voice number, nên voice 2 (bass thật)
+   nhận `chord_degree(2)` thay vì root.
+4. Guitar MusicXML ghi cao hơn sounding 1 octave (`written = sounding + 12`),
+   nên bass E3 hiện lên thành E4 trên khuông — đúng như ảnh chụp.
+
 Mục tiêu của thay đổi này là tách **ba đường độc lập** nhưng vẫn nằm trong
-harmony của bar.
+harmony của bar, sau khi đã sửa register/role ở Phase 0.
 
 ---
 
 ## 2. Quyết định thiết kế
+
+### 2.0. Phase 0 — role và register
+
+Trước khi có line, phải sửa hai thứ:
+
+```text
+role = pitch order, không phải source voice number
+bass = chord.bass_midi, fold lên >= guitar_floor (40)
+mid  = chord tone fold vào 50..65
+```
+
+Role chuẩn sau khi bind:
+
+```text
+lead = voice 1
+mid  = voice 2/4
+bass = voice 3
+```
+
+Nếu không làm Phase 0, MA5/MA20 vẫn bị đặt sai octave và vẫn nghe cao.
 
 ### 2.1. Ba nguồn đường
 
@@ -145,6 +247,21 @@ khác nhau, window sẽ được chọn theo `1D / 1W / 1M` hoặc theo số bar
 
 ## 4. Kiến trúc đề xuất
 
+### 4.0. Role assignment (Phase 0, bắt buộc)
+
+Trước khi bind pitch, gom event theo `(bar, beat)` rồi phân vai:
+
+```text
+voice 1                          -> lead, role voice 1
+non-lead thấp nhất tại mỗi onset -> bass, role voice 3
+non-lead còn lại, thấp → cao     -> mid, role voice 2 rồi 4
+```
+
+Điều này mirror `buildRoleLanes` của frontend và bỏ phụ thuộc vào voice number
+gốc của MusicXML. Sau đó rewrite `event.voice` về role voice trước khi render.
+
+Với figure chỉ có một voice: giữ nguyên làm lead.
+
 ### 4.1. Series và MA
 
 Thêm bước tính line trong `backend/app/studio/render_piece.py`:
@@ -222,16 +339,19 @@ không silent clamp.
 
 ### 4.4. Register band
 
-Đề xuất band mặc định (có overlap nhẹ):
+Lấy đúng register runtime trong `backend/app/sonify/keys.py`:
 
 ```text
-bass:  40..55   (E2..G3)
-mid:   55..67   (G3..G4)
-lead:  64..83   (E4..B5)
+bass:  40..53   (E2..F3)
+mid:   50..65   (D3..F4)
+lead:  59..81   (B3..A5)
+ceiling: 83
 ```
 
 Band này chỉ là **target**, không phải hard validation. Guitar playability
 (`_repair`, hand span, fret) vẫn là cổng cuối.
+
+Phase 0 dùng band này cho bass/mid; Phase 1 dùng cùng band cho MA20/MA5.
 
 ### 4.5. Quantize vào harmony
 
@@ -245,6 +365,22 @@ Với mỗi line/bar:
 
 Không dùng `chord_degree(2)` / `chord_root` cố định nữa cho mid/bass trong
 luồng mới.
+
+Phase 0 dùng:
+
+```text
+bass target = Chord.bass_midi, fold lên >= 40
+mid target  = chord tone gần nhất trong 50..65
+```
+
+Fold theo octave, **không clamp** — clamp sẽ đổi pitch class (C2 → E2).
+Ví dụ:
+
+```text
+C2 36 -> C3 48
+A2 45 -> A2 45
+E2 40 -> E2 40
+```
 
 ### 4.6. Soft ordering
 
@@ -347,23 +483,48 @@ Phải đưa vào `renderHash`:
 - line arrays đã resolve (nếu hash theo texture);
 - `STUDIO_RENDER_REVISION`.
 
-Khi implement line separation, bump thêm một lần:
+Phase 0 đổi note thực tế, nên bump ngay:
 
 ```python
 STUDIO_RENDER_REVISION = 4
 ```
 
-Lý do: cùng một request cũ có thể trả MusicXML/WAV khác sau khi thay đổi
-line policy. Không bump sẽ khiến cache cũ che mất thay đổi.
+Phase 1 (line separation) bump thêm một lần nữa:
 
-Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4, nên line
-separation phải bump lên 4 khi bắt đầu có hiệu lực.
+```python
+STUDIO_RENDER_REVISION = 5
+```
+
+Lý do: cùng một request cũ có thể trả MusicXML/WAV khác sau khi thay đổi
+role/register hoặc line policy. Không bump sẽ khiến cache cũ che mất thay đổi.
+
+Ghi chú: revision hiện đã là **3** sau fix compressed-frame/voice-4.
 
 ---
 
 ## 8. Test plan
 
-### 8.1. Unit
+### 8.0. Phase 0
+
+- Role by pitch:
+  - voice 1 luôn lead;
+  - non-lead thấp nhất thành bass dù voice gốc là 2;
+  - non-lead còn lại thành mid 2/4.
+- Bass register:
+  - `Chord.bass_midi` C2 36 → C3 48;
+  - A2 45 giữ nguyên;
+  - mọi bass nằm trong 40..53.
+- Mid register:
+  - chord tone được fold vào 50..65;
+  - không clamp làm đổi pitch class.
+- Render file thực tế:
+  - nốt thấp nhất <= 53;
+  - mean(bass) < mean(mid) < mean(lead);
+  - bass không còn nằm trên mid.
+- Legacy: render không có `studio_piece` giữ nguyên output.
+- Compressed frame và voice 4 vẫn đúng sau khi đổi role.
+
+### 8.1. Phase 1 unit
 
 - `MA5` / `MA20` trên series ngắn, warmup đúng, không zero-pad.
 - `line_eighth` shift theo `bind_texture` khi tile sang bar khác.
@@ -373,12 +534,12 @@ separation phải bump lên 4 khi bắt đầu có hiệu lực.
   - line thiếu raise.
 - Quantize: mọi note non-cadence thuộc chord của bar.
 - Register band:
-  - bass trong 40..55;
-  - mid trong 55..67;
-  - lead trong 64..83;
+  - bass trong 40..53;
+  - mid trong 50..65;
+  - lead trong 59..81;
   - không vượt guitar ceiling.
 
-### 8.2. Integration
+### 8.2. Phase 1 integration
 
 - Render một piece `villa` với 3 line:
   - `mean(bass) < mean(mid) < mean(lead)` trên phần lớn bar;
@@ -397,13 +558,25 @@ separation phải bump lên 4 khi bắt đầu có hiệu lực.
 
 ## 9. Rollout
 
-1. Thêm schema `line_eighth` + context arrays, chưa bật cho mọi piece.
+### 9.1. Phase 0 — đã implement
+
+1. Phân vai theo pitch + rewrite role voices.
+2. Bass dùng `Chord.bass_midi` fold vào 40..53.
+3. Mid fold chord tone vào 50..65.
+4. Bump revision lên 4.
+5. Render lại cùng figure pool, nghe thử bass/mid/lead.
+
+**Dừng ở đây để user nghe.** Chỉ làm Phase 1 nếu Phase 0 ổn.
+
+### 9.2. Phase 1
+
+1. Thêm schema `line_eighth` + context arrays.
 2. Implement `price / MA5 / MA20` sau một flag/option:
    ```text
    VSTOCK_STUDIO_LINES=price_ma5_ma20
    ```
    hoặc request field `lines`.
-3. So sánh output với bản cũ trên cùng figure pool:
+3. So sánh output với Phase 0 trên cùng figure pool:
    - nghe 3 bè;
    - xem MusicXML;
    - kiểm tra average ordering.
@@ -414,6 +587,8 @@ separation phải bump lên 4 khi bắt đầu có hiệu lực.
 
 ## 10. Rủi ro / câu hỏi mở
 
+0. **Voice number gốc không phải role** — file hiện tại có bass ở voice 2.
+   → Phase 0 phân vai theo pitch order, rewrite role voice trước khi render.
 1. **MA5/MA20 tương quan** trong thị trường đi ngang; mid/bass có thể chụm.
    → band + chord quantize + soft warning.
 2. **MA20 trên 1M thật quá dài** (~21 daily closes).
@@ -431,7 +606,22 @@ separation phải bump lên 4 khi bắt đầu có hiệu lực.
 
 ## 11. Chốt
 
-Thiết kế được chốt ở mức MVP:
+### Phase 0 — đã implement
+
+```text
+Role = pitch order (lead voice1, lowest non-lead bass, rest mid)
+Bass = Chord.bass_midi folded to 40..53
+Mid  = chord tone folded to 50..65
+Lead = price melody, 59..81
+Scope = StudioPiece + villa only
+Legacy = unchanged
+Revision = 4
+```
+
+Sau Phase 0: user nghe thử, kiểm tra bass đã xuống đúng octave chưa, rồi quyết
+định có làm Phase 1 không.
+
+### Phase 1 — deferred
 
 ```text
 Lead = price
@@ -439,9 +629,7 @@ Mid  = MA5
 Bass = MA20
 Quantize = nearest chord tone in register band
 Ordering = soft average, warning only
-Scope = StudioPiece + villa only
-Legacy = unchanged
+Revision = 5
 ```
 
-Chưa implement trong tài liệu này. Bước tiếp theo là thêm `line_eighth`, line
-context, và bật thử `price / MA5 / MA20` sau flag.
+Chưa implement Phase 1 trong tài liệu này.

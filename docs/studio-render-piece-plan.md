@@ -705,11 +705,14 @@ Không sửa variation policy trong MVP. Nếu muốn giảm lặp, cần một 
 ### 16.2. Source pitch vs render pitch
 
 - `Preview sentence` / source passage: giữ literal MIDI để nghe đúng bản gốc.
-- `Render Piece`: rebind **mọi** literal MIDI, kể cả door/intro/outro figures:
-  - voice 1 → `melody_eighth`;
-  - voice 2 → `chord_degree(2)`;
-  - voice 4 → `chord_degree(3)` (upper middle, tránh thấp hơn voice 2);
-  - voice 3 → `chord_root`.
+- `Render Piece`: rebind **mọi** literal MIDI, kể cả door/intro/outro figures.
+  Trước khi bind, Phase 0 phân vai theo pitch order tại mỗi onset:
+  - voice 1 → lead;
+  - non-lead thấp nhất → bass;
+  - non-lead còn lại → mid.
+
+  Sau đó role voice chuẩn là `1 / 2/4 / 3`. Bass dùng register
+  `Chord.bass_midi` fold vào 40..53; mid fold chord tone vào 50..65.
 - Door authored material vì vậy cũng mất pitch gốc trong Render Piece; đây là
   chủ ý để giữ nguyên tắc “production pitch đến từ price/chord”. Nếu sau này
   muốn giữ riêng door authored, phải thêm option riêng và không đổi default.
@@ -735,7 +738,22 @@ thể chọn `1M` data với form `1W`; UI phải nói rõ điều này để tr
 ## 17. Tách bè Lead / Mid / Bass
 
 Đây là điều chỉnh lớn cho Render Piece và các piece tạo từ `StudioPiece` +
-ensemble `villa`:
+ensemble `villa`, chia làm hai phase.
+
+### Phase 0 — sửa register/role (đã implement)
+
+```text
+Role = pitch order, không phải source voice number
+Bass = Chord.bass_midi fold vào 40..53
+Mid  = chord tone fold vào 50..65
+Lead = price melody, 59..81
+```
+
+- Bass hiện tại đang cao hơn ~1 octave (E3 sounding thay vì E2).
+- Voice 2 trong file thực tế là bass nhưng đang bị map thành mid.
+- Sau Phase 0: render lại, nghe thử; chưa đổi sang MA5/MA20.
+
+### Phase 1 — tách line (deferred)
 
 ```text
 Lead = price
@@ -746,9 +764,8 @@ Bass = MA20
 - Tất cả note được quantize về harmony của bar.
 - Ordering chỉ ràng buộc **trung bình** `bass < mid < lead`; không hard reject.
 - MA tính trên series gốc trước khi vào form.
-- Legacy render, source passage preview và production promote không đổi.
 
 Chi tiết thiết kế, register band, schema `line_eighth`, cache/hash và test plan:
 xem `docs/studio-line-separation-plan.md`.
 
-Trạng thái: **thiết kế, chưa implement**.
+Trạng thái: **Phase 0 đã implement; Phase 1 chờ nghe thử Phase 0**.

@@ -149,11 +149,18 @@ def resolve_pitch(
         return _resolve_melody(ctx, ref, melody_length=melody_length)
     if ref.kind == "chord_root":
         return _resolve_chord(ctx, bar, 1)
+    if ref.kind == "chord_bass":
+        return _resolve_chord_bass(ctx, bar)
     if ref.kind == "chord_degree":
         degree = _integer(ref.degree, "pitch.degree", "degree")
         if degree < 1:
             raise TextureResolveError("pitch.degree", "must be >= 1")
         return _resolve_chord(ctx, bar, degree)
+    if ref.kind == "chord_mid":
+        degree = _integer(ref.degree, "pitch.degree", "degree")
+        if degree < 1:
+            raise TextureResolveError("pitch.degree", "must be >= 1")
+        return _resolve_chord_mid(ctx, bar, degree)
     if ref.kind == "scale_step":
         steps = _integer(ref.steps, "pitch.steps", "steps")
         return _resolve_scale_step(ctx, steps)
@@ -207,6 +214,38 @@ def _resolve_chord(ctx: Any, bar: int, degree: int) -> int:
     index = (degree - 1) % len(pitches)
     octave = (degree - 1) // len(pitches)
     return int(pitches[index]) + 12 * octave
+
+
+def _fold_into_band(midi: int, low: int, high: int) -> int:
+    """Move a pitch by octaves into ``low..high`` without changing pitch class."""
+    if low > high:
+        low, high = high, low
+    while midi > high:
+        midi -= 12
+    while midi < low:
+        midi += 12
+    return midi
+
+
+def _resolve_chord_bass(ctx: Any, bar: int) -> int:
+    """Resolve the chord root in the guitar bass register (E2..F3)."""
+    chord = _chord_at(ctx, bar)
+    pitches = getattr(chord, "pitches", None)
+    if not isinstance(pitches, Sequence) or isinstance(pitches, (str, bytes)) or not pitches:
+        raise TextureResolveError("pitch", "render context chord has no pitches")
+    root = getattr(chord, "bass_midi", None)
+    midi = int(root) if isinstance(root, int) else int(pitches[0])
+    low = _context_int(ctx, "bass_low", GUITAR_LOW)
+    high = _context_int(ctx, "bass_high", 53)
+    return _fold_into_band(midi, low, high)
+
+
+def _resolve_chord_mid(ctx: Any, bar: int, degree: int) -> int:
+    """Resolve a chord degree inside the guitar mid register (D3..F4)."""
+    midi = _resolve_chord(ctx, bar, degree)
+    low = _context_int(ctx, "mid_low", 50)
+    high = _context_int(ctx, "mid_high", 65)
+    return _fold_into_band(midi, low, high)
 
 
 def _chord_at(ctx: Any, bar: int) -> Any:

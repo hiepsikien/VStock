@@ -143,6 +143,9 @@ def test_meter_spec_rejects_inconsistent_eighths() -> None:
         PitchRef.chord_degree(1),
         PitchRef.chord_degree(5),
         PitchRef.chord_root(),
+        PitchRef.chord_bass(),
+        PitchRef.chord_mid(2),
+        PitchRef.chord_mid(4),
         PitchRef.scale_step(-1),
         PitchRef.scale_step(3),
         PitchRef.literal_midi(0),
@@ -156,6 +159,11 @@ def test_every_pitch_kind_is_accepted(ref: PitchRef) -> None:
 
 def test_pitch_mapping_is_declarative_only() -> None:
     assert PitchRef.chord_root().to_mapping() == {"kind": "chord_root"}
+    assert PitchRef.chord_bass().to_mapping() == {"kind": "chord_bass"}
+    assert PitchRef.chord_mid(2).to_mapping() == {
+        "kind": "chord_mid",
+        "degree": 2,
+    }
     assert PitchRef.melody_eighth(0, 2).to_mapping() == {
         "kind": "melody_eighth",
         "eighth": 0,
@@ -201,6 +209,8 @@ def test_melody_eighth_out_of_range_is_an_error_not_a_clamp() -> None:
 def test_bad_degree_and_midi_are_rejected() -> None:
     assert _paths(validate_pitch_ref(PitchRef.chord_degree(0))) == ["pitch.degree"]
     assert _paths(validate_pitch_ref(PitchRef.chord_degree("1"))) == ["pitch.degree"]
+    assert _paths(validate_pitch_ref(PitchRef.chord_mid(0))) == ["pitch.degree"]
+    assert _paths(validate_pitch_ref(PitchRef.chord_mid("1"))) == ["pitch.degree"]
     assert _paths(validate_pitch_ref(PitchRef.literal_midi(-1))) == ["pitch.value"]
     assert _paths(validate_pitch_ref(PitchRef.literal_midi(128))) == ["pitch.value"]
     assert _paths(validate_pitch_ref(PitchRef.literal_midi(60.0))) == ["pitch.value"]

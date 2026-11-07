@@ -68,7 +68,7 @@ __all__ = [
 
 #: Bump when rendered notes or the hash payload change. W4 requires it in the
 #: content hash so old cache entries cannot survive a renderer change.
-STUDIO_RENDER_REVISION = 3
+STUDIO_RENDER_REVISION = 4
 
 SUPPORTED_RENDER_SPANS = ("1W", "1M")
 SUPPORTED_PLAN_IDS = ("auto_aaba", "trio")
@@ -348,58 +348,113 @@ def _playability_context(meter: Meter) -> Any:
         treble_floor=59,
         treble_top=81,
         bass_low=40,
+        bass_high=53,
+        mid_low=50,
+        mid_high=65,
         ceiling=83,
         epb=meter.eighths_per_bar,
         bar_beats=meter.quarter_beats,
     )
 
 
+def _production_roles(
+    texture: TextureSpec,
+) -> dict[int, tuple[str, int]]:
+    """Assign lead/bass/mid by pitch at each onset, not by source voice.
+
+    MusicXML voice numbers are not role ids: in the Villa passage the actual
+    bass is voice 2 and the middle line is voice 3. Mirror the UI's
+    ``buildRoleLanes`` instead: voice 1 is lead, the lowest non-lead note is
+    bass, and the remaining non-lead notes are mid from low to high.
+    """
+    groups: dict[tuple[int, float], list[int]] = {}
+    for index, event in enumerate(texture.authored):
+        if event.pitch.kind != "literal_midi":
+            continue
+        key = (event.bar, round(float(event.beat), 9))
+        groups.setdefault(key, []).append(index)
+
+    roles: dict[int, tuple[str, int]] = {}
+    for indices in groups.values():
+        lead = [
+            index
+            for index in indices
+            if int(texture.authored[index].voice) == 1
+        ]
+        non_lead = [index for index in indices if index not in lead]
+        if not lead and non_lead:
+            # No voice 1 in this source: the highest note still carries the
+            # line, matching the matrix's lead row.
+            highest = max(
+                non_lead,
+                key=lambda index: int(texture.authored[index].pitch.value or 0),
+            )
+            lead = [highest]
+            non_lead = [index for index in non_lead if index != highest]
+        for index in lead:
+            roles[index] = ("lead", 0)
+        ordered = sorted(
+            non_lead,
+            key=lambda index: (
+                int(texture.authored[index].pitch.value or 0),
+                int(texture.authored[index].voice),
+            ),
+        )
+        if ordered:
+            roles[ordered[0]] = ("bass", 0)
+        for rank, index in enumerate(ordered[1:]):
+            roles[index] = ("mid", rank)
+    return roles
+
+
 def _bind_production_pitches(
     pairs: Sequence[tuple[PatternFigure, TextureSpec]],
     epb: int,
 ) -> tuple[tuple[tuple[PatternFigure, TextureSpec], ...], tuple[str, ...]]:
-    """Replace MusicXML literal pitches with price/chord references.
+    """Replace MusicXML literal pitches with production references.
 
-    Studio keeps the source passage as a literal preview. Render Piece is a
-    production-shaped piece: lead follows the target price melody, inner
-    voices follow the target chord, and bass follows the chord root. The
-    rhythm/duration/voice metadata is unchanged.
+    Lead follows the target price melody. The lowest non-lead note becomes the
+    bass root, and the remaining non-lead notes become middle chord tones.
+    Role is decided by pitch order at each onset, because the source voice
+    number is not a role id. The rhythm/duration/notation metadata is kept;
+    only pitch and role voice are rewritten.
     """
     bound: list[tuple[PatternFigure, TextureSpec]] = []
     changed = False
     for figure, texture in pairs:
+        roles = _production_roles(texture)
         events: list[AuthoredEvent] = []
-        for event in texture.authored:
-            if event.pitch.kind != "literal_midi":
+        texture_changed = False
+        for index, event in enumerate(texture.authored):
+            role = roles.get(index)
+            if event.pitch.kind != "literal_midi" or role is None:
                 events.append(event)
                 continue
-            if event.voice == 1:
+            kind, rank = role
+            if kind == "lead":
                 # render_texture_bar reindexes the selected cell bar to 0 and
                 # adds target_bar * epb in bind_texture. Include only the
                 # beat offset here; adding event.bar would double-count the
                 # cell bar and overflow the target melody.
-                eighth = int(round(event.beat * 2))
-                pitch = PitchRef.melody_eighth(eighth, 0)
-            elif event.voice == 2:
-                pitch = PitchRef.chord_degree(2)
-            elif event.voice == 4:
-                # Voice 4 is the upper middle line. The old chord_root mapping
-                # could place it below voice 2 and trip the voice-order check.
-                pitch = PitchRef.chord_degree(3)
+                pitch = PitchRef.melody_eighth(int(round(event.beat * 2)), 0)
+                voice = 1
+            elif kind == "bass":
+                pitch = PitchRef.chord_bass()
+                voice = 3
             else:
-                pitch = PitchRef.chord_root()
-            events.append(replace(event, pitch=pitch))
+                pitch = PitchRef.chord_mid(2 + rank)
+                voice = 2 if rank == 0 else 4
+            events.append(replace(event, pitch=pitch, voice=voice))
+            texture_changed = True
+        if texture_changed:
             changed = True
-        bound.append(
-            (figure, replace(texture, authored=tuple(events)))
-            if changed
-            else (figure, texture)
-        )
+            texture = replace(texture, authored=tuple(events))
+        bound.append((figure, texture))
     warnings: tuple[str, ...] = ()
     if changed:
         warnings = (
             "MusicXML literal pitches were rebound to the price/chord context "
-            "for production preview",
+            "and role voices by pitch order for production preview",
         )
     return tuple(bound), warnings
 

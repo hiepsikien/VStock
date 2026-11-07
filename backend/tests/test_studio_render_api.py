@@ -372,6 +372,91 @@ def test_service_result_and_title() -> None:
     assert result.audio_status == "unavailable"
 
 
+def test_phase0_roles_put_bass_in_the_low_register() -> None:
+    from app.sonify.form import METER_44
+    from app.studio.musicxml_import import parse_musicxml
+    from app.studio.texture_spec import (
+        AuthoredEvent,
+        MeterSpec,
+        MeterVariant,
+        PitchRef,
+        TextureSpec,
+    )
+
+    variant = MeterVariant(
+        meter=MeterSpec.from_form_meter(METER_44),
+        materializer="grid_4_4",
+    )
+    events = [
+        AuthoredEvent(
+            bar=bar,
+            beat=0.0,
+            duration_beats=1.0,
+            voice=voice,
+            pitch=PitchRef.literal_midi(midi),
+        )
+        for bar in range(4)
+        for voice, midi in ((1, 76), (2, 52), (3, 60), (4, 64))
+    ]
+    texture = TextureSpec(
+        id="cell_phase0",
+        composer="villa",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        meter_variants=(variant,),
+        authored=tuple(events),
+    )
+    figures = tuple(
+        (
+            PatternFigure(
+                id=f"fig_{tag}",
+                cell_id="cell_phase0",
+                bars=bars,
+                tags=(tag,),
+            ),
+            texture,
+        )
+        for tag, bars in (
+            ("key", 4),
+            ("intro.short", 2),
+            ("intro.long", 4),
+            ("outro.short", 2),
+            ("outro.long", 4),
+            ("contrast", 4),
+        )
+    )
+    request = RenderPieceRequest(
+        pattern="studio_phase0",
+        meter="4/4",
+        figures=figures,
+        plan="auto_aaba",
+        bars=tuple(Bar(100 + (index % 7) * 3, 250) for index in range(40)),
+        span="1W",
+        title="Phase 0",
+    )
+
+    result = render_piece(request)
+    score = parse_musicxml(result.musicxml.encode(), filename="phase0.musicxml")
+    by_voice = {
+        voice: [
+            note.midi
+            for note in score.notes
+            if note.voice == voice and note.midi is not None
+        ]
+        for voice in (1, 2, 3, 4)
+    }
+    lead = by_voice[1]
+    mid = [*by_voice[2], *by_voice[4]]
+    bass = by_voice[3]
+
+    assert bass
+    assert 40 <= min(bass) <= 53
+    assert max(bass) <= 53
+    assert sum(bass) / len(bass) < sum(mid) / len(mid) < sum(lead) / len(lead)
+
+
 def test_audio_can_be_disabled(client: TestClient) -> None:
     body = _body()
     body["options"] = {"includeDoors": True, "audio": False}
@@ -599,12 +684,67 @@ def test_render_piece_rebinds_literal_pitches_to_relative_refs() -> None:
     bound, warnings = _bind_production_pitches(((figure, texture),), 4)
     events = bound[0][1].authored
     assert events[0].pitch.kind == "melody_eighth"
-    assert events[1].pitch.kind == "chord_degree"
+    assert events[0].voice == 1
+    assert events[1].pitch.kind == "chord_mid"
     assert events[1].pitch.degree == 2
-    assert events[2].pitch.kind == "chord_root"
-    assert events[3].pitch.kind == "chord_degree"
+    assert events[1].voice == 2
+    assert events[2].pitch.kind == "chord_bass"
+    assert events[2].voice == 3
+    assert events[3].pitch.kind == "chord_mid"
     assert events[3].pitch.degree == 3
+    assert events[3].voice == 4
     assert warnings and "rebound" in warnings[0]
+
+
+def test_production_roles_follow_pitch_not_source_voice() -> None:
+    from app.studio.render_piece import _bind_production_pitches
+    from app.studio.texture_spec import (
+        AuthoredEvent,
+        PitchRef,
+        TextureSpec,
+    )
+
+    texture = TextureSpec(
+        id="cell_roles",
+        composer="villa",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=1,
+                pitch=PitchRef.literal_midi(76),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=2,
+                pitch=PitchRef.literal_midi(52),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=3,
+                pitch=PitchRef.literal_midi(60),
+            ),
+            AuthoredEvent(
+                bar=0, beat=0.0, duration_beats=1.0, voice=4,
+                pitch=PitchRef.literal_midi(64),
+            ),
+        ),
+    )
+    figure = PatternFigure(
+        id="fig_roles", cell_id="cell_roles", bars=1, tags=("key",)
+    )
+    bound, _warnings = _bind_production_pitches(((figure, texture),), 4)
+    events = bound[0][1].authored
+
+    # Source voice 2 is the lowest note, so it must become bass, not mid.
+    assert events[1].voice == 3
+    assert events[1].pitch.kind == "chord_bass"
+    assert events[2].voice == 2
+    assert events[2].pitch.kind == "chord_mid"
+    assert events[2].pitch.degree == 2
+    assert events[3].voice == 4
+    assert events[3].pitch.kind == "chord_mid"
+    assert events[3].pitch.degree == 3
 
 
 def test_render_piece_output_does_not_emit_the_source_literal_pitch(
