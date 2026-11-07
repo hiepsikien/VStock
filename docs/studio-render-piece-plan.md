@@ -127,7 +127,7 @@ Request:
       "transitions": false,
       "caesuras": false,
       "restFill": false,
-      "scales": false
+      "scales": "off"
     }
   }
 }
@@ -136,6 +136,25 @@ Request:
 `options.production` là các pass production tuỳ chọn cho `StudioPiece`.
 Mặc định tất cả **false** để authored cell vẫn là note list cuối cùng. Bật một
 pass có thể thêm hoặc rewrite note authored; UI phải cảnh báo rõ.
+
+`scales` là chuỗi, không phải boolean:
+
+```json
+"scales": "off" | "safe" | "pipeline"
+```
+
+- `off`: không sinh scale.
+- `safe`: chỉ điền vào gap/rest của lead.
+- `pipeline`: dùng scale engine gốc với host alias; có thể overwrite lead và
+  có thể không chọn được passage nào.
+
+Warning luôn báo:
+
+```text
+safe scales selected N eighth(s)
+pipeline scales selected N eighth(s)
+... found no usable passage in this figure
+```
 
 `series` có thể là:
 
@@ -360,7 +379,10 @@ BPM:
 
 Production extras:
 [ Preludio bass ] [ Campanella ] [ Bells ] [ Fanfares ]
-[ Transitions ] [ Caesuras ] [ Rest fill ] [ Scales ]
+[ Transitions ] [ Caesuras ] [ Rest fill ]
+
+Scales:
+[ Off ] [ Safe ] [ Pipeline (original) ]
 
 [ Render piece ]  [ Play ]  [ Export WAV ]  [ Export MusicXML ]
 ```
@@ -374,9 +396,13 @@ Production extras:
 - `transitions`: pickup/relax ở boundary section.
 - `caesuras`: khoảng lặng trước peak.
 - `restFill`: điền rest cho đủ voice.
-- `scales`: điền scalar run vào các gap lead (một gap/bar), không ghi đè
-  authored note. Đây là Studio-specific fallback vì pattern id của Studio
+- `scales: "safe"`: điền scalar run vào các gap lead (một gap/bar), không ghi
+  đè authored note. Đây là Studio-specific fallback vì pattern id của Studio
   không phải scale host của production.
+- `scales: "pipeline"`: thử scale engine gốc với host alias `etude1` →
+  `etude11` → `thumb_cantabile`; dùng lại contour/realization/velocity của
+  production. Có thể overwrite lead và có thể không chọn được passage nào vì
+  host gate/impulse gate. Đây là mode thử nghiệm.
 
 Các pass này **có thể ghi đè authored note**. Mặc định off. Bật/tắt phải
 invalidate render và nằm trong `renderHash`.

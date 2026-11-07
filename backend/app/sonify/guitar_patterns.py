@@ -4217,6 +4217,169 @@ def _studio_scale_passages(
     return [*lead, *added], passages
 
 
+def _studio_synthetic_impulses(ctx: _Ctx) -> tuple:
+    """Build phrase-level impulses when the source series has none.
+
+    The production selector only considers detected price waves. A short or
+    smooth Studio series can produce zero, which makes the original engine
+    look broken. These phrase windows let the same contour/realization engine
+    run without changing its line, velocity, or instrument logic.
+    """
+    from app.sonify.model import PriceImpulse
+
+    impulses: list[PriceImpulse] = []
+    for phrase in ctx.phrases:
+        start = max(0, int(phrase.start))
+        target = min(ctx.bars * ctx.epb - 1, int(phrase.end) - 1)
+        if target - start + 1 < ctx.epb:
+            continue
+        window = ctx.melody[start : target + 1]
+        if not window:
+            continue
+        first = int(window[0])
+        last = int(window[-1])
+        span = max(abs(last - first), max(window) - min(window), 6)
+        direction = "up" if last >= first else "down"
+        impulses.append(
+            PriceImpulse(
+                start=start,
+                target=target,
+                direction=direction,  # type: ignore[arg-type]
+                net_span=span,
+                adjusted_efficiency=1.0,
+                score=float(span * max(1, target - start)),
+                retreat_spans=(),
+                sub_bar=False,
+            )
+        )
+    return tuple(impulses)
+
+
+def _studio_forced_scale_passages(
+    ctx: _Ctx,
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+):
+    """Try production realization directly on Studio windows.
+
+    This bypasses the impulse/host selector but keeps the optimized ``_line``,
+    contour coloring, velocity curve, bass and support rewrites. It is the
+    last-resort path for a smooth demo series whose impulse detector is empty.
+    """
+    from app.sonify.guitar_scale_passages import (
+        ScalePassage,
+        realize_scale_passage,
+    )
+
+    lead_out = list(lead)
+    support_out = list(support)
+    low_out = list(low)
+    accepted: list[ScalePassage] = []
+    hosts = ("etude1", "etude11", "thumb_cantabile")
+    for bar in range(ctx.bars):
+        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+            continue
+        base = bar * ctx.epb
+        lengths = sorted({ctx.epb, max(4, ctx.epb // 2)}, reverse=True)
+        placed = False
+        for length in lengths:
+            for offset in (0, ctx.epb // 2):
+                if offset + length > ctx.epb:
+                    continue
+                start = base + offset
+                target = start + length - 1
+                first = _melody_at(ctx, start)
+                last = _melody_at(ctx, target)
+                direction = "up" if last >= first else "down"
+                passage = ScalePassage(
+                    start=start,
+                    target=target,
+                    direction=direction,
+                    net_span=max(6, abs(last - first)),
+                    score=1.0,
+                    retreat_spans=(),
+                    sub_bar=length < ctx.epb,
+                    passage_eighths=length,
+                    replaced_base_intrinsic_eighths=0,
+                )
+                for host in hosts:
+                    patterns = [host] * ctx.bars
+                    realized = realize_scale_passage(
+                        ctx, passage, patterns, lead_out, support_out, low_out
+                    )
+                    if realized is None:
+                        continue
+                    lead_out, support_out, low_out = realized
+                    accepted.append(passage)
+                    placed = True
+                    break
+                if placed:
+                    break
+            if placed:
+                break
+    if not accepted:
+        return None
+    body = ctx.bars * ctx.epb
+    from app.sonify.guitar_scale_passages import ScalePlan
+
+    return (
+        lead_out,
+        support_out,
+        low_out,
+        ScalePlan(
+            body_eighths=body,
+            base_intrinsic_eighths=0,
+            max_scale_eighths=body,
+            room=body,
+            passages=tuple(accepted),
+            perpetual_bars=(),
+            tier1=(),
+            room_after=max(0, body - sum(p.passage_eighths for p in accepted)),
+        ),
+    )
+
+
+def _studio_pipeline_scales(
+    ctx: _Ctx,
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], object]:
+    """Run the original scale engine with a host alias.
+
+    Studio's pattern id is not a scale host. Try the least surprising arpeggio
+    hosts in order; the first one that realizes a passage wins. If the source
+    series detected no impulses, retry with phrase-level synthetic impulses so
+    the original contour/realization engine still has something to select.
+    This mode is experimental: the production engine may overwrite authored
+    lead notes.
+    """
+    from app.sonify.guitar_scale_passages import ScalePlan, apply_scale_passages
+
+    original_impulses = tuple(getattr(ctx, "impulses", ()) or ())
+    impulse_sets = [original_impulses]
+    synthetic = _studio_synthetic_impulses(ctx)
+    if synthetic:
+        impulse_sets.append(synthetic)
+    try:
+        for impulses in impulse_sets:
+            ctx.impulses = impulses
+            for host in ("etude1", "etude11", "thumb_cantabile"):
+                patterns = [host] * ctx.bars
+                lead_out, support_out, low_out, plan = apply_scale_passages(
+                    ctx, patterns, lead, support, low
+                )
+                if plan.scale_eighths:
+                    return lead_out, support_out, low_out, plan
+    finally:
+        ctx.impulses = original_impulses
+    forced = _studio_forced_scale_passages(ctx, lead, support, low)
+    if forced is not None:
+        return forced
+    return lead, support, low, ScalePlan(0, 0, 0, 0, (), (), (), 0)
+
+
 def _finish_voices(
     ctx: _Ctx,
     patterns: list[str],
@@ -4292,7 +4455,14 @@ def _finish_voices(
 
     # Passages are chosen from the price line, then they overwrite only their eighths.
     if studio_mode:
-        if _studio_extra(studio_production, "scales"):
+        scale_mode = getattr(studio_production, "scales", "off")
+        if scale_mode is True:
+            scale_mode = "safe"
+        if scale_mode == "pipeline":
+            lead, support, low, scale_plan = _studio_pipeline_scales(
+                ctx, lead, support, low
+            )
+        elif scale_mode == "safe":
             lead, passages = _studio_scale_passages(ctx, lead)
             body_eighths = ctx.bars * ctx.epb
             scale_plan = ScalePlan(

@@ -189,6 +189,7 @@ import {
   FIGURE_RENDER_BPM_PRESETS,
   FIGURE_RENDER_PLANS,
   FIGURE_RENDER_PRODUCTION_OPTIONS,
+  FIGURE_RENDER_SCALE_MODES,
   FIGURE_TAGS,
   GENERIC_PATTERN_IDS,
   KEY_BODY_MISSING,
@@ -4033,7 +4034,7 @@ deepEqual(DEFAULT_FIGURE_RENDER_PRODUCTION, {
   transitions: false,
   caesuras: false,
   restFill: false,
-  scales: false,
+  scales: 'off',
 });
 deepEqual(
   FIGURE_RENDER_PRODUCTION_OPTIONS.map((option) => option.key),
@@ -4045,8 +4046,11 @@ deepEqual(
     'transitions',
     'caesuras',
     'restFill',
-    'scales',
   ],
+);
+deepEqual(
+  FIGURE_RENDER_SCALE_MODES.map((option) => option.id),
+  ['off', 'safe', 'pipeline'],
 );
 
 const slowRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
@@ -4060,14 +4064,14 @@ const badBpm = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
 equal(badBpm.ok, false);
 
 const withExtras = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo, {
-  production: { campanella: true, restFill: true, scales: true },
+  production: { campanella: true, restFill: true, scales: 'pipeline' },
 });
 if (!withExtras.ok) throw new Error(withExtras.error);
 deepEqual(withExtras.request.production, {
   ...DEFAULT_FIGURE_RENDER_PRODUCTION,
   campanella: true,
   restFill: true,
-  scales: true,
+  scales: 'pipeline',
 });
 
 const builtRender = buildFigureRenderRequest(figureDraft, 'auto_aaba', demo);

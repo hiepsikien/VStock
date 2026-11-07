@@ -116,7 +116,7 @@ class RenderProductionIn(BaseModel):
     transitions: bool = False
     caesuras: bool = False
     restFill: bool = False
-    scales: bool = False
+    scales: str = Field(default="off", pattern="^(off|safe|pipeline)$")
 
 
 class RenderOptionsIn(BaseModel):

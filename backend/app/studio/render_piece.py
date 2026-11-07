@@ -667,8 +667,13 @@ def _production_warnings(
     enabled = [
         label
         for field, label in _PRODUCTION_WARNING_NAMES
-        if getattr(production, field, False)
+        if field != "scales" and getattr(production, field, False)
     ]
+    scales = getattr(production, "scales", "off")
+    if isinstance(scales, str) and scales != "off":
+        enabled.append(f"scales ({scales})")
+    elif isinstance(scales, bool) and scales:
+        enabled.append("scales")
     if not enabled:
         return ()
     return (
@@ -961,6 +966,17 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         studio_piece=arrangement.piece,
         title=title,
     )
+    scale_mode = getattr(production, "scales", "off")
+    if scale_mode is True:
+        scale_mode = "safe"
+    if isinstance(scale_mode, str) and scale_mode in ("safe", "pipeline"):
+        selected = len(tuple(getattr(score, "scale_eighths", ()) or ()))
+        warnings.append(f"{scale_mode} scales selected {selected} eighth(s)")
+        if selected == 0:
+            warnings.append(
+                f"{scale_mode} scales found no usable passage in this figure"
+            )
+
     musicxml = score_to_musicxml(score)
     notes = _score_notes(score)
 

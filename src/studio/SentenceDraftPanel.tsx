@@ -33,6 +33,7 @@ import {
   FIGURE_RENDER_BPM_PRESETS,
   FIGURE_RENDER_FORM_SPANS,
   FIGURE_RENDER_PRODUCTION_OPTIONS,
+  FIGURE_RENDER_SCALE_MODES,
   FIGURE_RENDER_PLANS,
   FIGURE_TAGS,
   VILLA_COMPOSER,
@@ -67,7 +68,7 @@ import {
   type DemoSeriesRange,
   type FigureRenderAudio,
   type FigureRenderProduction,
-  type FigureRenderProductionKey,
+  type FigureRenderToggleKey,
   type FigureRenderFormSpan,
   type FigureRenderPlanId,
   type FigureRenderResponse,
@@ -1152,7 +1153,7 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
     parsedBpm >= FIGURE_RENDER_BPM_MIN &&
     parsedBpm <= FIGURE_RENDER_BPM_MAX;
   const bpm = bpmValid ? parsedBpm : DEFAULT_FIGURE_RENDER_BPM;
-  const toggleProduction = (key: FigureRenderProductionKey) => {
+  const toggleProduction = (key: FigureRenderToggleKey) => {
     setProduction((current) => ({ ...current, [key]: !current[key] }));
   };
   const [render, setRender] = useState<FigureRenderResponse | null>(null);
@@ -1568,6 +1569,41 @@ function RenderPieceSection({ draft }: { draft: PatternDraft }) {
           All off by default. These passes may add or rewrite notes; the
           authored cell is no longer the final note list when one is on.
         </Text>
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.inputLabel}>Scales</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {FIGURE_RENDER_SCALE_MODES.map((option) => (
+            <Chip
+              key={`render-scale-mode:${option.id}`}
+              label={option.label}
+              active={production.scales === option.id}
+              onPress={() =>
+                setProduction((current) => ({
+                  ...current,
+                  scales: option.id,
+                }))
+              }
+              accessibilityLabel={`Scales ${option.label}: ${option.hint}`}
+            />
+          ))}
+        </ScrollView>
+        <Text style={styles.fieldMeta}>
+          {FIGURE_RENDER_SCALE_MODES.find(
+            (option) => option.id === production.scales,
+          )?.hint ?? 'No generated scales.'}
+        </Text>
+        {production.scales === 'pipeline' ? (
+          <Text style={styles.fieldMeta}>
+            Pipeline is experimental: it uses the original Lobos scale engine
+            and may overwrite authored lead notes.
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.seriesRow}>

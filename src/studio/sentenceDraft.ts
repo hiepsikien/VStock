@@ -1035,6 +1035,22 @@ export type FigureRenderForm = {
 };
 
 /** Production passes normally disabled for StudioPiece. */
+export type FigureRenderScaleMode = 'off' | 'safe' | 'pipeline';
+
+export const FIGURE_RENDER_SCALE_MODES: readonly {
+  id: FigureRenderScaleMode;
+  label: string;
+  hint: string;
+}[] = [
+  { id: 'off', label: 'Off', hint: 'No generated scales' },
+  { id: 'safe', label: 'Safe', hint: 'Fill empty lead eighths only' },
+  {
+    id: 'pipeline',
+    label: 'Pipeline (original)',
+    hint: 'Lobos scale engine; may overwrite authored lead',
+  },
+];
+
 export type FigureRenderProduction = {
   preludioBass: boolean;
   campanella: boolean;
@@ -1043,7 +1059,7 @@ export type FigureRenderProduction = {
   transitions: boolean;
   caesuras: boolean;
   restFill: boolean;
-  scales: boolean;
+  scales: FigureRenderScaleMode;
 };
 
 export const DEFAULT_FIGURE_RENDER_PRODUCTION: FigureRenderProduction = {
@@ -1054,13 +1070,14 @@ export const DEFAULT_FIGURE_RENDER_PRODUCTION: FigureRenderProduction = {
   transitions: false,
   caesuras: false,
   restFill: false,
-  scales: false,
+  scales: 'off',
 };
 
 export type FigureRenderProductionKey = keyof FigureRenderProduction;
+export type FigureRenderToggleKey = Exclude<FigureRenderProductionKey, 'scales'>;
 
 export const FIGURE_RENDER_PRODUCTION_OPTIONS: readonly {
-  key: FigureRenderProductionKey;
+  key: FigureRenderToggleKey;
   label: string;
   hint: string;
 }[] = [
@@ -1071,7 +1088,6 @@ export const FIGURE_RENDER_PRODUCTION_OPTIONS: readonly {
   { key: 'transitions', label: 'Transitions', hint: 'Pickups at section boundaries' },
   { key: 'caesuras', label: 'Caesuras', hint: 'Breath silence before peaks' },
   { key: 'restFill', label: 'Rest fill', hint: 'Complete each voice with rests' },
-  { key: 'scales', label: 'Scales', hint: 'Fill empty lead eighths with scalar runs' },
 ];
 
 export type FigureRenderRequest = {

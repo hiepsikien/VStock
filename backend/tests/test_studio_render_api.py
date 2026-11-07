@@ -484,7 +484,7 @@ def test_production_extras_are_optional_and_change_the_hash(
         "production": {
             "campanella": True,
             "restFill": True,
-            "scales": True,
+            "scales": "pipeline",
         },
     }
     extra = client.post("/v1/studio/figure/render", json=body)
@@ -511,13 +511,27 @@ def test_scales_fill_lead_gaps_without_overwriting_authored_notes() -> None:
         replace(
             _service_request(),
             title="Scale enabled",
-            production=StudioProductionOptions(scales=True),
+            production=StudioProductionOptions(scales="safe"),
         )
     )
 
     assert base.notes > 0
     assert scaled.notes > base.notes
     assert base.musicxml != scaled.musicxml
+
+
+def test_pipeline_scale_mode_reports_what_it_selected() -> None:
+    from app.sonify.studio_piece import StudioProductionOptions
+
+    result = render_piece(
+        replace(
+            _service_request(),
+            title="Pipeline scale diagnostics",
+            production=StudioProductionOptions(scales="pipeline"),
+        )
+    )
+
+    assert any("pipeline scales selected" in item for item in result.warnings)
 
 
 def test_bpm_outside_the_supported_band_is_rejected(

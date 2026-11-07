@@ -131,9 +131,9 @@ class StudioProductionOptions:
     transitions: bool = False
     caesuras: bool = False
     rest_fill: bool = False
-    # Price-line scale passages. This is the most invasive pass: it can
-    # overwrite authored lead eighths, so it stays opt-in.
-    scales: bool = False
+    # "off", "safe" (fill lead rests), or "pipeline" (original scale engine;
+    # can overwrite authored lead eighths and is experimental).
+    scales: str = "off"
 
 
 @dataclass(frozen=True)
