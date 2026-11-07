@@ -154,6 +154,8 @@ class StudioPiece:
     )
     # "off", "auto", "force": pattern-layer neighbor variation for the lead.
     variation: str = "off"
+    # Studio lead sits slightly lower than the default guitar treble window.
+    lead_shift: int = -2
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cells", dict(self.cells))
@@ -169,6 +171,12 @@ class StudioPiece:
             object.__setattr__(self, "production", StudioProductionOptions())
         if self.variation not in ("off", "auto", "force"):
             object.__setattr__(self, "variation", "off")
+        if (
+            isinstance(self.lead_shift, bool)
+            or not isinstance(self.lead_shift, int)
+            or not -12 <= self.lead_shift <= 12
+        ):
+            object.__setattr__(self, "lead_shift", 0)
 
     def validate(self) -> tuple[str, ...]:
         """Return every structural problem. An empty tuple means the piece is renderable."""

@@ -142,11 +142,17 @@ def _render_guitar_score_impl(
         else:
             # Direct unit tests omit raw_pitches. Never detect on quantized pitches.
             impulses = ()
+    lead_floor = register.guitar_treble_floor
+    lead_top = register.guitar_treble_top
+    if studio_piece is not None:
+        shift = getattr(studio_piece, "lead_shift", 0)
+        lead_floor = max(register.guitar_floor, lead_floor + shift)
+        lead_top = min(register.guitar_ceiling, lead_top + shift)
     melody = _place_melody(
         pitches,
         phrases,
-        register.guitar_treble_floor,
-        register.guitar_treble_top,
+        lead_floor,
+        lead_top,
         chord_at,
         mode,
         raw_pitches=raw_pitches,

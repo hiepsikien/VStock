@@ -3500,6 +3500,10 @@ def render_patterned_voices(
         movement_index=movement_index,
         movement_span=movement_span,
     )
+    if studio_piece is not None:
+        shift = getattr(studio_piece, "lead_shift", 0)
+        ctx.treble_floor = max(register.guitar_floor, ctx.treble_floor + shift)
+        ctx.treble_top = min(register.guitar_ceiling, ctx.treble_top + shift)
     patterns = _patterns(ctx) if phrases else []
     headline = _HEADLINE.get()
     if headline is not None:
@@ -4311,7 +4315,7 @@ def _studio_direct_scale_notes(
 
     def fold(sign: int) -> list[int]:
         pitches: list[int] = []
-        pitch = first
+        pitch = _walk(first, 0, ctx.mode, floor, ceiling)
         step = sign
         for _ in attacks:
             pitches.append(pitch)
@@ -4593,8 +4597,6 @@ def _apply_studio_variation(
     for bar in range(ctx.bars):
         base = bar * ctx.epb
         protected.update(base + offset for offset in ctx.strong)
-        if bar and ctx.chord(bar) != ctx.chord(bar - 1):
-            protected.add(base)
     for phrase in ctx.phrases:
         protected.add(int(phrase.start))
         protected.add(int(phrase.end) - 1)

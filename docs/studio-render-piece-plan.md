@@ -937,7 +937,7 @@ target: p p p p p
      phrase edge, cadence/close bar, chord-change downbeat, hoặc note có tie/slur;
    - reject nếu neighbor trùng pitch kế tiếp ở biên run.
 
-Ví dụ:
+Ví dụ cho run toàn weak eighth (2/4, hoặc eighth notes không rơi vào strong beat):
 
 ```text
 target:   76 76 76 76 76 76
@@ -995,7 +995,7 @@ Variation bỏ qua các eighth đã thuộc scale passage để tránh chồng p
 Đưa vào `renderHash`:
 
 - `variation` mode;
-- bump `STUDIO_RENDER_REVISION` khi note thực tế đổi (hiện là **8**).
+- bump `STUDIO_RENDER_REVISION` khi note thực tế đổi (hiện là **9**).
 
 Output plan hiện không được hash riêng; mode đã đủ để tách cache `off/auto/force`.
 
@@ -1033,3 +1033,20 @@ Follow-up:
 - mid/bass variation;
 - tremolo-specific applied/ignored warning;
 - nếu cần, thêm density knob thay vì cố định auto/force.
+
+
+### 18.12. Studio lead register
+
+Studio lead được hạ window xuống **2 semitone** so với guitar mặc định:
+
+```text
+standard: 59..81
+Studio:   57..79   (lead_shift = -2)
+```
+
+- Chỉ áp dụng cho `StudioPiece`; legacy/production guitar giữ 59..81.
+- `_place_melody` nhận floor/top đã hạ.
+- `ctx.treble_floor/top` trong pattern layer cũng hạ theo để `scale_step`/line
+  resolution nhất quán.
+- Mid/bass register không đổi.
+- `StudioPiece.lead_shift` có thể override; default `-2`.

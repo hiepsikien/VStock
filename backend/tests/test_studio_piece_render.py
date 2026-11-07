@@ -707,6 +707,24 @@ def test_pattern_variation_changes_a_weak_repeat_not_the_strong_beat() -> None:
     assert _apply_studio_variation(ctx, lead, "off") == lead
 
 
+def test_lower_studio_lead_window_lowers_a_high_phrase() -> None:
+    from app.sonify.chords import C
+    from app.sonify.guitar import _place_melody
+    from app.sonify.model import Phrase, Run
+
+    raw = [81, 79, 77, 76]
+    phrase = Phrase(
+        0,
+        4,
+        (Run(0, 1, 81), Run(1, 1, 79), Run(2, 1, 77), Run(3, 1, 76)),
+    )
+
+    high = _place_melody(raw, (phrase,), 59, 81, {0: C}, "major")
+    low = _place_melody(raw, (phrase,), 57, 79, {0: C}, "major")
+
+    assert sum(low) / len(low) < sum(high) / len(high)
+
+
 def test_pattern_variation_changes_more_than_one_note_in_a_long_plateau() -> None:
     from app.sonify.guitar_patterns import _apply_studio_variation
     from app.sonify.model import NoteEvent
@@ -774,7 +792,37 @@ def test_forced_scale_folds_instead_of_sticking_to_the_ceiling() -> None:
             current = 1
         longest = max(longest, current)
     assert longest <= 2
-    assert max(pitches) < min(ctx.treble_top, ctx.ceiling)
+    assert max(pitches) - min(pitches) <= min(ctx.treble_top, ctx.ceiling) - ctx.treble_floor
+
+
+def test_forced_scale_clamps_first_into_the_register() -> None:
+    from app.sonify.guitar_patterns import _studio_direct_scale_notes
+    from app.sonify.guitar_scale_passages import ScalePassage
+
+    ctx = _ctx(METER_44, 1)
+    passage = ScalePassage(
+        start=0,
+        target=7,
+        direction="down",
+        net_span=6,
+        score=1.0,
+        retreat_spans=(),
+        sub_bar=False,
+        passage_eighths=8,
+        replaced_base_intrinsic_eighths=0,
+    )
+    floor = ctx.treble_floor
+    ceiling = min(ctx.treble_top, ctx.ceiling)
+
+    built = _studio_direct_scale_notes(
+        ctx, passage, 100, -1, floor, ceiling
+    )
+
+    assert built is not None
+    pitches = [note.midi for note in built[0] if note.midi is not None]
+    assert pitches
+    assert all(floor <= pitch <= ceiling for pitch in pitches)
+    assert pitches[0] <= ceiling
 
 
 def test_pattern_variation_handles_rests_and_input_order() -> None:
@@ -873,10 +921,11 @@ def test_pattern_variation_keeps_scale_and_impulse_eighths() -> None:
         scale_eighths={2},
     )
 
-    # eighth 2 is a scale passage; eighth 6 is the impulse target.
+    # eighth 2 is a scale passage (bar 0 beat 1);
+    # eighth 6 is the impulse target (bar 0 beat 3).
     assert varied[1].midi == 76
-    assert varied[6].midi == 76
-    assert any(event.midi != 76 for index, event in enumerate(varied) if index not in (1, 6))
+    assert varied[3].midi == 76
+    assert any(event.midi != 76 for index, event in enumerate(varied) if index not in (1, 3))
 
 
 def test_pattern_variation_auto_skips_tremolo_and_force_can_change_it() -> None:
