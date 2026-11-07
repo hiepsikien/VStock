@@ -47,6 +47,8 @@ from app.sonify.studio_arrangement import ArrangementResult, build_arrangement
 from app.studio import render_audio, render_store
 from app.studio.texture_resolve import check_authored_playable
 from app.studio.texture_spec import (
+    AuthoredEvent,
+    PitchRef,
     TextureSpec,
     texture_spec_to_mapping,
     validate_texture_spec,
@@ -339,8 +341,8 @@ def _playability_context(meter: Meter) -> Any:
     and the actual render remains the final authority.
     """
     return SimpleNamespace(
-        melody=tuple([60] * 512),
-        raw=tuple([60] * 512),
+        melody=tuple([60] * 8192),
+        raw=tuple([60] * 8192),
         chord_at={},
         mode="major",
         treble_floor=59,
@@ -350,6 +352,48 @@ def _playability_context(meter: Meter) -> Any:
         epb=meter.eighths_per_bar,
         bar_beats=meter.quarter_beats,
     )
+
+
+def _bind_production_pitches(
+    pairs: Sequence[tuple[PatternFigure, TextureSpec]],
+    epb: int,
+) -> tuple[tuple[tuple[PatternFigure, TextureSpec], ...], tuple[str, ...]]:
+    """Replace MusicXML literal pitches with price/chord references.
+
+    Studio keeps the source passage as a literal preview. Render Piece is a
+    production-shaped piece: lead follows the target price melody, inner
+    voices follow the target chord, and bass follows the chord root. The
+    rhythm/duration/voice metadata is unchanged.
+    """
+    bound: list[tuple[PatternFigure, TextureSpec]] = []
+    changed = False
+    for figure, texture in pairs:
+        events: list[AuthoredEvent] = []
+        for event in texture.authored:
+            if event.pitch.kind != "literal_midi":
+                events.append(event)
+                continue
+            if event.voice == 1:
+                eighth = event.bar * epb + int(round(event.beat * 2))
+                pitch = PitchRef.melody_eighth(eighth, 0)
+            elif event.voice == 2:
+                pitch = PitchRef.chord_degree(2)
+            else:
+                pitch = PitchRef.chord_root()
+            events.append(replace(event, pitch=pitch))
+            changed = True
+        bound.append(
+            (figure, replace(texture, authored=tuple(events)))
+            if changed
+            else (figure, texture)
+        )
+    warnings: tuple[str, ...] = ()
+    if changed:
+        warnings = (
+            "MusicXML literal pitches were rebound to the price/chord context "
+            "for production preview",
+        )
+    return tuple(bound), warnings
 
 
 def _fold_literal_pitches(
@@ -694,10 +738,13 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
     if not request.include_doors:
         form = _body_only(form)
 
+    figures, pitch_warnings = _bind_production_pitches(
+        request.figures, meter.eighths_per_bar
+    )
     normalized = RenderPieceRequest(
         pattern=pattern,
         meter=meter_name,
-        figures=request.figures,
+        figures=figures,
         plan=plan_id,
         bars=request.bars,
         span=span,
@@ -721,7 +768,7 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
     )
 
     arrangement = _build_piece(normalized, form, plan.cells)
-    warnings = [*validation_warnings, *arrangement.warnings]
+    warnings = [*pitch_warnings, *validation_warnings, *arrangement.warnings]
 
     render_hash = _render_hash(
         normalized,

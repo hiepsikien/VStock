@@ -520,6 +520,23 @@ Sidecar:
 - TTL/LRU 24h.
 - Không cache theo `symbol/date`; series phải resolve thành bars rồi hash.
 
+### W4b — Pitch provenance
+
+Render Piece **không giữ literal MIDI của MusicXML**. Trước render, `render_piece`
+rebind từng event:
+
+- voice 1 / lead → `melody_eighth` (pitch từ price melody);
+- voice 2 / inner → `chord_degree(2)`;
+- voice 3/4 / bass → `chord_root`.
+
+Source passage preview vẫn giữ literal MIDI. Production promote vẫn reject
+absolute literal. Warning:
+
+```text
+MusicXML literal pitches were rebound to the price/chord context
+for production preview
+```
+
 ### W5 — Title/pattern mới
 
 Pattern Studio (`studio_*`) không có `PATTERN_META`/`movement_title`.

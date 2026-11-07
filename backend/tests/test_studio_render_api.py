@@ -263,7 +263,10 @@ def test_literal_midi_is_allowed_with_a_warning(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is True
-    assert any("literal_midi is preview-only" in item for item in body["warnings"])
+    assert any(
+        "rebound to the price/chord context" in item
+        for item in body["warnings"]
+    )
 
 
 def test_plan_sentence_by_role_is_rejected_as_unimplemented(client: TestClient) -> None:
@@ -491,7 +494,10 @@ def test_voice_order_issue_is_relaxed_for_preview(client: TestClient) -> None:
     response = client.post("/v1/studio/figure/render", json=body)
     payload = response.json()
     assert payload["ok"] is True
-    assert any("voice order was relaxed" in item for item in payload["warnings"])
+    assert any(
+        "rebound to the price/chord context" in item
+        for item in payload["warnings"]
+    )
 
 
 def test_out_of_range_literal_midi_is_folded_for_preview(
@@ -502,7 +508,10 @@ def test_out_of_range_literal_midi_is_folded_for_preview(
     response = client.post("/v1/studio/figure/render", json=body)
     payload = response.json()
     assert payload["ok"] is True
-    assert any("folded into guitar range" in item for item in payload["warnings"])
+    assert any(
+        "rebound to the price/chord context" in item
+        for item in payload["warnings"]
+    )
 
 
 def test_fold_literal_pitch_moves_88_to_76() -> None:
@@ -536,3 +545,45 @@ def test_fold_literal_pitch_moves_88_to_76() -> None:
     folded, warnings = _fold_literal_pitches(((figure, texture),))
     assert folded[0][1].authored[0].pitch.value == 76
     assert warnings and "folded into guitar range" in warnings[0]
+
+
+def test_render_piece_rebinds_literal_pitches_to_relative_refs() -> None:
+    from app.studio.render_piece import _bind_production_pitches
+    from app.studio.texture_spec import (
+        AuthoredEvent,
+        PitchRef,
+        TextureSpec,
+    )
+
+    texture = TextureSpec(
+        id="cell_pitch",
+        composer="villa",
+        kind="pattern",
+        level="topic",
+        runtime="code",
+        status="draft",
+        authored=(
+            AuthoredEvent(
+                bar=0,
+                beat=0.0,
+                duration_beats=1.0,
+                voice=1,
+                pitch=PitchRef.literal_midi(88),
+            ),
+            AuthoredEvent(
+                bar=0,
+                beat=0.0,
+                duration_beats=1.0,
+                voice=3,
+                pitch=PitchRef.literal_midi(40),
+            ),
+        ),
+    )
+    figure = PatternFigure(
+        id="fig_pitch", cell_id="cell_pitch", bars=1, tags=("key",)
+    )
+    bound, warnings = _bind_production_pitches(((figure, texture),), 4)
+    events = bound[0][1].authored
+    assert events[0].pitch.kind == "melody_eighth"
+    assert events[1].pitch.kind == "chord_root"
+    assert warnings and "rebound" in warnings[0]
