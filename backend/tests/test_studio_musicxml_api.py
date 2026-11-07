@@ -1159,17 +1159,24 @@ def test_musicxml_routes_require_a_session_header() -> None:
 
 
 def test_more_than_four_simultaneous_notes_drop_an_extra_not_a_validation_error() -> None:
-    from app.routers.studio_musicxml import _assign_playable_voices
+    from app.routers.studio_musicxml import (
+        _assign_playable_voices,
+        _trim_dense_onsets,
+    )
 
     notes = [
         {"bar": 0, "beat": 0.0, "duration": 1.0, "midi": midi, "voice": 1}
         for midi in (72, 71, 70, 69, 68)
     ]
+    notes, trimmed = _trim_dense_onsets(notes)
     assigned, changed, dropped = _assign_playable_voices(notes)
+    dropped += trimmed
 
     assert dropped == 1
     assert changed is True
     assert len(assigned) == 4
+    # Keep the outer voices: the bass (68) and the top (72) must survive.
+    assert {int(note["midi"]) for note in assigned} == {68, 69, 71, 72}
     by_voice_bar: dict[tuple[int, int], float] = {}
     for note in assigned:
         key = (int(note["voice"]), int(note["bar"]))

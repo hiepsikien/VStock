@@ -1172,6 +1172,42 @@ def _audio_notes(
     return result
 
 
+def _trim_dense_onsets(
+    notes: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """At a shared onset keep outer voices and drop the middle.
+
+    Sorting by pitch and dropping the tail would remove the bass, which is the
+    worst outcome for a guitar texture. For >4 simultaneous notes keep the
+    lowest, highest, and the two nearest remaining tones; drop the middle.
+    """
+    groups: dict[tuple[int, float], list[dict[str, Any]]] = {}
+    order: list[tuple[int, float]] = []
+    for note in notes:
+        key = (int(note.get("bar") or 0), round(float(note.get("beat") or 0.0), 9))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(note)
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for key in order:
+        group = groups[key]
+        if len(group) <= _MAX_AUTHORED_VOICES:
+            kept.extend(group)
+            continue
+        ordered = sorted(group, key=lambda note: int(note.get("midi") or 0))
+        keep = [ordered[0], ordered[-1]]
+        middle = ordered[1:-1]
+        if len(middle) >= 2:
+            keep.extend([middle[0], middle[-1]])
+        else:
+            keep.extend(middle)
+        dropped += len(group) - len(keep)
+        kept.extend(keep)
+    return kept, dropped
+
+
 def _assign_playable_voices(
     notes: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], bool, int]:
@@ -1402,6 +1438,10 @@ def _passage_payload(
         if window is not None
         else _rebase(raw_notes, start0, bar_end)
     )
+    notes, dense_dropped = _trim_dense_onsets(notes)
+    notes, voices_changed, voices_dropped = _assign_playable_voices(notes)
+    voices_dropped += dense_dropped
+    _sanitize_endpoints(notes)
     missing_voices = sorted(
         {
             int(voice)
@@ -1409,8 +1449,6 @@ def _passage_payload(
             if not any(int(note.get("voice") or 1) == int(voice) for note in notes)
         }
     )
-    notes, voices_changed, voices_dropped = _assign_playable_voices(notes)
-    _sanitize_endpoints(notes)
     if voices_changed:
         warnings.append(
             "simultaneous notes were split across authored voices 1..4 to keep "
