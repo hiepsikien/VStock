@@ -266,3 +266,22 @@ def test_render_texture_bar_and_arrangement_agree() -> None:
     assert lead == [*first[0], *second[0]]
     assert support == [*first[1], *second[1]]
     assert low == [*first[2], *second[2]]
+
+
+def test_compressed_frame_uses_both_cell_bars() -> None:
+    texture = _texture(
+        id="cell_frame",
+        meter=METER_44,
+        pitches=((0, (60,)), (1, (61,))),
+    )
+    piece = StudioPiece(
+        pattern="studio_frame",
+        meter="4/4",
+        cells={"cell_frame": texture},
+        arrangement=(("compressed", "cell_frame", 0),),
+    )
+    ctx = _ctx(METER_44, 1)
+    lead, _support, _low = render_studio_arrangement(ctx, piece)
+    midis = {event.midi for event in lead}
+    assert 60 in midis and 61 in midis
+    assert {round(event.beat, 3) for event in lead} == {0.0, 1.0, 2.0, 3.0}

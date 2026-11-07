@@ -18,7 +18,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -405,7 +405,7 @@ def _validate_figures(
             request.pattern,
             request.meter,
             pairs,
-            allow_literal=False,
+            allow_literal=True,
         )
     except ValueError as exc:
         errors.append(RenderError("figures", str(exc)))
@@ -415,6 +415,15 @@ def _validate_figures(
     seen_cells: set[str] = set()
     playability_ctx = _playability_context(meter)
     warnings: list[str] = []
+    if any(
+        event.pitch.kind == "literal_midi"
+        for _figure, texture in pairs
+        for event in texture.authored
+    ):
+        warnings.append(
+            "literal_midi is preview-only; production promote still requires "
+            "a relative PitchRef"
+        )
     for index, (figure, texture) in enumerate(pairs):
         if figure.cell_id in seen_cells:
             continue
@@ -521,10 +530,53 @@ def _audio_state(
     return "ready", asset.audio_hash
 
 
+def _with_door_stubs(
+    request: RenderPieceRequest,
+) -> RenderPieceRequest:
+    """Satisfy the five-tag validator for a body-only render.
+
+    The stub doors are never used: ``_body_only`` removes the frame sections
+    before the arrangement is built. They only let the shared promote validator
+    prove the body figure is usable.
+    """
+    key_pair = next(
+        (
+            pair
+            for pair in request.figures
+            if "key" in pair[0].tags
+        ),
+        None,
+    )
+    if key_pair is None:
+        return request
+    key_figure, key_texture = key_pair
+    stubs = tuple(
+        (
+            PatternFigure(
+                id=f"__studio_door_{tag}",
+                cell_id=key_figure.cell_id,
+                bars=bars,
+                tags=(tag,),
+            ),
+            key_texture,
+        )
+        for tag, bars in (
+            ("intro.short", 2),
+            ("intro.long", 4),
+            ("outro.short", 2),
+            ("outro.long", 4),
+        )
+    )
+    return replace(
+        request,
+        figures=tuple(request.figures) + stubs,
+    )
+
+
 def _build_piece(
     request: RenderPieceRequest,
     form: FormSpec,
-    plan: PromotionPlan,
+    cells: Mapping[str, TextureSpec],
 ) -> ArrangementResult:
     try:
         return build_arrangement(
@@ -533,7 +585,8 @@ def _build_piece(
             figures=[figure for figure, _texture in request.figures],
             form=form,
             policy=request.plan,
-            textures=plan.cells,
+            textures=cells,
+            require_doors=request.include_doors,
         )
     except ValueError as exc:
         message = str(exc)
@@ -588,7 +641,10 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         session=request.session,
     )
 
-    plan, _warnings = _validate_figures(normalized, meter)
+    validation_request = (
+        normalized if normalized.include_doors else _with_door_stubs(normalized)
+    )
+    plan, validation_warnings = _validate_figures(validation_request, meter)
     _validate_series(normalized.bars, form)
 
     requested_title = normalized.title
@@ -598,8 +654,8 @@ def render_piece(request: RenderPieceRequest) -> RenderPieceResult:
         else f"{pattern} Studio Piece"
     )
 
-    arrangement = _build_piece(normalized, form, plan)
-    warnings = list(arrangement.warnings)
+    arrangement = _build_piece(normalized, form, plan.cells)
+    warnings = [*validation_warnings, *arrangement.warnings]
 
     render_hash = _render_hash(
         normalized,

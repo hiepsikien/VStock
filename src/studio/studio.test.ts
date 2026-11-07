@@ -3794,8 +3794,8 @@ if (exported.includes('rangeLabel') || exported.includes('renderHash')) {
  * Figure pool (Phase 4)
  * ------------------------------------------------------------------------- */
 
-equal(FIGURE_TAGS.length, 5);
-equal(FIGURE_TAGS.join(','), 'key,intro.short,intro.long,outro.short,outro.long');
+equal(FIGURE_TAGS.length, 7);
+equal(FIGURE_TAGS.join(','), 'key,intro.short,intro.long,outro.short,outro.long,contrast,close');
 equal(figureTagError('intro.short', 2), null);
 if (!figureTagError('intro.short', 4)?.includes('needs 2 bars')) {
   throw new Error('short tag must reject four bars');

@@ -431,6 +431,8 @@ export type PatternDraftMeta = {
  */
 export type FigureTag =
   | 'key'
+  | 'contrast'
+  | 'close'
   | 'intro.short'
   | 'intro.long'
   | 'outro.short'
@@ -445,16 +447,30 @@ export const FIGURE_TAGS: readonly FigureTag[] = [
   'intro.long',
   'outro.short',
   'outro.long',
+  'contrast',
+  'close',
+];
+
+export const REQUIRED_FIGURE_TAGS: readonly FigureTag[] = [
+  'key',
+  'intro.short',
+  'intro.long',
+  'outro.short',
+  'outro.long',
 ];
 
 export const KEY_BODY_MISSING = 'key.body' as const;
 
-/** Short scripts are 2 bars, long scripts are 4; `key` allows any length >= 1. */
+/** Short scripts are 2 bars, long scripts are 4; body tags allow 1–4. */
 const FIGURE_TAG_BARS: Partial<Record<FigureTag, number>> = {
   'intro.short': 2,
   'intro.long': 4,
   'outro.short': 2,
   'outro.long': 4,
+};
+const FIGURE_TAG_BAR_LIMITS: Partial<Record<FigureTag, readonly [number, number]>> = {
+  contrast: [1, 4],
+  close: [1, 4],
 };
 
 export type PatternDraftFigure = {
@@ -505,6 +521,14 @@ export function figureTagBars(tag: FigureTag): number | null {
 /** Human-readable reason a tag does not fit `bars`, or `null` when it does. */
 export function figureTagError(tag: FigureTag, bars: number): string | null {
   if (!Number.isFinite(bars) || bars < 1) return 'bars must be >= 1';
+  const limits = FIGURE_TAG_BAR_LIMITS[tag];
+  if (limits) {
+    const [low, high] = limits;
+    if (bars < low || bars > high) {
+      return `${tag} needs ${low}-${high} bars, got ${bars}`;
+    }
+    return null;
+  }
   const expected = figureTagBars(tag);
   if (expected != null && bars !== expected) {
     return `${tag} needs ${expected} bars, got ${bars}`;
@@ -748,7 +772,7 @@ export function missingFigureTags(
   const owners = validFigureOwners(figures);
   const draft = Array.isArray(value) ? null : (value as PatternDraft);
   const missing: FigureMissingTag[] = [];
-  for (const tag of FIGURE_TAGS) {
+  for (const tag of REQUIRED_FIGURE_TAGS) {
     const unique = (owners.get(tag)?.length ?? 0) === 1;
     if (tag === 'key') {
       if (!unique) {

@@ -401,7 +401,7 @@ def test_registration_failure_rolls_back_and_hides_the_trace(
     assert ("villa", PATTERN) not in STUDIO_DOORS
 
 
-def test_tags_endpoint_lists_the_five_roles(client: TestClient) -> None:
+def test_tags_endpoint_lists_required_and_optional_roles(client: TestClient) -> None:
     response = client.get("/v1/studio/figure/tags")
 
     assert response.status_code == 200
@@ -413,6 +413,8 @@ def test_tags_endpoint_lists_the_five_roles(client: TestClient) -> None:
         {"name": "intro.long", "bars": 4},
         {"name": "outro.short", "bars": 2},
         {"name": "outro.long", "bars": 4},
+        {"name": "contrast", "bars": None},
+        {"name": "close", "bars": None},
     ]
 
 

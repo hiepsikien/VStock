@@ -1,6 +1,6 @@
 # Kế hoạch: Studio Render Piece (figure → bản nhạc → WAV)
 
-Trạng thái: **Phase A–D đã triển khai** (commit `4f90da9`). Phase E hardening còn lại.
+Trạng thái: **Phase A–D + W1–W4 đã triển khai** (commit `4f90da9`). W5–W10 còn partial; Phase E hardening còn lại.
 Phạm vi: `release/studio-v2.1`.
 Mục tiêu: sau khi user chọn/tag figure, có thể chọn plan, render full piece, nghe thử bằng **Play**, và export WAV/MusicXML — không auto-publish.
 
@@ -415,7 +415,7 @@ Hành vi:
    - Không dùng `studio_audio.ensure_audio` 45s cho Render Piece.
    - Nếu production audio lỗi: trả MusicXML + lỗi audio rõ, không fallback synth và không cắt im lặng.
 5. **Quota**: render preview **không tiêu publish quota**. Có rate limit riêng cho render/audio; quota publish giữ nguyên.
-6. **Cache**: content hash `renderHash`, TTL 24h, LRU; MusicXML/WAV cùng key.
+6. **Cache**: `renderHash` cho score/MusicXML; `audioHash` riêng cho WAV (audioRevision/paramsHash/MuseScore/soundfont). TTL 24h, LRU.
 
 ---
 
@@ -539,9 +539,9 @@ Chốt:
 
 ```text
 studio_piece mode:
-- chạy shape/overlap/fill;
+- chạy shape/overlap/repair;
 - chạy wave/dynamics/humanize;
-- KHÔNG chạy preludio_bass/campanella/scale/bells/transitions/fill
+- KHÔNG chạy preludio_bass/campanella/scale/bells/transitions/fill (kể cả final rest fill)
   trừ khi có flag riêng.
 ```
 

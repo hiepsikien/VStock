@@ -26,7 +26,7 @@ registry.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, NamedTuple
 
 from app.sonify.texture_figure import render_texture_bar
@@ -40,9 +40,9 @@ __all__ = [
 ]
 
 #: Kinds an arrangement entry may name. Phase A renders ``cell`` only.
-ARRANGEMENT_KINDS = ("cell", "figure")
+ARRANGEMENT_KINDS = ("cell", "figure", "compressed")
 
-ArrangementKind = Literal["cell", "figure"]
+ArrangementKind = Literal["cell", "figure", "compressed"]
 
 
 class ArrangementBar(NamedTuple):
@@ -52,8 +52,11 @@ class ArrangementBar(NamedTuple):
 
     * ``"cell"`` reads ``source_id`` from :attr:`StudioPiece.cells` and renders
       ``source_bar`` (the 0-based bar inside that cell).
-    * ``"figure"`` is reserved for Phase B. ``source_id`` is a figure id and
-      ``source_bar`` is the figure-local bar.
+    * ``"figure"`` is reserved for a future cadence renderer. ``source_id`` is
+      a figure id and ``source_bar`` is the figure-local bar.
+    * ``"compressed"`` mirrors the production one-bar frame: the first half of
+      cell bar ``source_bar`` plus the first half of ``source_bar + 1`` shifted
+      into the second half of the target bar.
 
     It is a real tuple, so a stored plan may write
     ``("cell", cell_id, cell_bar)`` (or ``("figure", figure_id, bar)``)
@@ -165,6 +168,24 @@ class StudioPiece:
                 errors.append(
                     f"arrangement[{index}] names unknown cell {entry.source_id!r}"
                 )
+            if entry.kind == "compressed":
+                texture = self.cells.get(entry.source_id)
+                if texture is None:
+                    errors.append(
+                        f"arrangement[{index}] names unknown cell {entry.source_id!r}"
+                    )
+                else:
+                    authored_bars = {
+                        event.bar for event in texture.authored
+                    }
+                    if entry.source_bar not in authored_bars or (
+                        entry.source_bar + 1
+                    ) not in authored_bars:
+                        errors.append(
+                            f"arrangement[{index}] compressed cell "
+                            f"{entry.source_id!r} needs authored bars "
+                            f"{entry.source_bar} and {entry.source_bar + 1}"
+                        )
         return tuple(errors)
 
     def __repr__(self) -> str:  # keep a huge cell body out of failure messages
@@ -172,6 +193,46 @@ class StudioPiece:
             f"StudioPiece(pattern={self.pattern!r}, meter={self.meter!r}, "
             f"cells={list(self.cells)!r}, arrangement={self.arrangement!r})"
         )
+
+
+def _compressed_voices(
+    texture: TextureSpec,
+    ctx: Any,
+    target_bar: int,
+    first_bar: int,
+) -> tuple[list, list, list]:
+    """Mirror guitar_frame._compressed: first half of bar N, first half of N+1."""
+    bar_beats = float(getattr(ctx, "bar_beats", ctx.epb / 2))
+    cut = bar_beats / 2.0
+    first = render_texture_bar(texture, ctx, target_bar, cell_bar=first_bar)
+    second = render_texture_bar(
+        texture, ctx, target_bar, cell_bar=first_bar + 1
+    )
+    lead: list = []
+    support: list = []
+    low: list = []
+    for source, shift in ((first, 0.0), (second, cut)):
+        source_lead, source_support, source_low = source
+        for target, events in (
+            (lead, source_lead),
+            (support, source_support),
+            (low, source_low),
+        ):
+            for event in events:
+                if event.beat >= cut:
+                    continue
+                duration = min(event.duration_beats, cut - event.beat)
+                if duration <= 0:
+                    continue
+                target.append(
+                    replace(
+                        event,
+                        beat=event.beat + shift,
+                        duration_beats=duration,
+                        bar=target_bar,
+                    )
+                )
+    return lead, support, low
 
 
 def render_studio_arrangement(
@@ -200,6 +261,11 @@ def render_studio_arrangement(
                 ctx,
                 target_bar,
                 cell_bar=entry.source_bar,
+            )
+        elif entry.kind == "compressed":
+            texture = piece.cells[entry.source_id]
+            cell_lead, cell_support, cell_low = _compressed_voices(
+                texture, ctx, target_bar, entry.source_bar
             )
         elif entry.kind == "figure":
             # Phase A has no figure renderer. The arrangement schema keeps the

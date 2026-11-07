@@ -212,7 +212,7 @@ def test_render_returns_hash_and_fetchable_musicxml(
 
 
 def test_plan_object_id_is_accepted(client: TestClient) -> None:
-    body = _body(plan={"id": "trio", "sentenceByRole": {"A": "fig_key"}})
+    body = _body(plan={"id": "trio"})
     response = client.post("/v1/studio/figure/render", json=body)
 
     assert response.status_code == 200
@@ -254,7 +254,7 @@ def test_short_series_is_an_error_without_truncation(client: TestClient) -> None
     assert any("series has 8 bars" in item["message"] for item in body["errors"])
 
 
-def test_literal_midi_is_rejected(client: TestClient) -> None:
+def test_literal_midi_is_allowed_with_a_warning(client: TestClient) -> None:
     response = client.post(
         "/v1/studio/figure/render",
         json=_body(key_pitch={"kind": "literal_midi", "value": 60}),
@@ -262,8 +262,18 @@ def test_literal_midi_is_rejected(client: TestClient) -> None:
 
     assert response.status_code == 200
     body = response.json()
+    assert body["ok"] is True
+    assert any("literal_midi is preview-only" in item for item in body["warnings"])
+
+
+def test_plan_sentence_by_role_is_rejected_as_unimplemented(client: TestClient) -> None:
+    response = client.post(
+        "/v1/studio/figure/render",
+        json=_body(plan={"id": "trio", "sentenceByRole": {"A": "fig_key"}}),
+    )
+    body = response.json()
     assert body["ok"] is False
-    assert any("literal_midi" in item["message"] for item in body["errors"])
+    assert any("sentenceByRole" in item["message"] for item in body["errors"])
 
 
 def test_same_request_hits_the_cache(client: TestClient, monkeypatch) -> None:
@@ -357,3 +367,36 @@ def test_service_result_and_title() -> None:
     assert "<note" in result.musicxml
     assert result.musicxml_url.endswith(".musicxml")
     assert result.audio_status == "unavailable"
+
+
+def test_audio_can_be_disabled(client: TestClient) -> None:
+    body = _body()
+    body["options"] = {"includeDoors": True, "audio": False}
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["audio"]["status"] == "unavailable"
+    assert any("audio disabled" in item for item in payload["warnings"])
+
+
+def test_symbol_series_kind_is_rejected(client: TestClient) -> None:
+    body = _body()
+    body["series"] = {"kind": "symbol", "symbol": "VIC", "bars": _bars()}
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is False
+    assert any("series.kind" in item["path"] for item in payload["errors"])
+
+
+def test_body_only_render_does_not_require_door_tags(client: TestClient) -> None:
+    body = _body()
+    body["figures"] = [
+        figure
+        for figure in body["figures"]
+        if not any(tag.startswith(("intro.", "outro.")) for tag in figure["tags"])
+    ]
+    body["options"] = {"includeDoors": False, "audio": False}
+    response = client.post("/v1/studio/figure/render", json=body)
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["audio"]["status"] == "unavailable"

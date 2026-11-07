@@ -90,6 +90,7 @@ class RenderFormIn(BaseModel):
 
 class RenderOptionsIn(BaseModel):
     includeDoors: bool = True
+    audio: bool = True
 
 
 class RenderRequestIn(BaseModel):
@@ -312,6 +313,27 @@ def render_piece_route(
         return RenderResponse(ok=False, errors=errors)
 
     plan_id = _plan_id(body.plan)
+    if isinstance(body.plan, RenderPlanIn) and body.plan.sentenceByRole:
+        return RenderResponse(
+            ok=False,
+            errors=[
+                _error(
+                    "plan.sentenceByRole",
+                    "sentenceByRole is not implemented for Render Piece; "
+                    "tag contrast/close instead",
+                )
+            ],
+        )
+    if body.series.kind not in (None, "bars"):
+        return RenderResponse(
+            ok=False,
+            errors=[
+                _error(
+                    "series.kind",
+                    "only series.kind='bars' is implemented; send resolved bars",
+                )
+            ],
+        )
     request = RenderPieceRequest(
         pattern=body.pattern,
         meter=body.meter,
@@ -340,6 +362,14 @@ def render_piece_route(
             errors=[_error("render", str(exc))],
         )
 
+    audio_out = (
+        _audio_out(result, owner_id)
+        if body.options.audio
+        else RenderAudioOut(status="unavailable")
+    )
+    warnings = list(result.warnings[:_MAX_WARNINGS])
+    if not body.options.audio:
+        warnings.append("audio disabled by request")
     return RenderResponse(
         ok=True,
         renderHash=result.render_hash,
@@ -348,8 +378,8 @@ def render_piece_route(
         bars=result.bars,
         notes=result.notes,
         plan=result.plan,
-        warnings=list(result.warnings[:_MAX_WARNINGS]),
-        audio=_audio_out(result, owner_id),
+        warnings=warnings,
+        audio=audio_out,
     )
 
 

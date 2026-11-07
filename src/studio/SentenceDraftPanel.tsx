@@ -79,9 +79,11 @@ import type { PassageRange } from './musicxml';
 /** Existing generic patterns are Torroba/Sor; the MVP new pattern is Villa. */
 const EXISTING_PATTERN_RENDERER = 'torroba_sor';
 
-/** Compact labels for the five Studio role tags. */
+/** Compact labels for the Studio role tags. */
 const FIGURE_TAG_LABEL: Record<FigureTag, string> = {
   key: 'Key',
+  contrast: 'Contrast',
+  close: 'Close',
   'intro.short': 'Intro 2',
   'intro.long': 'Intro 4',
   'outro.short': 'Outro 2',

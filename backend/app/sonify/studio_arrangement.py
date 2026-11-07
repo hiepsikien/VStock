@@ -77,7 +77,11 @@ def _section_group(kind: str) -> str:
     return "body"
 
 
-def _tag_map(figures: Sequence[PatternFigure]) -> dict[str, PatternFigure]:
+def _tag_map(
+    figures: Sequence[PatternFigure],
+    *,
+    require_doors: bool = True,
+) -> dict[str, PatternFigure]:
     """Validate the pool and project ``tag -> figure``.
 
     ``validate_figures`` already rejects duplicate owners for every known tag,
@@ -91,8 +95,11 @@ def _tag_map(figures: Sequence[PatternFigure]) -> dict[str, PatternFigure]:
     if errors:
         raise ValueError("; ".join(errors))
     missing = missing_figure_tags(figures)
-    if missing:
-        raise ValueError("missing figure tags: " + ", ".join(missing))
+    if require_doors:
+        if missing:
+            raise ValueError("missing figure tags: " + ", ".join(missing))
+    elif not any("key" in figure.tags for figure in figures):
+        raise ValueError("missing figure tag: key")
 
     tags: dict[str, PatternFigure] = {}
     for figure in figures:
@@ -122,8 +129,8 @@ def _trio_roles(
 ) -> tuple[str, ...]:
     """A/B/A with B on the trio/bridge phrase or the middle phrase.
 
-    A third phrase has no room for a separate close; the closing A is the
-    cadence. From four phrases on the final phrase becomes ``close``.
+    The final A is the close; unlike ``auto_aaba`` this policy never adds a
+    separate ``close`` role, matching `sentence_plan.Trio`.
     """
     if count == 0:
         return ()
@@ -145,8 +152,6 @@ def _trio_roles(
     if b_index >= count - 1:
         b_index = max(0, count - 2)
     roles[b_index] = "B"
-    if count >= 4:
-        roles[-1] = "close"
     return tuple(roles)
 
 
@@ -229,6 +234,14 @@ def _door_entries(
             f"frame_roles({length}) returned {len(roles)} roles"
         )
     entries: list[tuple[str, str, int]] = []
+    if length == 1:
+        if figure.bars < 2:
+            raise ValueError(
+                f"{figure.id}: a one-bar frame needs a 2-bar short cell"
+            )
+        entries.append(("compressed", figure.cell_id, 0))
+        used_tags.append(tag)
+        return entries
     for role in roles:
         cell_bar = frame_role_bar(role, steps=steps)
         if cell_bar >= figure.bars:
@@ -249,6 +262,7 @@ def build_arrangement(
     form: FormSpec,
     policy: str = "auto_aaba",
     textures: Mapping[str, TextureSpec] | None = None,
+    require_doors: bool = True,
 ) -> ArrangementResult:
     """Build a :class:`StudioPiece` for ``form`` from a tagged figure pool.
 
@@ -275,7 +289,7 @@ def build_arrangement(
     if sections is None or not isinstance(form_bars, int):
         raise ValueError("form must expose bars and sections")
 
-    tags = _tag_map(figures)
+    tags = _tag_map(figures, require_doors=require_doors)
     textures = {} if textures is None else textures
 
     ordered = sorted(sections, key=lambda section: int(section.start))

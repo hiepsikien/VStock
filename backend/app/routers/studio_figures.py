@@ -501,13 +501,15 @@ def unpromote_figures_route(
 
 @router.get("/tags", response_model=FigureTagsResponse)
 def figure_tags() -> FigureTagsResponse:
-    """The five role tags and their required bar counts (``None`` = any)."""
-    return FigureTagsResponse(
-        tags=[
+    """Every Studio role tag and its required bar count (``None`` = flexible)."""
+    ordered = (*REQUIRED_FIGURE_TAGS, "contrast", "close")
+    tags = []
+    for tag in ordered:
+        spec = _TAG_BARS.get(tag)
+        tags.append(
             FigureTagOut(
                 name=tag,
-                bars=_TAG_BARS.get(tag),
+                bars=spec if isinstance(spec, int) else None,
             )
-            for tag in REQUIRED_FIGURE_TAGS
-        ]
-    )
+        )
+    return FigureTagsResponse(tags=tags)

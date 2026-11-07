@@ -174,9 +174,9 @@ def test_trio_honours_a_bridge_section_for_b() -> None:
 
     assert result.roles[3] == "B"
     assert _cells(result)[3] == "cell_b"
-    # Five phrases leave room for a closing unit after the A/B/A.
-    assert result.roles[-1] == "close"
-    assert _cells(result)[-1] == "cell_close"
+    # Trio stays A/B/A; the final A is the close, matching sentence_plan.Trio.
+    assert result.roles[-1] == "A"
+    assert _cells(result)[-1] == "cell_key"
 
 
 def test_default_pool_without_optional_tags_still_builds() -> None:
